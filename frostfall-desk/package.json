@@ -1,0 +1,8 @@
+{
+  "name": "frostfall-desk",
+  "private": true,
+  "workspaces": [
+    "server",
+    "web"
+  ]
+}

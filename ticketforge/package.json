@@ -1,0 +1,8 @@
+{
+  "name": "ticketforge",
+  "private": true,
+  "workspaces": [
+    "server",
+    "web"
+  ]
+}

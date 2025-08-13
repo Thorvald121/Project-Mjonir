@@ -1,0 +1,8 @@
+:root { color-scheme: dark; }
+html,body { margin:0; padding:0; font-family: ui-sans-serif,system-ui; background:#0b0b11; color:#e8e8f0; }
+a { color:#b79cff; text-decoration:none; }
+input,select,textarea { background:#12121a; border:1px solid #2a2a38; color:#e8e8f0; padding:.5rem .6rem; border-radius:.5rem; }
+button { background:#6b5bd9; border:none; color:white; padding:.55rem .8rem; border-radius:.5rem; cursor:pointer; }
+.card { background:#12121a; border:1px solid #1f1f2b; border-radius:1rem; padding:1rem; }
+.grid { display:grid; gap:1rem; }
+.row { display:flex; gap:.5rem; align-items:center; }
