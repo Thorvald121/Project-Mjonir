@@ -1,18 +1,108 @@
+# Base compose for TicketForge (no "version" key per Compose v2)
 services:
-  postgres:
-    image: postgres:16
+  # --- Postgres (dev/prod) ---
+  db:
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: ticketing
-    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d ticketing"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - db-data:/var/lib/postgresql/data
+    # Uncomment to access DB from your host on localhost:5432
+    # ports:
+    #   - "5432:5432"
+
+  # --- Redis (queues / rate limiting / cache) ---
   redis:
-    image: redis:7
-    ports: ["6379:6379"]
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+
+  # --- MailHog (local SMTP sink) ---
   mailhog:
-    image: mailhog/mailhog
-    ports: ["1025:1025", "8025:8025"]
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "1025"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- API (built from server/Dockerfile) ---
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      # Container-internal endpoints
+      DATABASE_URL: "postgresql://app:app@db:5432/ticketing?schema=public"
+      REDIS_URL: "redis://redis:6379"
+
+      # Defaults; overridden in docker-compose.local.yml
+      WEB_ORIGIN: "http://localhost:3000"
+      COOKIE_SECURE: "0"
+      JWT_SECRET: "dev_secret_change_me"
+
+      # Local SMTP (use 'mailhog' host if running the service above)
+      SMTP_HOST: "mailhog"
+      SMTP_PORT: "1025"
+      MAIL_FROM: "TicketForge <no-reply@ticketforge.local>"
+
+    # Do NOT set command/entrypoint here; local override will
+    # specify: entrypoint: ["node","dist/index.js"] and working_dir: /app
+
+  # --- Web (built from web/Dockerfile) ---
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_API: "http://localhost:4000"
+    depends_on:
+      api:
+        condition: service_started
+    # expose ports only in local override
+    environment:
+      NEXT_PUBLIC_API: "http://localhost:4000"
+
+  # --- Traefik (optional for prod; disabled in local override) ---
+  traefik:
+    image: traefik:v3.1
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      # Add TLS entrypoint + certresolver here for prod if needed
+    ports:
+      - "80:80"
+      # - "443:443"
+      # - "8080:8080" # dashboard
+    depends_on:
+      - api
+      - web
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    profiles: ["reverse-proxy"] # not started by default
+
 volumes:
-  pgdata:
+  db-data: {}
+  redis-data: {}

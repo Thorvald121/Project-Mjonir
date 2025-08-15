@@ -1,0 +1,21 @@
+# git & local junk
+.git
+.gitignore
+.DS_Store
+.env
+.env.*
+*.log
+
+# node
+node_modules
+**/node_modules
+
+# build outputs
+dist
+**/dist
+.next
+**/.next
+
+# docker
+Dockerfile
+docker-compose*.yml

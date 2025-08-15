@@ -1,0 +1,47 @@
+services:
+  # Disable Traefik in local mode
+  traefik:
+    profiles: ["off"]
+
+  # API service (local)
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "4000:4000"
+    environment:
+      # Use service names inside Docker (NOT localhost)
+      DATABASE_URL: "postgresql://app:app@db:5432/ticketing?schema=public"
+      REDIS_URL: "redis://redis:6379"
+
+      # Local web UI + cookies
+      WEB_ORIGIN: "http://localhost:3000"
+      COOKIE_SECURE: "0"
+      JWT_SECRET: "dev_secret_change_me"
+
+      # Optional: MailHog on your host (adjust if needed)
+      SMTP_HOST: "host.docker.internal"
+      SMTP_PORT: "1025"
+      MAIL_FROM: "TicketForge <no-reply@ticketforge.local>"
+
+    # Force the runtime to start the compiled server (no prisma at boot)
+    working_dir: /app
+    entrypoint: ["node", "dist/index.js"]
+
+  # Web app (local)
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_API: "http://localhost:4000"
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API: "http://localhost:4000"
