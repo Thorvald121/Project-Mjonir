@@ -1,0 +1,13 @@
+{
+  "name": "ticketforge-clean",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
+    "db:generate": "pnpm --filter @ticketforge/db db:generate",
+    "db:migrate": "pnpm --filter @ticketforge/db db:migrate",
+    "db:seed": "pnpm --filter @ticketforge/db db:seed"
+  }
+}

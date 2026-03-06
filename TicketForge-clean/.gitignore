@@ -1,0 +1,10 @@
+node_modules
+.pnpm-store
+.next
+.env
+.env.local
+.env.*.local
+coverage
+*.log
+apps/web/.next
+packages/db/generated
