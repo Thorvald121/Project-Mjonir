@@ -8,3 +8,6 @@ coverage
 *.log
 apps/web/.next
 packages/db/generated
+.env.*
+!.env.example
+dist
