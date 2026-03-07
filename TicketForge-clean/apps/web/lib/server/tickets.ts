@@ -116,7 +116,7 @@ export async function updateTicket(input: {
           ? new Date()
           : current.firstRespondedAt,
       resolvedAt:
-        input.status && [TicketStatus.RESOLVED, TicketStatus.CLOSED].includes(input.status)
+        input.status && ([TicketStatus.RESOLVED, TicketStatus.CLOSED] as TicketStatus[]).includes(input.status)
           ? new Date()
           : input.status === TicketStatus.OPEN
             ? null
