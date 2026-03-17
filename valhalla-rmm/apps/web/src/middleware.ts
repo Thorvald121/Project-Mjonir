@@ -1,9 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_ROUTES    = ['/login', '/portal/login', '/csat', '/quote-approval', '/auth/callback']
-const PORTAL_ROUTES    = ['/portal']
-const ADMIN_ROUTES     = ['/dashboard','/tickets','/customers','/invoices','/time-tracking','/inventory','/quotes','/pipeline','/reports','/knowledge-base','/settings','/tech-dashboard','/email-automations','/ticket-automations']
+const PUBLIC_ROUTES = ['/login', '/portal/login', '/csat', '/quote-approval', '/auth/callback']
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -28,42 +26,20 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
   const isPublic = PUBLIC_ROUTES.some(r => path.startsWith(r))
 
-  // Not logged in
+  // Not logged in — send to appropriate login page
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
-    url.pathname = PORTAL_ROUTES.some(r => path.startsWith(r)) ? '/portal/login' : '/login'
+    url.pathname = path.startsWith('/portal') ? '/portal/login' : '/login'
     url.searchParams.set('redirectTo', path)
     return NextResponse.redirect(url)
   }
 
-  // Logged in — check role
-  if (user) {
-    const { data: member } = await supabase
-      .from('organization_members')
-      .select('role')
-      .eq('user_id', user.id)
-      .single()
-
-    const role = member?.role ?? 'client'
-    const isStaff  = ['owner', 'admin', 'technician'].includes(role)
-    const isClient = role === 'client'
-
-    // Redirect away from login pages
-    if (path === '/login' || path === '/portal/login') {
-      const url = request.nextUrl.clone()
-      url.pathname = isStaff ? '/dashboard' : '/portal'
-      return NextResponse.redirect(url)
-    }
-
-    // Client trying to reach admin area
-    if (isClient && ADMIN_ROUTES.some(r => path.startsWith(r))) {
-      return NextResponse.redirect(new URL('/portal', request.url))
-    }
-
-    // Staff trying to reach client portal
-    if (isStaff && path.startsWith('/portal')) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
+  // Logged in and hitting a login page — send to dashboard
+  // (role-based routing handled in layout, not here)
+  if (user && (path === '/login' || path === '/portal/login')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    return NextResponse.redirect(url)
   }
 
   return supabaseResponse

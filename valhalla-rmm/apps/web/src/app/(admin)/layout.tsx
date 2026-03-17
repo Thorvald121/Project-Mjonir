@@ -1,5 +1,7 @@
 'use client'
 
+
+
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -42,16 +44,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load theme preference
-    const saved = localStorage.getItem('theme')
-    const isDark = saved === 'dark'
-    setDark(isDark)
-    document.documentElement.classList.toggle('dark', isDark)
+    const init = async () => {
+      const savedTheme = localStorage.getItem('theme')
+      setDark(savedTheme === 'dark')
+      document.documentElement.classList.toggle('dark', savedTheme === 'dark')
 
-    // Get current user
-    supabase.auth.getUser().then(({ data }) => {
-      setUserEmail(data.user?.email ?? null)
-    })
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.replace('/login'); return }
+      setUserEmail(user.email ?? null)
+
+      // Check role - redirect clients away from admin
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .single()
+
+      const role = member?.role ?? 'client'
+      if (role === 'client') {
+        router.replace('/portal')
+      }
+    }
   }, [])
 
   const toggleDark = () => {
