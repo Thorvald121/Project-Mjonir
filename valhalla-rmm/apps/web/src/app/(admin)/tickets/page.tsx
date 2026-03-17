@@ -44,24 +44,40 @@ function NewTicketDialog({ open, onClose, onSaved, customers }: {
     e.preventDefault()
     if (!form.title.trim()) { setErr('Title is required'); return }
     setSaving(true); setErr(null)
+
+    //Get the user's organization_id first
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: member } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user!.id)
+      .single()
+
+    if (!member) { setErr('Could not find your organization'); setSaving(false); return }
+
     const cust = customers.find(c => c.id === form.customer_id)
     const tags = form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+
     const { error } = await supabase.from('tickets').insert({
-      title:        form.title.trim(),
-      description:  form.description || null,
-      priority:     form.priority,
-      category:     form.category,
-      status:       'open',
-      customer_id:  form.customer_id || null,
+      organization_id: member.organization_id,
+      title: form.title.trim(),
+      description: form.description || null,
+      priority: form.priority,
+      category: form.category,
+      status: 'open',
+      customer_id: form.customer_id || null,
       customer_name: cust?.name || null,
-      assigned_to:  form.assigned_to || null,
+      assigned_to: form.assigned_to || null,
       contact_name: form.contact_name || null,
       contact_email: form.contact_email || null,
       tags,
     })
+
     if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false); onSaved(); onClose()
-    setForm({ title:'',description:'',priority:'medium',category:'other',customer_id:'',assigned_to:'',contact_name:'',contact_email:'',tags:'' })
+    setForm({ title: '', description: '', priority: 'medium', category: 'other',
+      customer_id: '', assigned_to: '', contact_name: '', contact_email: '', tags: ''
+    })
   }
 
   if (!open) return null
