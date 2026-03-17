@@ -11,12 +11,15 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() { return request.cookies.getAll() },
-        setAll(cookiesToSet) {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet: { name: string; value: string; options?: object }[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options))
+            supabaseResponse.cookies.set(name, value, options as object)
+          )
         },
       },
     }
@@ -26,7 +29,6 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
   const isPublic = PUBLIC_ROUTES.some(r => path.startsWith(r))
 
-  // Not logged in — send to appropriate login page
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = path.startsWith('/portal') ? '/portal/login' : '/login'
@@ -34,8 +36,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Logged in and hitting a login page — send to dashboard
-  // (role-based routing handled in layout, not here)
   if (user && (path === '/login' || path === '/portal/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
