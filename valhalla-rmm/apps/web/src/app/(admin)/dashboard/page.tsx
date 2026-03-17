@@ -7,8 +7,6 @@ import { formatCurrency, getSlaState } from '@valhalla/utils'
 import { Ticket, DollarSign, Users, Clock, AlertTriangle } from 'lucide-react'
 import type { Ticket as TicketType, Invoice, TimeEntry, Customer } from '@valhalla/types'
 
-export const metadata = { title: 'Dashboard' }
-
 function StatCard({
   title, value, icon: Icon, color, sub,
 }: {
