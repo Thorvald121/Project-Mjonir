@@ -1,8 +1,4 @@
-// src/lib/supabase/server.ts
-// Server-side Supabase client for Next.js Server Components and API routes.
-// Uses @supabase/ssr to handle cookie-based auth correctly.
-
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 export function createSupabaseServerClient() {
@@ -13,17 +9,15 @@ export function createSupabaseServerClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
+        get(name: string) {
           return cookieStore.get(name)?.value
         },
-        set(name, value, options) {
+        set(name: string, value: string, options: CookieOptions) {
           try {
             cookieStore.set({ name, value, ...options })
-          } catch {
-            // Cookies can't be set in Server Components — middleware handles refresh
-          }
+          } catch {}
         },
-        remove(name, options) {
+        remove(name: string, options: CookieOptions) {
           try {
             cookieStore.set({ name, value: '', ...options })
           } catch {}
