@@ -1,16 +1,15 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { format, parseISO } from 'date-fns'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
   CheckCircle2, Send, Trash2, Eye, X, Loader2,
-  Mail, Download, RotateCcw, CreditCard, ExternalLink
+  RotateCcw, CreditCard, ExternalLink, Link,
 } from 'lucide-react'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
 const STATUS_CFG = {
   draft:   { label: 'Draft',   cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
   sent:    { label: 'Sent',    cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
@@ -25,7 +24,6 @@ const TERMS_LABELS = {
 }
 const TERMS_DAYS = { due_on_receipt: 0, net_7: 7, net_15: 15, net_30: 30, net_45: 45, net_60: 60 }
 const BLANK_ITEM = { description: '', quantity: 1, unit_price: 0 }
-
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
 function computeDueDate(issueDate, terms) {
@@ -44,9 +42,11 @@ function calcTotals(items, taxRate, discountAmt, discountPct) {
   return { subtotal: sub, discount_amount: pctDisc + flat, taxAmount: tax, total: taxable + tax }
 }
 
-function fmt(d) { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' } }
+function fmt(d) {
+  try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' }
+}
 
-// ── View Invoice Dialog ───────────────────────────────────────────────────────
+// ── View Dialog ───────────────────────────────────────────────────────────────
 function ViewDialog({ inv, onClose }) {
   if (!inv) return null
   const items = Array.isArray(inv.line_items) ? inv.line_items : []
@@ -77,7 +77,6 @@ function ViewDialog({ inv, onClose }) {
               {inv.payment_terms && <p className="text-xs text-slate-400">Terms: {TERMS_LABELS[inv.payment_terms]}</p>}
             </div>
           </div>
-
           <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
             <div className="grid grid-cols-12 gap-2 text-xs text-slate-400 mb-2">
               <span className="col-span-6">Description</span>
@@ -90,11 +89,10 @@ function ViewDialog({ inv, onClose }) {
                 <span className="col-span-6 text-slate-900 dark:text-white">{item.description}</span>
                 <span className="col-span-2 text-slate-500">{item.quantity}</span>
                 <span className="col-span-2 text-slate-500">${Number(item.unit_price).toFixed(2)}</span>
-                <span className="col-span-2 text-right font-medium text-slate-900 dark:text-white">${(item.quantity * item.unit_price).toFixed(2)}</span>
+                <span className="col-span-2 text-right font-medium text-slate-900 dark:text-white">${(Number(item.quantity) * Number(item.unit_price)).toFixed(2)}</span>
               </div>
             ))}
           </div>
-
           <div className="text-sm space-y-1.5">
             <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>${(inv.subtotal || 0).toFixed(2)}</span></div>
             {(inv.discount_amount || 0) > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-${(inv.discount_amount || 0).toFixed(2)}</span></div>}
@@ -105,56 +103,49 @@ function ViewDialog({ inv, onClose }) {
               <div className="flex justify-between font-bold text-amber-500"><span>Balance Due</span><span>${balance.toFixed(2)}</span></div>
             </>}
           </div>
-
           {inv.notes && <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm text-slate-600 dark:text-slate-400">{inv.notes}</div>}
+          {inv.stripe_payment_url && inv.status !== 'paid' && (
+            <a href={inv.stripe_payment_url} target="_blank" rel="noreferrer"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+              <ExternalLink className="w-4 h-4" /> Pay Now — ${balance.toFixed(2)}
+            </a>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-// ── Create / Edit Invoice Dialog ──────────────────────────────────────────────
+// ── Invoice Dialog ────────────────────────────────────────────────────────────
 function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, timeEntries }) {
   const supabase = createSupabaseBrowserClient()
   const today = new Date().toISOString().split('T')[0]
-  const [form, setForm] = useState({
+  const blank = {
     customer_id: '', customer_name: '', contact_email: '',
     issue_date: today, due_date: computeDueDate(today, 'net_30'),
     payment_terms: 'net_30', tax_rate: 0, discount_amount: 0, discount_percent: 0,
-    notes: '', line_items: [{ ...BLANK_ITEM }],
-    is_recurring: false, recurrence_interval: 'monthly',
-  })
+    notes: '', line_items: [{ ...BLANK_ITEM }], is_recurring: false, recurrence_interval: 'monthly',
+  }
+  const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
+    if (!open) return
     if (editing) {
-      const items = Array.isArray(editing.line_items) && editing.line_items.length
-        ? editing.line_items : [{ ...BLANK_ITEM }]
+      const items = Array.isArray(editing.line_items) && editing.line_items.length ? editing.line_items : [{ ...BLANK_ITEM }]
       setForm({
-        customer_id:         editing.customer_id        || '',
-        customer_name:       editing.customer_name      || '',
-        contact_email:       editing.contact_email      || '',
-        issue_date:          editing.issue_date         || today,
-        due_date:            editing.due_date           || '',
-        payment_terms:       editing.payment_terms      || 'net_30',
-        tax_rate:            editing.tax_rate           || 0,
-        discount_amount:     editing.discount_amount    || 0,
-        discount_percent:    editing.discount_percent   || 0,
-        notes:               editing.notes              || '',
-        line_items:          items,
-        is_recurring:        editing.is_recurring       || false,
+        customer_id: editing.customer_id || '', customer_name: editing.customer_name || '',
+        contact_email: editing.contact_email || '', issue_date: editing.issue_date || today,
+        due_date: editing.due_date || '', payment_terms: editing.payment_terms || 'net_30',
+        tax_rate: editing.tax_rate || 0, discount_amount: editing.discount_amount || 0,
+        discount_percent: editing.discount_percent || 0, notes: editing.notes || '',
+        line_items: items, is_recurring: editing.is_recurring || false,
         recurrence_interval: editing.recurrence_interval || 'monthly',
       })
     } else {
-      setForm({
-        customer_id: '', customer_name: '', contact_email: '',
-        issue_date: today, due_date: computeDueDate(today, 'net_30'),
-        payment_terms: 'net_30', tax_rate: 0, discount_amount: 0, discount_percent: 0,
-        notes: '', line_items: [{ ...BLANK_ITEM }],
-        is_recurring: false, recurrence_interval: 'monthly',
-      })
+      setForm(blank)
     }
   }, [editing, open])
 
@@ -171,9 +162,9 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     const unbilled = timeEntries.filter(e => e.customer_id === form.customer_id && e.billable && !e.invoice_id)
     if (!unbilled.length) { alert('No unbilled time entries for this customer'); return }
     const newItems = unbilled.map(e => ({
-      description:    `${e.description || e.ticket_title || 'Support time'} (${(e.minutes / 60).toFixed(1)}h)`,
-      quantity:       parseFloat((e.minutes / 60).toFixed(2)),
-      unit_price:     e.hourly_rate || 0,
+      description: `${e.description || e.ticket_title || 'Support time'} (${(e.minutes / 60).toFixed(1)}h)`,
+      quantity: parseFloat((e.minutes / 60).toFixed(2)),
+      unit_price: e.hourly_rate || 0,
       _time_entry_id: e.id,
     }))
     setForm(f => ({ ...f, line_items: [...f.line_items.filter(i => i.description), ...newItems] }))
@@ -183,46 +174,32 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     if (!form.customer_id) { setErr('Please select a customer'); return }
     if (!orgId) { setErr('Organization not found — please refresh'); return }
     setSaving(true); setErr(null)
-
     const items = form.line_items.filter(i => i.description)
     const { subtotal, discount_amount, taxAmount, total } = calcTotals(items, form.tax_rate, form.discount_amount, form.discount_percent)
     const invNum = editing?.invoice_number || `INV-${Date.now().toString().slice(-6)}`
-
     const payload = {
-      organization_id:     orgId,
-      invoice_number:      invNum,
-      customer_id:         form.customer_id,
-      customer_name:       form.customer_name,
-      contact_email:       form.contact_email || null,
-      status:              editing?.status || 'draft',
-      payment_terms:       form.payment_terms || 'net_30',
-      issue_date:          form.issue_date || null,
-      due_date:            form.due_date || computeDueDate(form.issue_date, form.payment_terms) || null,
-      line_items:          items.map(i => ({ description: i.description, quantity: Number(i.quantity), unit_price: Number(i.unit_price), total: Number(i.quantity) * Number(i.unit_price) })),
-      subtotal,
-      discount_amount,
-      discount_percent:    form.discount_percent || 0,
-      tax_rate:            form.tax_rate || 0,
-      tax_amount:          taxAmount,
-      total,
-      amount_paid:         editing?.amount_paid || 0,
-      notes:               form.notes || null,
-      is_recurring:        form.is_recurring || false,
+      organization_id: orgId, invoice_number: invNum,
+      customer_id: form.customer_id, customer_name: form.customer_name,
+      contact_email: form.contact_email || null,
+      status: editing?.status || 'draft',
+      payment_terms: form.payment_terms || 'net_30',
+      issue_date: form.issue_date || null,
+      due_date: form.due_date || computeDueDate(form.issue_date, form.payment_terms) || null,
+      line_items: items.map(i => ({ description: i.description, quantity: Number(i.quantity), unit_price: Number(i.unit_price), total: Number(i.quantity) * Number(i.unit_price) })),
+      subtotal, discount_amount, discount_percent: form.discount_percent || 0,
+      tax_rate: form.tax_rate || 0, tax_amount: taxAmount, total,
+      amount_paid: editing?.amount_paid || 0,
+      notes: form.notes || null, is_recurring: form.is_recurring || false,
       recurrence_interval: form.is_recurring ? (form.recurrence_interval || 'monthly') : null,
     }
-
     const { data: inv, error } = editing
       ? await supabase.from('invoices').update(payload).eq('id', editing.id).select().single()
       : await supabase.from('invoices').insert(payload).select().single()
-
     if (error) { setErr(error.message); setSaving(false); return }
-
-    // Mark time entries as billed
     const timeIds = form.line_items.filter(i => i._time_entry_id).map(i => i._time_entry_id)
     if (timeIds.length > 0 && inv) {
       await supabase.from('time_entries').update({ invoice_id: inv.id }).in('id', timeIds)
     }
-
     setSaving(false); onSaved()
   }
 
@@ -239,7 +216,6 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
         </div>
         <div className="p-5 space-y-4">
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
-
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 grid grid-cols-2 gap-3">
               <div>
@@ -291,29 +267,22 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
             </div>
           </div>
 
-          {/* Import time */}
           {form.customer_id && (
             <button onClick={importTime}
               className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <Clock className="w-3.5 h-3.5" />
-              Import Unbilled Time ({unbilledCount} entries)
+              <Clock className="w-3.5 h-3.5" /> Import Unbilled Time ({unbilledCount} entries)
             </button>
           )}
 
-          {/* Line items */}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Line Items</label>
             <div className="mt-2 space-y-2">
               <div className="grid grid-cols-12 gap-2 text-xs text-slate-400 px-1">
-                <span className="col-span-6">Description</span>
-                <span className="col-span-2">Qty</span>
-                <span className="col-span-2">Unit $</span>
-                <span className="col-span-2">Total</span>
+                <span className="col-span-6">Description</span><span className="col-span-2">Qty</span><span className="col-span-2">Unit $</span><span className="col-span-2">Total</span>
               </div>
               {form.line_items.map((item, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)}
-                    placeholder="Service description"
+                  <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} placeholder="Service description"
                     className="col-span-6 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <input type="number" min={0} step={0.5} value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)}
                     className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
@@ -322,9 +291,7 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
                   <div className="col-span-2 flex items-center gap-1">
                     <span className="text-sm font-medium text-slate-900 dark:text-white flex-1">${(Number(item.quantity) * Number(item.unit_price)).toFixed(2)}</span>
                     <button onClick={() => setForm(f => ({ ...f, line_items: f.line_items.filter((_, j) => j !== i) }))}
-                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
-                      <X className="w-3 h-3" />
-                    </button>
+                      className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors"><X className="w-3 h-3" /></button>
                   </div>
                 </div>
               ))}
@@ -335,7 +302,6 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
             </div>
           </div>
 
-          {/* Totals */}
           <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-1.5 text-sm">
             <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>${totals.subtotal.toFixed(2)}</span></div>
             {(form.discount_amount > 0 || form.discount_percent > 0) && (
@@ -345,15 +311,12 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
             <div className="flex justify-between font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-2"><span>Total</span><span>${totals.total.toFixed(2)}</span></div>
           </div>
 
-          {/* Notes */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes / Payment Instructions</label>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
             <textarea value={form.notes} onChange={e => sf('notes', e.target.value)} rows={2}
-              placeholder="Bank details, payment instructions, etc."
-              className={`mt-1 ${inp} resize-none`} />
+              placeholder="Bank details, payment instructions, etc." className={`mt-1 ${inp} resize-none`} />
           </div>
 
-          {/* Recurring */}
           <div className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
             <input type="checkbox" id="recurring" checked={form.is_recurring} onChange={e => sf('is_recurring', e.target.checked)} className="w-4 h-4 accent-amber-500" />
             <label htmlFor="recurring" className="flex-1 cursor-pointer">
@@ -399,7 +362,7 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
     const newStatus = newBalance <= 0 ? 'paid' : 'partial'
     await supabase.from('invoices').update({
       amount_paid: newPaid,
-      status:      newStatus,
+      status: newStatus,
       ...(newStatus === 'paid' ? { paid_date: new Date().toISOString().split('T')[0] } : {}),
     }).eq('id', inv.id)
     setSaving(false); onSaved()
@@ -434,16 +397,17 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
 export default function InvoicesPage() {
   const supabase = createSupabaseBrowserClient()
 
-  const [invoices,    setInvoices]    = useState([])
-  const [customers,   setCustomers]   = useState([])
-  const [timeEntries, setTimeEntries] = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [orgId,       setOrgId]       = useState(null)
-  const [dialogOpen,  setDialogOpen]  = useState(false)
-  const [editing,     setEditing]     = useState(null)
-  const [viewing,     setViewing]     = useState(null)
-  const [payingInv,   setPayingInv]   = useState(null)
-  const [statusLoading, setStatusLoading] = useState(null)
+  const [invoices,       setInvoices]       = useState([])
+  const [customers,      setCustomers]      = useState([])
+  const [timeEntries,    setTimeEntries]    = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [orgId,          setOrgId]          = useState(null)
+  const [dialogOpen,     setDialogOpen]     = useState(false)
+  const [editing,        setEditing]        = useState(null)
+  const [viewing,        setViewing]        = useState(null)
+  const [payingInv,      setPayingInv]      = useState(null)
+  const [statusLoading,  setStatusLoading]  = useState(null)
+  const [stripeLoading,  setStripeLoading]  = useState(null)
 
   useEffect(() => {
     const init = async () => {
@@ -463,7 +427,6 @@ export default function InvoicesPage() {
       supabase.from('customers').select('id,name,contact_email').eq('status','active').order('name').limit(200),
       supabase.from('time_entries').select('id,customer_id,ticket_title,description,minutes,hourly_rate,billable,invoice_id,date').order('date', { ascending: false }).limit(500),
     ])
-    // Auto-mark overdue
     const today = new Date().toISOString().split('T')[0]
     const toMark = (inv.data ?? []).filter(i => i.status === 'sent' && i.due_date && i.due_date < today)
     if (toMark.length > 0) {
@@ -485,25 +448,31 @@ export default function InvoicesPage() {
       updates.paid_date   = new Date().toISOString().split('T')[0]
       updates.amount_paid = inv.total || 0
     }
-    if (status === 'sent' && inv.status === 'draft') {
-      updates.issue_date = updates.issue_date || inv.issue_date
-    }
     await supabase.from('invoices').update(updates).eq('id', inv.id)
-    setStatusLoading(null)
-    loadAll()
+    setStatusLoading(null); loadAll()
+  }
+
+  const generatePaymentLink = async (inv) => {
+    setStripeLoading(inv.id)
+    const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
+      body: { invoice_id: inv.id }
+    })
+    setStripeLoading(null)
+    if (error || data?.error) { alert(error?.message || data?.error); return }
+    if (data?.url) { await loadAll(); window.open(data.url, '_blank') }
   }
 
   const deleteInvoice = async (id) => {
-    if (!confirm('Delete this invoice? This cannot be undone.')) return
+    if (!confirm('Delete this invoice?')) return
     await supabase.from('invoices').delete().eq('id', id)
     loadAll()
   }
 
-  const totalRevenue  = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
-  const outstanding   = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + (i.balance_due ?? i.total ?? 0), 0)
-  const overdueCount  = invoices.filter(i => i.status === 'overdue').length
+  const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
+  const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + (i.balance_due ?? i.total ?? 0), 0)
+  const overdueCount = invoices.filter(i => i.status === 'overdue').length
 
-  const IconBtn = ({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) => (
+  const Btn = ({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) => (
     <button onClick={onClick} title={title} disabled={disabled}
       className={`p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 ${color}`}>
       {spinning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
@@ -512,7 +481,6 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Invoices</h1>
@@ -524,7 +492,6 @@ export default function InvoicesPage() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total Invoices', value: invoices.length,              icon: FileText,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
@@ -544,7 +511,6 @@ export default function InvoicesPage() {
         ))}
       </div>
 
-      {/* Invoice list */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {loading ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -572,7 +538,9 @@ export default function InvoicesPage() {
             {invoices.map(inv => {
               const cfg     = STATUS_CFG[inv.status] || STATUS_CFG.draft
               const balance = inv.balance_due ?? inv.total ?? 0
-              const isLoading = statusLoading === inv.id
+              const isStatusLoading = statusLoading === inv.id
+              const isStripeLoading = stripeLoading === inv.id
+              const isPaid  = ['paid','void'].includes(inv.status)
               return (
                 <div key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                   <div className="flex-1 min-w-0">
@@ -580,7 +548,7 @@ export default function InvoicesPage() {
                       <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number}</p>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
                       {inv.is_recurring && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 flex items-center gap-1">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 flex items-center gap-1">
                           <RotateCcw className="w-2.5 h-2.5" />Recurring
                         </span>
                       )}
@@ -598,21 +566,38 @@ export default function InvoicesPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <IconBtn icon={Eye}          onClick={() => setViewing(inv)}    title="View" />
-                    <IconBtn icon={FileText}     onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit" />
+                    {/* View */}
+                    <Btn icon={Eye} onClick={() => setViewing(inv)} title="View invoice" />
+                    {/* Edit */}
+                    <Btn icon={FileText} onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
+                    {/* Mark as Sent */}
                     {inv.status === 'draft' && (
-                      <IconBtn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent" color="text-blue-500" spinning={isLoading} />
+                      <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent"
+                        color="text-blue-500" spinning={isStatusLoading} />
                     )}
+                    {/* Record partial payment */}
                     {['sent','overdue','partial'].includes(inv.status) && (
-                      <IconBtn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record Payment" color="text-violet-500" />
+                      <Btn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record manual payment"
+                        color="text-violet-500" />
                     )}
+                    {/* Mark fully paid */}
                     {['sent','overdue','partial'].includes(inv.status) && (
-                      <IconBtn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark Fully Paid" color="text-emerald-500" spinning={isLoading} />
+                      <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark fully paid"
+                        color="text-emerald-500" spinning={isStatusLoading} />
                     )}
-                    {inv.stripe_payment_url && inv.status !== 'paid' && (
-                      <IconBtn icon={ExternalLink} onClick={() => window.open(inv.stripe_payment_url, '_blank')} title="Open Payment Link" color="text-blue-400" />
+                    {/* Generate Stripe payment link */}
+                    {!isPaid && (
+                      <Btn icon={Link} onClick={() => generatePaymentLink(inv)}
+                        title="Generate Stripe payment link" color="text-amber-500"
+                        spinning={isStripeLoading} disabled={isStripeLoading} />
                     )}
-                    <IconBtn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete" color="text-rose-400" />
+                    {/* Open existing payment link */}
+                    {inv.stripe_payment_url && !isPaid && (
+                      <Btn icon={ExternalLink} onClick={() => window.open(inv.stripe_payment_url, '_blank')}
+                        title="Open payment link" color="text-blue-400" />
+                    )}
+                    {/* Delete */}
+                    <Btn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete" color="text-rose-400" />
                   </div>
                 </div>
               )
@@ -625,21 +610,10 @@ export default function InvoicesPage() {
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null) }}
         onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }}
-        editing={editing}
-        orgId={orgId}
-        customers={customers}
-        timeEntries={timeEntries}
+        editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries}
       />
-
-      {viewing && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
-
-      {payingInv && (
-        <RecordPaymentDialog
-          inv={payingInv}
-          onClose={() => setPayingInv(null)}
-          onSaved={() => { setPayingInv(null); loadAll() }}
-        />
-      )}
+      {viewing    && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
+      {payingInv  && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
     </div>
   )
 }
