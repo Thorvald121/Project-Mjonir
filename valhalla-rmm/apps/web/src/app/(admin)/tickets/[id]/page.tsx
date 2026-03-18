@@ -164,19 +164,20 @@ export default function TicketsPage() {
   const [orgId,          setOrgId]          = useState(null)
 
   useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      setMyEmail(user.email ?? null)
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .single()
-      if (member) setOrgId(member.organization_id)
+  const init = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    setMyEmail(session.user.email ?? null)
+    // Read org_id from JWT metadata — no DB query needed
+    const orgId = session.user.app_metadata?.organization_id
+    if (orgId) {
+      setOrgId(orgId)
+    } else {
+      console.error('No organization_id in user metadata')
     }
-    init()
-  }, [])
+  }
+  init()
+}, [])
 
   const { data: tickets = [], isLoading, isError } = useQuery({
     queryKey: ['tickets'],
