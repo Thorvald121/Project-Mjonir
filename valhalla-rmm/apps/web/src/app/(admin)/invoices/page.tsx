@@ -206,7 +206,6 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
       tax_amount:          taxAmount,
       total,
       amount_paid:         editing?.amount_paid || 0,
-      balance_due:         total - (editing?.amount_paid || 0),
       notes:               form.notes || null,
       is_recurring:        form.is_recurring || false,
       recurrence_interval: form.is_recurring ? (form.recurrence_interval || 'monthly') : null,
