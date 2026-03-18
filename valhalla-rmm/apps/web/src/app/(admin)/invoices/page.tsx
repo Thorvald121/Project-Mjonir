@@ -23,7 +23,7 @@ const TERMS_LABELS = {
   net_30: 'Net 30', net_45: 'Net 45', net_60: 'Net 60',
 }
 const TERMS_DAYS = { due_on_receipt: 0, net_7: 7, net_15: 15, net_30: 30, net_45: 45, net_60: 60 }
-const BLANK_ITEM = { description: '', quantity: 1, unit_price: 0 }
+const BLANK_ITEM = { description: '', quantity: '1', unit_price: '' }
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
 function computeDueDate(issueDate, terms) {
@@ -34,11 +34,11 @@ function computeDueDate(issueDate, terms) {
 }
 
 function calcTotals(items, taxRate, discountAmt, discountPct) {
-  const sub = items.reduce((s, i) => s + (Number(i.quantity) * Number(i.unit_price)), 0)
-  const pctDisc = sub * ((discountPct || 0) / 100)
-  const flat = discountAmt || 0
+  const sub = items.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unit_price || 0)), 0)
+  const pctDisc = sub * ((Number(discountPct) || 0) / 100)
+  const flat = Number(discountAmt) || 0
   const taxable = Math.max(0, sub - pctDisc - flat)
-  const tax = taxable * ((taxRate || 0) / 100)
+  const tax = taxable * ((Number(taxRate) || 0) / 100)
   return { subtotal: sub, discount_amount: pctDisc + flat, taxAmount: tax, total: taxable + tax }
 }
 
@@ -57,7 +57,7 @@ function ViewDialog({ inv, onClose }) {
   if (!inv) return null
   const items = Array.isArray(inv.line_items) ? inv.line_items : []
   const cfg = STATUS_CFG[inv.status] || STATUS_CFG.draft
-  const balance = inv.balance_due ?? inv.total ?? 0
+  const balance = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
@@ -93,15 +93,15 @@ function ViewDialog({ inv, onClose }) {
               <div key={i} className="grid grid-cols-12 gap-2 text-sm py-1.5 border-b border-slate-100 dark:border-slate-800">
                 <span className="col-span-6 text-slate-900 dark:text-white">{item.description}</span>
                 <span className="col-span-2 text-slate-500">{item.quantity}</span>
-                <span className="col-span-2 text-slate-500">${Number(item.unit_price).toFixed(2)}</span>
-                <span className="col-span-2 text-right font-medium text-slate-900 dark:text-white">${(Number(item.quantity) * Number(item.unit_price)).toFixed(2)}</span>
+                <span className="col-span-2 text-slate-500">${Number(item.unit_price || 0).toFixed(2)}</span>
+                <span className="col-span-2 text-right font-medium text-slate-900 dark:text-white">${(Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2)}</span>
               </div>
             ))}
           </div>
           <div className="text-sm space-y-1.5">
             <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>${(inv.subtotal || 0).toFixed(2)}</span></div>
             {(inv.discount_amount || 0) > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-${(inv.discount_amount || 0).toFixed(2)}</span></div>}
-            {inv.tax_rate > 0 && <div className="flex justify-between text-slate-500"><span>Tax ({inv.tax_rate}%)</span><span>${(inv.tax_amount || 0).toFixed(2)}</span></div>}
+            {(inv.tax_rate || 0) > 0 && <div className="flex justify-between text-slate-500"><span>Tax ({inv.tax_rate}%)</span><span>${(inv.tax_amount || 0).toFixed(2)}</span></div>}
             <div className="flex justify-between font-bold text-lg text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-2"><span>Total</span><span>${(inv.total || 0).toFixed(2)}</span></div>
             {(inv.amount_paid || 0) > 0 && <>
               <div className="flex justify-between text-emerald-600 text-sm"><span>Paid</span><span>${(inv.amount_paid || 0).toFixed(2)}</span></div>
@@ -129,7 +129,7 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
   const blank = {
     customer_id: '', customer_name: '', contact_email: '',
     issue_date: today, due_date: computeDueDate(today, 'net_30'),
-    payment_terms: 'net_30', tax_rate: 0, discount_amount: 0, discount_percent: 0,
+    payment_terms: 'net_30', tax_rate: '', discount_amount: '', discount_percent: '',
     notes: '', line_items: [{ ...BLANK_ITEM }], is_recurring: false, recurrence_interval: 'monthly',
   }
   const [form, setForm] = useState(blank)
@@ -140,23 +140,27 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
   useEffect(() => {
     if (!open) return
     if (editing) {
-      const items = Array.isArray(editing.line_items) && editing.line_items.length ? editing.line_items : [{ ...BLANK_ITEM }]
+      const items = Array.isArray(editing.line_items) && editing.line_items.length
+        ? editing.line_items.map(i => ({ ...i, quantity: String(i.quantity ?? 1), unit_price: String(i.unit_price ?? '') }))
+        : [{ ...BLANK_ITEM }]
       setForm({
         customer_id: editing.customer_id || '', customer_name: editing.customer_name || '',
         contact_email: editing.contact_email || '', issue_date: editing.issue_date || today,
         due_date: editing.due_date || '', payment_terms: editing.payment_terms || 'net_30',
-        tax_rate: editing.tax_rate || 0, discount_amount: editing.discount_amount || 0,
-        discount_percent: editing.discount_percent || 0, notes: editing.notes || '',
+        tax_rate: String(editing.tax_rate || ''), discount_amount: String(editing.discount_amount || ''),
+        discount_percent: String(editing.discount_percent || ''), notes: editing.notes || '',
         line_items: items, is_recurring: editing.is_recurring || false,
         recurrence_interval: editing.recurrence_interval || 'monthly',
       })
-    } else { setForm(blank) }
+    } else {
+      setForm(blank)
+    }
   }, [editing, open])
 
   const updateItem = (i, field, val) => {
     setForm(f => {
       const items = [...f.line_items]
-      items[i] = { ...items[i], [field]: field === 'description' ? val : Number(val) }
+      items[i] = { ...items[i], [field]: val }
       return { ...f, line_items: items }
     })
   }
@@ -165,12 +169,17 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     if (!form.customer_id) return
     const unbilled = timeEntries.filter(e => e.customer_id === form.customer_id && e.billable && !e.invoice_id)
     if (!unbilled.length) { alert('No unbilled time entries for this customer'); return }
-    const newItems = unbilled.map(e => ({
-      description: `${e.description || e.ticket_title || 'Support time'} (${(e.minutes / 60).toFixed(2)}h @ $${e.hourly_rate || 0}/hr)`,
-      quantity:    1,
-      unit_price:  parseFloat(((e.minutes / 60) * (e.hourly_rate || 0)).toFixed(2)),
-      _time_entry_id: e.id,
-    }))
+    const newItems = unbilled.map(e => {
+      const hours = e.minutes / 60
+      const rate  = e.hourly_rate || 0
+      const total = parseFloat((hours * rate).toFixed(2))
+      return {
+        description: `${e.description || e.ticket_title || 'Support time'} (${hours.toFixed(2)}h @ $${rate}/hr)`,
+        quantity:    '1',
+        unit_price:  String(total),
+        _time_entry_id: e.id,
+      }
+    })
     setForm(f => ({ ...f, line_items: [...f.line_items.filter(i => i.description), ...newItems] }))
   }
 
@@ -178,22 +187,39 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     if (!form.customer_id) { setErr('Please select a customer'); return }
     if (!orgId) { setErr('Organization not found — please refresh'); return }
     setSaving(true); setErr(null)
-    const items = form.line_items.filter(i => i.description)
-    const { subtotal, discount_amount, taxAmount, total } = calcTotals(items, form.tax_rate, form.discount_amount, form.discount_percent)
+    const items = form.line_items
+      .filter(i => i.description)
+      .map(i => ({
+        description: i.description,
+        quantity:    Number(i.quantity || 1),
+        unit_price:  Number(i.unit_price || 0),
+        total:       Number(i.quantity || 1) * Number(i.unit_price || 0),
+      }))
+    const taxRate     = Number(form.tax_rate || 0)
+    const discountAmt = Number(form.discount_amount || 0)
+    const discountPct = Number(form.discount_percent || 0)
+    const { subtotal, discount_amount, taxAmount, total } = calcTotals(items, taxRate, discountAmt, discountPct)
     const invNum = editing?.invoice_number || `INV-${Date.now().toString().slice(-6)}`
     const payload = {
-      organization_id: orgId, invoice_number: invNum,
-      customer_id: form.customer_id, customer_name: form.customer_name,
-      contact_email: form.contact_email || null,
-      status: editing?.status || 'draft',
-      payment_terms: form.payment_terms || 'net_30',
-      issue_date: form.issue_date || null,
-      due_date: form.due_date || computeDueDate(form.issue_date, form.payment_terms) || null,
-      line_items: items.map(i => ({ description: i.description, quantity: Number(i.quantity), unit_price: Number(i.unit_price), total: Number(i.quantity) * Number(i.unit_price) })),
-      subtotal, discount_amount, discount_percent: form.discount_percent || 0,
-      tax_rate: form.tax_rate || 0, tax_amount: taxAmount, total,
-      amount_paid: editing?.amount_paid || 0,
-      notes: form.notes || null, is_recurring: form.is_recurring || false,
+      organization_id:     orgId,
+      invoice_number:      invNum,
+      customer_id:         form.customer_id,
+      customer_name:       form.customer_name,
+      contact_email:       form.contact_email || null,
+      status:              editing?.status || 'draft',
+      payment_terms:       form.payment_terms || 'net_30',
+      issue_date:          form.issue_date || null,
+      due_date:            form.due_date || computeDueDate(form.issue_date, form.payment_terms) || null,
+      line_items:          items,
+      subtotal,
+      discount_amount,
+      discount_percent:    discountPct,
+      tax_rate:            taxRate,
+      tax_amount:          taxAmount,
+      total,
+      amount_paid:         editing?.amount_paid || 0,
+      notes:               form.notes || null,
+      is_recurring:        form.is_recurring || false,
       recurrence_interval: form.is_recurring ? (form.recurrence_interval || 'monthly') : null,
     }
     const { data: inv, error } = editing
@@ -221,22 +247,20 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
         <div className="p-5 space-y-4">
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer *</label>
-                <select value={form.customer_id} onChange={e => {
-                  const c = customers.find(c => c.id === e.target.value)
-                  setForm(f => ({ ...f, customer_id: e.target.value, customer_name: c?.name || '', contact_email: c?.contact_email || f.contact_email }))
-                }} className={`mt-1 ${inp}`}>
-                  <option value="">Select customer</option>
-                  {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Billing Email</label>
-                <input type="email" value={form.contact_email} onChange={e => sf('contact_email', e.target.value)}
-                  placeholder="billing@customer.com" className={`mt-1 ${inp}`} />
-              </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer *</label>
+              <select value={form.customer_id} onChange={e => {
+                const c = customers.find(c => c.id === e.target.value)
+                setForm(f => ({ ...f, customer_id: e.target.value, customer_name: c?.name || '', contact_email: c?.contact_email || f.contact_email }))
+              }} className={`mt-1 ${inp}`}>
+                <option value="">Select customer</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Billing Email</label>
+              <input type="email" value={form.contact_email} onChange={e => sf('contact_email', e.target.value)}
+                placeholder="billing@customer.com" className={`mt-1 ${inp}`} />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Terms</label>
@@ -260,15 +284,18 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tax Rate (%)</label>
-              <input type="number" min={0} max={100} value={form.tax_rate} onChange={e => sf('tax_rate', Number(e.target.value))} className={`mt-1 ${inp}`} />
+              <input type="number" min={0} max={100} value={form.tax_rate} onChange={e => sf('tax_rate', e.target.value)}
+                placeholder="0" className={`mt-1 ${inp}`} />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Discount ($)</label>
-              <input type="number" min={0} value={form.discount_amount} onChange={e => sf('discount_amount', Number(e.target.value))} className={`mt-1 ${inp}`} />
+              <input type="number" min={0} value={form.discount_amount} onChange={e => sf('discount_amount', e.target.value)}
+                placeholder="0" className={`mt-1 ${inp}`} />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Discount (%)</label>
-              <input type="number" min={0} max={100} value={form.discount_percent} onChange={e => sf('discount_percent', Number(e.target.value))} className={`mt-1 ${inp}`} />
+              <input type="number" min={0} max={100} value={form.discount_percent} onChange={e => sf('discount_percent', e.target.value)}
+                placeholder="0" className={`mt-1 ${inp}`} />
             </div>
           </div>
 
@@ -283,21 +310,30 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Line Items</label>
             <div className="mt-2 space-y-2">
               <div className="grid grid-cols-12 gap-2 text-xs text-slate-400 px-1">
-                <span className="col-span-6">Description</span><span className="col-span-2">Qty</span><span className="col-span-2">Unit $</span><span className="col-span-2">Total</span>
+                <span className="col-span-6">Description</span>
+                <span className="col-span-2">Qty</span>
+                <span className="col-span-2">Unit $</span>
+                <span className="col-span-2">Total</span>
               </div>
               {form.line_items.map((item, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-center">
                   <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)}
                     placeholder="Service description"
                     className="col-span-6 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
-                  <input type="number" min={0} step={0.5} value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)}
+                  <input type="number" min={0} step="any" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)}
+                    placeholder="1"
                     className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
-                  <input type="number" min={0} value={item.unit_price} onChange={e => updateItem(i, 'unit_price', e.target.value)}
+                  <input type="number" min={0} step="any" value={item.unit_price} onChange={e => updateItem(i, 'unit_price', e.target.value)}
+                    placeholder="0.00"
                     className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <div className="col-span-2 flex items-center gap-1">
-                    <span className="text-sm font-medium text-slate-900 dark:text-white flex-1">${(Number(item.quantity) * Number(item.unit_price)).toFixed(2)}</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-white flex-1">
+                      ${(Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2)}
+                    </span>
                     <button onClick={() => setForm(f => ({ ...f, line_items: f.line_items.filter((_, j) => j !== i) }))}
-                      className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors"><X className="w-3 h-3" /></button>
+                      className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -310,11 +346,15 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
 
           <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-1.5 text-sm">
             <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>${totals.subtotal.toFixed(2)}</span></div>
-            {(form.discount_amount > 0 || form.discount_percent > 0) && (
+            {totals.discount_amount > 0 && (
               <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-${totals.discount_amount.toFixed(2)}</span></div>
             )}
-            {form.tax_rate > 0 && <div className="flex justify-between text-slate-500"><span>Tax ({form.tax_rate}%)</span><span>${totals.taxAmount.toFixed(2)}</span></div>}
-            <div className="flex justify-between font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-2"><span>Total</span><span>${totals.total.toFixed(2)}</span></div>
+            {Number(form.tax_rate) > 0 && (
+              <div className="flex justify-between text-slate-500"><span>Tax ({form.tax_rate}%)</span><span>${totals.taxAmount.toFixed(2)}</span></div>
+            )}
+            <div className="flex justify-between font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-2">
+              <span>Total</span><span>${totals.total.toFixed(2)}</span>
+            </div>
           </div>
 
           <div>
@@ -358,15 +398,15 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
   const [method, setMethod] = useState('bank_transfer')
   const [notes,  setNotes]  = useState('')
   const [saving, setSaving] = useState(false)
-  const balance = Number(inv?.total ?? 0) - Number(inv?.amount_paid ?? 0)
+  const balance = Math.max(0, Number(inv?.total ?? 0) - Number(inv?.amount_paid ?? 0))
 
   const handleSave = async () => {
     const paid = parseFloat(amount)
     if (!paid || paid <= 0) return
     setSaving(true)
-    const newPaid   = Number(inv.amount_paid || 0) + paid
+    const newPaid    = Number(inv.amount_paid || 0) + paid
     const newBalance = Number(inv.total || 0) - newPaid
-    const newStatus = newBalance <= 0 ? 'paid' : 'partial'
+    const newStatus  = newBalance <= 0.01 ? 'paid' : 'partial'
     await supabase.from('invoices').update({
       amount_paid: newPaid,
       status:      newStatus,
@@ -384,13 +424,13 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
         </div>
         <p className="text-sm text-slate-500 mb-4">
-          {inv.invoice_number} · Balance due: <strong className="text-slate-900 dark:text-white">${Math.max(0, balance).toFixed(2)}</strong>
+          {inv.invoice_number} · Balance due: <strong className="text-slate-900 dark:text-white">${balance.toFixed(2)}</strong>
         </p>
         <div className="space-y-3">
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount ($) *</label>
             <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
-              placeholder={`Up to ${Math.max(0, balance).toFixed(2)}`} autoFocus className={`mt-1 ${inp}`} />
+              placeholder={`Up to ${balance.toFixed(2)}`} autoFocus className={`mt-1 ${inp}`} />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Method</label>
@@ -438,10 +478,9 @@ function SendEmailDialog({ inv, onClose, onSent }) {
     if (!email.trim()) { setErr('Email address is required'); return }
     setSending(true); setErr(null)
 
-    const balance = Number(inv.total ?? 0) - Number(inv.amount_paid ?? 0)
+    const balance = Math.max(0, Number(inv.total ?? 0) - Number(inv.amount_paid ?? 0))
     const items   = Array.isArray(inv?.line_items) ? inv.line_items : []
 
-    // Generate Stripe link first if not already created
     let paymentUrl = inv.stripe_payment_url
     if (!paymentUrl) {
       try {
@@ -449,15 +488,15 @@ function SendEmailDialog({ inv, onClose, onSent }) {
           body: { invoice_id: inv.id }
         })
         if (stripeData?.url) paymentUrl = stripeData.url
-      } catch { /* continue without payment link */ }
+      } catch { /* continue without */ }
     }
 
     const lineRows = items.map(i =>
       `<tr>
         <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${i.description}</td>
         <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${i.quantity}</td>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price).toFixed(2)}</td>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${(Number(i.quantity) * Number(i.unit_price)).toFixed(2)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price || 0).toFixed(2)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${(Number(i.quantity || 0) * Number(i.unit_price || 0)).toFixed(2)}</td>
       </tr>`
     ).join('')
 
@@ -479,14 +518,12 @@ function SendEmailDialog({ inv, onClose, onSent }) {
   <div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
     <p style="color:#475569;font-size:14px;margin-top:0;">Hello, please find your invoice from <strong>Valhalla IT</strong> below.</p>
     <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-      <thead>
-        <tr style="background:#f1f5f9;">
-          <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;">Description</th>
-          <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;">Qty</th>
-          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Rate</th>
-          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Total</th>
-        </tr>
-      </thead>
+      <thead><tr style="background:#f1f5f9;">
+        <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;">Description</th>
+        <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;">Qty</th>
+        <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Rate</th>
+        <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Total</th>
+      </tr></thead>
       <tbody>${lineRows}</tbody>
     </table>
     <div style="text-align:right;padding:12px 0;border-top:2px solid #0f172a;margin-top:8px;">
@@ -542,9 +579,7 @@ function SendEmailDialog({ inv, onClose, onSent }) {
               <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number} · {inv.customer_name}</p>
               <p className="text-slate-500 mt-0.5">Total: <strong>${(inv.total || 0).toFixed(2)}</strong> · Due: {fmt(inv.due_date)}</p>
               <p className="text-xs text-slate-400 mt-1">
-                {inv.stripe_payment_url
-                  ? '✓ Pay Now button will be included'
-                  : 'A Stripe Pay Now button will be auto-generated and included'}
+                {inv.stripe_payment_url ? '✓ Pay Now button will be included' : 'A Stripe Pay Now button will be auto-generated and included'}
               </p>
             </div>
             {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
@@ -589,7 +624,8 @@ export default function InvoicesPage() {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
+      const { data: member } = await supabase
+        .from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) setOrgId(member.organization_id)
       loadAll()
     }
@@ -634,10 +670,7 @@ export default function InvoicesPage() {
       const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
         body: { invoice_id: inv.id }
       })
-      if (error || data?.error) {
-        alert(`Stripe error: ${error?.message || data?.error}`)
-        return
-      }
+      if (error || data?.error) { alert(`Stripe error: ${error?.message || data?.error}`); return }
       if (data?.url) {
         await loadAll()
         try {
@@ -671,8 +704,9 @@ export default function InvoicesPage() {
     loadAll()
   }
 
-  const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
-  const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + (Number(i.total||0) - Number(i.amount_paid||0)), 0)
+  const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.total) || 0), 0)
+  const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status))
+    .reduce((s, i) => s + Math.max(0, Number(i.total || 0) - Number(i.amount_paid || 0)), 0)
   const overdueCount = invoices.filter(i => i.status === 'overdue').length
 
   return (
@@ -691,7 +725,7 @@ export default function InvoicesPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total Invoices', value: invoices.length,               icon: FileText,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
-          { label: 'Outstanding',    value: `$${Math.max(0,outstanding).toFixed(2)}`, icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950/30' },
+          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
           { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
           { label: 'Overdue',        value: overdueCount,                  icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30' },
         ].map(s => (
@@ -710,7 +744,7 @@ export default function InvoicesPage() {
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {loading ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {Array(5).fill(0).map((_,i) => (
+            {Array(5).fill(0).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3">
                 <div className="flex-1 space-y-1.5">
                   <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-40" />
@@ -760,46 +794,31 @@ export default function InvoicesPage() {
                       {inv.payment_terms && ` · ${TERMS_LABELS[inv.payment_terms] || ''}`}
                     </p>
                   </div>
-
                   <div className="text-right flex-shrink-0">
                     <p className="text-lg font-bold text-slate-900 dark:text-white">${(inv.total || 0).toFixed(2)}</p>
                     {(inv.amount_paid || 0) > 0 && !isPaid && (
                       <p className="text-xs text-amber-500">Bal: ${balance.toFixed(2)}</p>
                     )}
                   </div>
-
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     <Btn icon={Eye}      onClick={() => setViewing(inv)} title="View invoice" />
                     <Btn icon={FileText} onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
-                    {!isPaid && (
-                      <Btn icon={Mail} onClick={() => setSendingInv(inv)} title="Email invoice to client" color="text-blue-500" />
-                    )}
-                    {inv.status === 'draft' && (
-                      <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent"
-                        color="text-blue-400" spinning={isStatusLoading} />
-                    )}
-                    {!isPaid && (
-                      <Btn icon={CreditCard} onClick={() => setPayingInv(inv)}
-                        title="Record payment (cash, check, bank transfer)" color="text-violet-500" />
-                    )}
-                    {!isPaid && (
-                      <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid"
-                        color="text-emerald-500" spinning={isStatusLoading} />
-                    )}
-                    {/* Generate Stripe link — copies to clipboard */}
+                    {!isPaid && <Btn icon={Mail} onClick={() => setSendingInv(inv)} title="Email invoice to client" color="text-blue-500" />}
+                    {inv.status === 'draft' && <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent" color="text-blue-400" spinning={isStatusLoading} />}
+                    {!isPaid && <Btn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record payment (cash, check, bank transfer)" color="text-violet-500" />}
+                    {!isPaid && <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid" color="text-emerald-500" spinning={isStatusLoading} />}
                     {!isPaid && (
                       <Btn
                         icon={isCopied ? CheckCircle2 : Link}
                         onClick={() => generateStripeLink(inv)}
-                        title={isCopied ? 'Link copied to clipboard!' : 'Generate Stripe payment link (copies to clipboard)'}
+                        title={isCopied ? 'Link copied!' : 'Generate Stripe payment link (copies to clipboard)'}
                         color={isCopied ? 'text-emerald-500' : 'text-amber-500'}
-                        spinning={isStripeLoading}
-                        disabled={isStripeLoading}
+                        spinning={isStripeLoading} disabled={isStripeLoading}
                       />
                     )}
-                    {/* Copy existing link */}
                     {inv.stripe_payment_url && !isPaid && (
-                      <Btn icon={isCopied ? CheckCircle2 : ExternalLink}
+                      <Btn
+                        icon={isCopied ? CheckCircle2 : ExternalLink}
                         onClick={() => copyLink(inv)}
                         title={isCopied ? 'Copied!' : 'Copy existing payment link'}
                         color={isCopied ? 'text-emerald-500' : 'text-blue-400'}
@@ -820,8 +839,8 @@ export default function InvoicesPage() {
         onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }}
         editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries}
       />
-      {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
-      {payingInv && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
+      {viewing    && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
+      {payingInv  && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
       {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
     </div>
   )
