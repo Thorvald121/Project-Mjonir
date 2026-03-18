@@ -399,7 +399,6 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
     const newStatus = newBalance <= 0 ? 'paid' : 'partial'
     await supabase.from('invoices').update({
       amount_paid: newPaid,
-      balance_due: Math.max(0, newBalance),
       status:      newStatus,
       ...(newStatus === 'paid' ? { paid_date: new Date().toISOString().split('T')[0] } : {}),
     }).eq('id', inv.id)
