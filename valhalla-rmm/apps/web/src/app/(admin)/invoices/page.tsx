@@ -484,7 +484,6 @@ export default function InvoicesPage() {
     if (status === 'paid') {
       updates.paid_date   = new Date().toISOString().split('T')[0]
       updates.amount_paid = inv.total || 0
-      updates.balance_due = 0
     }
     if (status === 'sent' && inv.status === 'draft') {
       updates.issue_date = updates.issue_date || inv.issue_date
