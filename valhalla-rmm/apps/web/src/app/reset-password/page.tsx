@@ -17,23 +17,14 @@ function ResetForm() {
   const [ready,     setReady]     = useState(false)
 
   useEffect(() => {
-    // Supabase recovery links put the token in the URL hash
-    // We need to let the client-side SDK pick it up automatically
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        // User clicked a valid recovery link — show the form
-        setReady(true)
-      } else if (event === 'SIGNED_IN' && session) {
-        // Also handle if already signed in via recovery token
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
         setReady(true)
       }
     })
-
-    // Also check if there's already a valid session from the link
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) setReady(true)
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
@@ -46,7 +37,6 @@ function ResetForm() {
     const { error } = await supabase.auth.updateUser({ password })
     if (error) { setError(error.message); setLoading(false); return }
 
-    // Route by role
     const { data: { user } } = await supabase.auth.getUser()
     const { data: member } = await supabase
       .from('organization_members')
@@ -58,7 +48,6 @@ function ResetForm() {
     router.push(['owner','admin','technician'].includes(role) ? '/dashboard' : '/portal')
   }
 
-  // Still waiting for auth state
   if (!ready) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
       <div className="text-center space-y-3">
@@ -78,7 +67,6 @@ function ResetForm() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Set New Password</h1>
           <p className="text-sm text-slate-500 mt-1">Choose a strong password for your account</p>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
             <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-lg">
@@ -86,38 +74,19 @@ function ResetForm() {
             </div>
           )}
           <div className="space-y-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              New Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              minLength={8}
-              autoFocus
-              placeholder="At least 8 characters"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-            />
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">New Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+              required minLength={8} autoFocus placeholder="At least 8 characters"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Confirm Password
-            </label>
-            <input
-              type="password"
-              value={password2}
-              onChange={e => setPassword2(e.target.value)}
-              required
-              placeholder="Repeat password"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
-            />
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Confirm Password</label>
+            <input type="password" value={password2} onChange={e => setPassword2(e.target.value)}
+              required placeholder="Repeat password"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" />
           </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors"
-          >
+          <button type="submit" disabled={loading}
+            className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             Set Password & Sign In
           </button>
@@ -138,11 +107,3 @@ export default function ResetPasswordPage() {
     </Suspense>
   )
 }
-```
-
-Also go to **Supabase → Authentication → URL Configuration** and make sure the **Site URL** is set to your Vercel URL (not localhost), and add these to **Redirect URLs**:
-```
-https://your-vercel-url.vercel.app/reset-password
-https://your-vercel-url.vercel.app/auth/callback
-http://localhost:3000/reset-password
-http://localhost:3000/auth/callback
