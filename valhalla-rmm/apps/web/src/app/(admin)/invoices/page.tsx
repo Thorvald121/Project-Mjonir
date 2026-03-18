@@ -7,7 +7,7 @@ import { format, parseISO } from 'date-fns'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
   CheckCircle2, Send, Trash2, Eye, X, Loader2,
-  RotateCcw, CreditCard, ExternalLink, Link,
+  RotateCcw, CreditCard, ExternalLink, Link, Mail,
 } from 'lucide-react'
 
 const STATUS_CFG = {
@@ -42,17 +42,24 @@ function calcTotals(items, taxRate, discountAmt, discountPct) {
   return { subtotal: sub, discount_amount: pctDisc + flat, taxAmount: tax, total: taxable + tax }
 }
 
-function fmt(d) {
-  try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' }
+function fmt(d) { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' } }
+
+// ── Icon button helper ────────────────────────────────────────────────────────
+function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) {
+  return (
+    <button onClick={onClick} title={title} disabled={disabled}
+      className={`p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 ${color}`}>
+      {spinning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
+    </button>
+  )
 }
 
-// ── View Dialog ───────────────────────────────────────────────────────────────
+// ── View Invoice Dialog ───────────────────────────────────────────────────────
 function ViewDialog({ inv, onClose }) {
   if (!inv) return null
   const items = Array.isArray(inv.line_items) ? inv.line_items : []
   const cfg = STATUS_CFG[inv.status] || STATUS_CFG.draft
   const balance = inv.balance_due ?? inv.total ?? 0
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
@@ -116,7 +123,7 @@ function ViewDialog({ inv, onClose }) {
   )
 }
 
-// ── Invoice Dialog ────────────────────────────────────────────────────────────
+// ── Create / Edit Invoice Dialog ──────────────────────────────────────────────
 function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, timeEntries }) {
   const supabase = createSupabaseBrowserClient()
   const today = new Date().toISOString().split('T')[0]
@@ -126,9 +133,9 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     payment_terms: 'net_30', tax_rate: 0, discount_amount: 0, discount_percent: 0,
     notes: '', line_items: [{ ...BLANK_ITEM }], is_recurring: false, recurrence_interval: 'monthly',
   }
-  const [form, setForm] = useState(blank)
+  const [form,   setForm]   = useState(blank)
   const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState(null)
+  const [err,    setErr]    = useState(null)
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
@@ -144,9 +151,7 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
         line_items: items, is_recurring: editing.is_recurring || false,
         recurrence_interval: editing.recurrence_interval || 'monthly',
       })
-    } else {
-      setForm(blank)
-    }
+    } else { setForm(blank) }
   }, [editing, open])
 
   const updateItem = (i, field, val) => {
@@ -230,7 +235,8 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Billing Email</label>
-                <input type="email" value={form.contact_email} onChange={e => sf('contact_email', e.target.value)} placeholder="billing@customer.com" className={`mt-1 ${inp}`} />
+                <input type="email" value={form.contact_email} onChange={e => sf('contact_email', e.target.value)}
+                  placeholder="billing@customer.com" className={`mt-1 ${inp}`} />
               </div>
             </div>
             <div>
@@ -282,7 +288,8 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
               </div>
               {form.line_items.map((item, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} placeholder="Service description"
+                  <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)}
+                    placeholder="Service description"
                     className="col-span-6 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <input type="number" min={0} step={0.5} value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)}
                     className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
@@ -312,7 +319,7 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes / Payment Instructions</label>
             <textarea value={form.notes} onChange={e => sf('notes', e.target.value)} rows={2}
               placeholder="Bank details, payment instructions, etc." className={`mt-1 ${inp} resize-none`} />
           </div>
@@ -349,20 +356,22 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
 // ── Record Payment Dialog ─────────────────────────────────────────────────────
 function RecordPaymentDialog({ inv, onClose, onSaved }) {
   const supabase = createSupabaseBrowserClient()
-  const [amount, setAmount] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [amount,  setAmount]  = useState('')
+  const [method,  setMethod]  = useState('bank_transfer')
+  const [notes,   setNotes]   = useState('')
+  const [saving,  setSaving]  = useState(false)
   const balance = inv?.balance_due ?? inv?.total ?? 0
 
   const handleSave = async () => {
     const paid = parseFloat(amount)
     if (!paid || paid <= 0) return
     setSaving(true)
-    const newPaid = (inv.amount_paid || 0) + paid
+    const newPaid    = (inv.amount_paid || 0) + paid
     const newBalance = (inv.total || 0) - newPaid
-    const newStatus = newBalance <= 0 ? 'paid' : 'partial'
+    const newStatus  = newBalance <= 0 ? 'paid' : 'partial'
     await supabase.from('invoices').update({
       amount_paid: newPaid,
-      status: newStatus,
+      status:      newStatus,
       ...(newStatus === 'paid' ? { paid_date: new Date().toISOString().split('T')[0] } : {}),
     }).eq('id', inv.id)
     setSaving(false); onSaved()
@@ -372,18 +381,45 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <h2 className="font-semibold text-slate-900 dark:text-white mb-1">Record Payment</h2>
-        <p className="text-sm text-slate-500 mb-4">{inv.invoice_number} · Balance due: <strong>${balance.toFixed(2)}</strong></p>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-slate-900 dark:text-white">Record Payment</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+        </div>
+        <p className="text-sm text-slate-500 mb-4">
+          {inv.invoice_number} · Balance due: <strong className="text-slate-900 dark:text-white">${balance.toFixed(2)}</strong>
+        </p>
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Amount ($)</label>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Amount ($) *</label>
             <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
-              placeholder={`Max ${balance.toFixed(2)}`} className={`mt-1 ${inp}`} />
+              placeholder={`Up to ${balance.toFixed(2)}`} autoFocus className={`mt-1 ${inp}`} />
           </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50">Cancel</button>
-            <button onClick={handleSave} disabled={!amount || saving}
-              className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Method</label>
+            <select value={method} onChange={e => setMethod(e.target.value)} className={`mt-1 ${inp}`}>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="check">Check</option>
+              <option value="cash">Cash</option>
+              <option value="credit_card">Credit Card (manual)</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes (optional)</label>
+            <input value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Reference number, check #, etc." className={`mt-1 ${inp}`} />
+          </div>
+          <p className="text-xs text-slate-400">
+            {parseFloat(amount) >= balance
+              ? '✓ This will mark the invoice as fully paid'
+              : parseFloat(amount) > 0
+                ? `Remaining balance after payment: $${Math.max(0, balance - parseFloat(amount)).toFixed(2)}`
+                : ''}
+          </p>
+          <div className="flex gap-2 pt-2">
+            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+            <button onClick={handleSave} disabled={!amount || parseFloat(amount) <= 0 || saving}
+              className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
               {saving ? 'Saving…' : 'Record Payment'}
             </button>
           </div>
@@ -393,21 +429,152 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
   )
 }
 
+// ── Send Invoice Email Dialog ─────────────────────────────────────────────────
+function SendEmailDialog({ inv, onClose, onSent }) {
+  const supabase = createSupabaseBrowserClient()
+  const [email,   setEmail]   = useState(inv?.contact_email || '')
+  const [sending, setSending] = useState(false)
+  const [sent,    setSent]    = useState(false)
+  const [err,     setErr]     = useState(null)
+  const balance = inv?.balance_due ?? inv?.total ?? 0
+  const items   = Array.isArray(inv?.line_items) ? inv.line_items : []
+
+  const handleSend = async () => {
+    if (!email.trim()) { setErr('Email address is required'); return }
+    setSending(true); setErr(null)
+
+    const lineRows = items.map(i =>
+      `<tr>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${i.description}</td>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${i.quantity}</td>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price).toFixed(2)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${(Number(i.quantity)*Number(i.unit_price)).toFixed(2)}</td>
+      </tr>`
+    ).join('')
+
+    const payBtn = inv.stripe_payment_url
+      ? `<div style="text-align:center;margin-top:24px;">
+           <a href="${inv.stripe_payment_url}" style="background:#f59e0b;color:#000;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;">
+             Pay Now — $${balance.toFixed(2)}
+           </a>
+         </div>`
+      : ''
+
+    const body = `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f8fafc;">
+  <div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;">
+    <h1 style="color:#f59e0b;margin:0;font-size:24px;">Invoice ${inv.invoice_number}</h1>
+    <p style="color:#94a3b8;margin:8px 0 0;">Issued: ${inv.issue_date} &nbsp;·&nbsp; Due: ${inv.due_date}</p>
+  </div>
+  <div style="background:#fff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;">Description</th>
+          <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;text-transform:uppercase;">Qty</th>
+          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;text-transform:uppercase;">Rate</th>
+          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;text-transform:uppercase;">Total</th>
+        </tr>
+      </thead>
+      <tbody>${lineRows}</tbody>
+    </table>
+    <div style="text-align:right;padding-top:8px;border-top:2px solid #0f172a;">
+      <p style="font-size:20px;font-weight:bold;color:#0f172a;margin:0;">Total Due: $${balance.toFixed(2)}</p>
+    </div>
+    ${inv.notes ? `<p style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:8px;color:#64748b;font-size:13px;">${inv.notes}</p>` : ''}
+    ${payBtn}
+  </div>
+</div>`
+
+    // Use Supabase Edge Function (Resend) to send email
+    const { error } = await supabase.functions.invoke('send-invoice-email', {
+      body: {
+        to:      email.trim(),
+        subject: `Invoice ${inv.invoice_number} — $${balance.toFixed(2)} due ${inv.due_date}`,
+        html:    body,
+      }
+    })
+
+    if (error) {
+      // Fallback: if edge function doesn't exist yet, open mailto
+      const mailtoBody = `Invoice ${inv.invoice_number}\nTotal: $${balance.toFixed(2)}\nDue: ${inv.due_date}${inv.stripe_payment_url ? `\n\nPay online: ${inv.stripe_payment_url}` : ''}`
+      window.location.href = `mailto:${email}?subject=Invoice ${inv.invoice_number}&body=${encodeURIComponent(mailtoBody)}`
+      setSending(false); onClose()
+      return
+    }
+
+    // Mark as sent if draft
+    if (inv.status === 'draft') {
+      await supabase.from('invoices').update({ status: 'sent' }).eq('id', inv.id)
+    }
+    setSending(false); setSent(true)
+    setTimeout(() => { onSent(); onClose() }, 1500)
+  }
+
+  if (!inv) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-slate-900 dark:text-white">Send Invoice</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+        </div>
+
+        {sent ? (
+          <div className="text-center py-6">
+            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+            <p className="font-semibold text-slate-900 dark:text-white">Invoice sent!</p>
+            <p className="text-sm text-slate-500 mt-1">Emailed to {email}</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-sm">
+              <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number} · {inv.customer_name}</p>
+              <p className="text-slate-500 mt-0.5">Total: <strong>${(inv.total || 0).toFixed(2)}</strong> · Due: {fmt(inv.due_date)}</p>
+              {inv.stripe_payment_url && (
+                <p className="text-emerald-600 text-xs mt-1">✓ Pay Now button will be included in email</p>
+              )}
+            </div>
+            {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Send To *</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="client@company.com" autoFocus className={`mt-1 ${inp}`} />
+            </div>
+            <p className="text-xs text-slate-400">
+              The invoice details and a Pay Now link (if generated) will be included in the email.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+              <button onClick={handleSend} disabled={!email.trim() || sending}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {sending ? 'Sending…' : 'Send Invoice'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function InvoicesPage() {
   const supabase = createSupabaseBrowserClient()
 
-  const [invoices,       setInvoices]       = useState([])
-  const [customers,      setCustomers]      = useState([])
-  const [timeEntries,    setTimeEntries]    = useState([])
-  const [loading,        setLoading]        = useState(true)
-  const [orgId,          setOrgId]          = useState(null)
-  const [dialogOpen,     setDialogOpen]     = useState(false)
-  const [editing,        setEditing]        = useState(null)
-  const [viewing,        setViewing]        = useState(null)
-  const [payingInv,      setPayingInv]      = useState(null)
-  const [statusLoading,  setStatusLoading]  = useState(null)
-  const [stripeLoading,  setStripeLoading]  = useState(null)
+  const [invoices,      setInvoices]      = useState([])
+  const [customers,     setCustomers]     = useState([])
+  const [timeEntries,   setTimeEntries]   = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [orgId,         setOrgId]         = useState(null)
+  const [dialogOpen,    setDialogOpen]    = useState(false)
+  const [editing,       setEditing]       = useState(null)
+  const [viewing,       setViewing]       = useState(null)
+  const [payingInv,     setPayingInv]     = useState(null)
+  const [sendingInv,    setSendingInv]    = useState(null)
+  const [statusLoading, setStatusLoading] = useState(null)
+  const [stripeLoading, setStripeLoading] = useState(null)
 
   useEffect(() => {
     const init = async () => {
@@ -452,18 +619,27 @@ export default function InvoicesPage() {
     setStatusLoading(null); loadAll()
   }
 
-  const generatePaymentLink = async (inv) => {
+  const generateStripeLink = async (inv) => {
     setStripeLoading(inv.id)
-    const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
-      body: { invoice_id: inv.id }
-    })
-    setStripeLoading(null)
-    if (error || data?.error) { alert(error?.message || data?.error); return }
-    if (data?.url) { await loadAll(); window.open(data.url, '_blank') }
+    try {
+      const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
+        body: { invoice_id: inv.id }
+      })
+      if (error || data?.error) {
+        alert(`Stripe error: ${error?.message || data?.error}`)
+        return
+      }
+      await loadAll()
+      if (data?.url) window.open(data.url, '_blank')
+    } catch (e) {
+      alert(`Error: ${e.message}`)
+    } finally {
+      setStripeLoading(null)
+    }
   }
 
   const deleteInvoice = async (id) => {
-    if (!confirm('Delete this invoice?')) return
+    if (!confirm('Delete this invoice? This cannot be undone.')) return
     await supabase.from('invoices').delete().eq('id', id)
     loadAll()
   }
@@ -472,19 +648,13 @@ export default function InvoicesPage() {
   const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + (i.balance_due ?? i.total ?? 0), 0)
   const overdueCount = invoices.filter(i => i.status === 'overdue').length
 
-  const Btn = ({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) => (
-    <button onClick={onClick} title={title} disabled={disabled}
-      className={`p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 ${color}`}>
-      {spinning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
-    </button>
-  )
-
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Invoices</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Create invoices, import billable time, track payments</p>
+          <p className="text-sm text-slate-500 mt-0.5">Create, send, and track payments</p>
         </div>
         <button onClick={() => { setEditing(null); setDialogOpen(true) }}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
@@ -492,12 +662,13 @@ export default function InvoicesPage() {
         </button>
       </div>
 
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Invoices', value: invoices.length,              icon: FileText,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
-          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`, icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
-          { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`,icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
-          { label: 'Overdue',        value: overdueCount,                 icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30' },
+          { label: 'Total Invoices', value: invoices.length,               icon: FileText,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
+          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
+          { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
+          { label: 'Overdue',        value: overdueCount,                  icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30' },
         ].map(s => (
           <div key={s.label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
             <div className={`w-10 h-10 rounded-full ${s.bg} flex items-center justify-center flex-shrink-0`}>
@@ -511,6 +682,20 @@ export default function InvoicesPage() {
         ))}
       </div>
 
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 text-xs text-slate-400 px-1">
+        <span className="flex items-center gap-1"><Eye className="w-3.5 h-3.5" /> View</span>
+        <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> Edit</span>
+        <span className="flex items-center gap-1 text-blue-500"><Mail className="w-3.5 h-3.5" /> Email to client</span>
+        <span className="flex items-center gap-1 text-blue-500"><Send className="w-3.5 h-3.5" /> Mark Sent</span>
+        <span className="flex items-center gap-1 text-violet-500"><CreditCard className="w-3.5 h-3.5" /> Record payment</span>
+        <span className="flex items-center gap-1 text-emerald-500"><CheckCircle2 className="w-3.5 h-3.5" /> Mark paid</span>
+        <span className="flex items-center gap-1 text-amber-500"><Link className="w-3.5 h-3.5" /> Generate Stripe link</span>
+        <span className="flex items-center gap-1 text-blue-400"><ExternalLink className="w-3.5 h-3.5" /> Open payment link</span>
+        <span className="flex items-center gap-1 text-rose-400"><Trash2 className="w-3.5 h-3.5" /> Delete</span>
+      </div>
+
+      {/* Invoice list */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {loading ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -538,11 +723,13 @@ export default function InvoicesPage() {
             {invoices.map(inv => {
               const cfg     = STATUS_CFG[inv.status] || STATUS_CFG.draft
               const balance = inv.balance_due ?? inv.total ?? 0
+              const isPaid  = ['paid','void'].includes(inv.status)
               const isStatusLoading = statusLoading === inv.id
               const isStripeLoading = stripeLoading === inv.id
-              const isPaid  = ['paid','void'].includes(inv.status)
+
               return (
                 <div key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number}</p>
@@ -552,6 +739,9 @@ export default function InvoicesPage() {
                           <RotateCcw className="w-2.5 h-2.5" />Recurring
                         </span>
                       )}
+                      {inv.stripe_payment_url && !isPaid && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Pay link ready</span>
+                      )}
                     </div>
                     <p className="text-sm text-slate-500 dark:text-slate-400">{inv.customer_name}</p>
                     <p className="text-xs text-slate-400">
@@ -559,45 +749,53 @@ export default function InvoicesPage() {
                       {inv.payment_terms && ` · ${TERMS_LABELS[inv.payment_terms] || ''}`}
                     </p>
                   </div>
+
+                  {/* Amount */}
                   <div className="text-right flex-shrink-0">
                     <p className="text-lg font-bold text-slate-900 dark:text-white">${(inv.total || 0).toFixed(2)}</p>
-                    {(inv.amount_paid || 0) > 0 && inv.status !== 'paid' && (
+                    {(inv.amount_paid || 0) > 0 && !isPaid && (
                       <p className="text-xs text-amber-500">Bal: ${balance.toFixed(2)}</p>
                     )}
                   </div>
+
+                  {/* Action buttons */}
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     {/* View */}
                     <Btn icon={Eye} onClick={() => setViewing(inv)} title="View invoice" />
                     {/* Edit */}
                     <Btn icon={FileText} onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
-                    {/* Mark as Sent */}
+                    {/* Email to client */}
+                    {!isPaid && (
+                      <Btn icon={Mail} onClick={() => setSendingInv(inv)} title="Email invoice to client" color="text-blue-500" />
+                    )}
+                    {/* Mark as Sent (draft only) */}
                     {inv.status === 'draft' && (
                       <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent"
-                        color="text-blue-500" spinning={isStatusLoading} />
+                        color="text-blue-400" spinning={isStatusLoading} />
                     )}
-                    {/* Record partial payment */}
-                    {['sent','overdue','partial'].includes(inv.status) && (
-                      <Btn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record manual payment"
+                    {/* Record partial/manual payment */}
+                    {!isPaid && (
+                      <Btn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record payment (cash, check, bank transfer)"
                         color="text-violet-500" />
                     )}
                     {/* Mark fully paid */}
-                    {['sent','overdue','partial'].includes(inv.status) && (
-                      <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark fully paid"
+                    {!isPaid && (
+                      <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid"
                         color="text-emerald-500" spinning={isStatusLoading} />
                     )}
                     {/* Generate Stripe payment link */}
                     {!isPaid && (
-                      <Btn icon={Link} onClick={() => generatePaymentLink(inv)}
-                        title="Generate Stripe payment link" color="text-amber-500"
+                      <Btn icon={Link} onClick={() => generateStripeLink(inv)}
+                        title="Generate Stripe online payment link" color="text-amber-500"
                         spinning={isStripeLoading} disabled={isStripeLoading} />
                     )}
-                    {/* Open existing payment link */}
+                    {/* Open existing Stripe link */}
                     {inv.stripe_payment_url && !isPaid && (
                       <Btn icon={ExternalLink} onClick={() => window.open(inv.stripe_payment_url, '_blank')}
-                        title="Open payment link" color="text-blue-400" />
+                        title="Open Stripe payment link" color="text-blue-400" />
                     )}
                     {/* Delete */}
-                    <Btn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete" color="text-rose-400" />
+                    <Btn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete invoice" color="text-rose-400" />
                   </div>
                 </div>
               )
@@ -606,14 +804,31 @@ export default function InvoicesPage() {
         )}
       </div>
 
+      {/* Dialogs */}
       <InvoiceDialog
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null) }}
         onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }}
         editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries}
       />
-      {viewing    && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
-      {payingInv  && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
+
+      {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
+
+      {payingInv && (
+        <RecordPaymentDialog
+          inv={payingInv}
+          onClose={() => setPayingInv(null)}
+          onSaved={() => { setPayingInv(null); loadAll() }}
+        />
+      )}
+
+      {sendingInv && (
+        <SendEmailDialog
+          inv={sendingInv}
+          onClose={() => setSendingInv(null)}
+          onSent={() => { setSendingInv(null); loadAll() }}
+        />
+      )}
     </div>
   )
 }
