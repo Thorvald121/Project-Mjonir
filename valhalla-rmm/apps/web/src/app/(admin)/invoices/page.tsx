@@ -26,6 +26,8 @@ const TERMS_DAYS = { due_on_receipt: 0, net_7: 7, net_15: 15, net_30: 30, net_45
 const BLANK_ITEM = { description: '', quantity: 1, unit_price: 0 }
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
+const [linkCopied, setLinkCopied] = useState(null)
+
 function computeDueDate(issueDate, terms) {
   if (!issueDate) return ''
   const d = new Date(issueDate)
@@ -629,8 +631,18 @@ export default function InvoicesPage() {
         alert(`Stripe error: ${error?.message || data?.error}`)
         return
       }
-      await loadAll()
-      if (data?.url) window.open(data.url, '_blank')
+      if (data?.url) {
+        await loadAll()
+        // Copy to clipboard and show confirmation
+        try {
+          await navigator.clipboard.writeText(data.url)
+          setLinkCopied(inv.id)
+          setTimeout(() => setLinkCopied(null), 3000)
+        } catch {
+          // Clipboard failed — show the link in a prompt
+          window.prompt('Copy this payment link to share with your client:', data.url)
+        }
+      }
     } catch (e) {
       alert(`Error: ${e.message}`)
     } finally {
@@ -785,9 +797,30 @@ export default function InvoicesPage() {
                     )}
                     {/* Generate Stripe payment link */}
                     {!isPaid && (
-                      <Btn icon={Link} onClick={() => generateStripeLink(inv)}
-                        title="Generate Stripe online payment link" color="text-amber-500"
-                        spinning={isStripeLoading} disabled={isStripeLoading} />
+                      <Btn
+                        icon={linkCopied === inv.id ? CheckCircle2 : Link}
+                        onClick={() => generateStripeLink(inv)}
+                        title={linkCopied === inv.id ? 'Link copied!' : 'Generate & copy Stripe payment link'}
+                        color={linkCopied === inv.id ? 'text-emerald-500' : 'text-amber-500'}
+                        spinning={isStripeLoading}
+                        disabled={isStripeLoading}
+                      />
+                    )}
+                    {/* Open existing Stripe link in new tab (for admin to preview) */}
+                    {inv.stripe_payment_url && !isPaid && (
+                      <Btn icon={ExternalLink}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(inv.stripe_payment_url)
+                            setLinkCopied(inv.id)
+                            setTimeout(() => setLinkCopied(null), 3000)
+                          } catch {
+                            window.prompt('Copy this payment link:', inv.stripe_payment_url)
+                          }
+                        }}
+                        title="Copy existing payment link"
+                        color="text-blue-400"
+                      />
                     )}
                     {/* Open existing Stripe link */}
                     {inv.stripe_payment_url && !isPaid && (
