@@ -295,23 +295,47 @@ function TeamSection({ orgId }) {
   }
 
   const inviteMember = async () => {
-    if (!invEmail.trim()) return
-    setInviting(true); setErr(null)
-    // Check if user exists in auth
-    const { data: existing } = await supabase
-      .from('organization_members').select('id').eq('user_email', invEmail.trim()).eq('organization_id', orgId).single()
-    if (existing) { setErr('This user is already a member.'); setInviting(false); return }
+  if (!invEmail.trim()) return
+  setInviting(true); setErr(null)
 
-    // For now create with a placeholder user_id — in production you'd send an invite email
-    const { error } = await supabase.from('organization_members').insert({
-      organization_id: orgId,
-      user_id:         '00000000-0000-0000-0000-000000000000', // placeholder until they accept invite
-      user_email:      invEmail.trim(),
-      role:            invRole,
-    })
-    if (error) { setErr(error.message); setInviting(false); return }
-    setInvEmail(''); setInviting(false); loadMembers()
+  // Look up the user by email in auth.users via a custom RPC
+  // Since we can't query auth.users directly from the client,
+  // we check if they already exist as a member first
+  const { data: existing } = await supabase
+    .from('organization_members')
+    .select('id')
+    .eq('user_email', invEmail.trim())
+    .eq('organization_id', orgId)
+    .maybeSingle()
+
+  if (existing) {
+    setErr('This user is already a member.')
+    setInviting(false)
+    return
   }
+
+  // Find user ID from auth.users using admin lookup
+  // We do this by checking if they've previously logged in
+  const { data: authUsers, error: authErr } = await supabase.rpc('get_user_id_by_email', {
+    email_input: invEmail.trim()
+  })
+
+  if (authErr || !authUsers) {
+    setErr('User not found. They must sign up at /login first before you can add them.')
+    setInviting(false)
+    return
+  }
+
+  const { error } = await supabase.from('organization_members').insert({
+    organization_id: orgId,
+    user_id:         authUsers,
+    user_email:      invEmail.trim(),
+    role:            invRole,
+  })
+
+  if (error) { setErr(error.message); setInviting(false); return }
+  setInvEmail(''); setInviting(false); loadMembers()
+}
 
   const updateRole = async (memberId, role) => {
     await supabase.from('organization_members').update({ role }).eq('id', memberId)
