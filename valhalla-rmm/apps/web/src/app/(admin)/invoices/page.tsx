@@ -26,8 +26,6 @@ const TERMS_DAYS = { due_on_receipt: 0, net_7: 7, net_15: 15, net_30: 30, net_45
 const BLANK_ITEM = { description: '', quantity: 1, unit_price: 0 }
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
-const [linkCopied, setLinkCopied] = useState(null)
-
 function computeDueDate(issueDate, terms) {
   if (!issueDate) return ''
   const d = new Date(issueDate)
@@ -46,7 +44,6 @@ function calcTotals(items, taxRate, discountAmt, discountPct) {
 
 function fmt(d) { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' } }
 
-// ── Icon button helper ────────────────────────────────────────────────────────
 function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) {
   return (
     <button onClick={onClick} title={title} disabled={disabled}
@@ -56,7 +53,6 @@ function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = 
   )
 }
 
-// ── View Invoice Dialog ───────────────────────────────────────────────────────
 function ViewDialog({ inv, onClose }) {
   if (!inv) return null
   const items = Array.isArray(inv.line_items) ? inv.line_items : []
@@ -114,10 +110,12 @@ function ViewDialog({ inv, onClose }) {
           </div>
           {inv.notes && <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm text-slate-600 dark:text-slate-400">{inv.notes}</div>}
           {inv.stripe_payment_url && inv.status !== 'paid' && (
-            <a href={inv.stripe_payment_url} target="_blank" rel="noreferrer"
-              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
-              <ExternalLink className="w-4 h-4" /> Pay Now — ${balance.toFixed(2)}
-            </a>
+            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-900/40">
+              <Link className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-400 flex-1 truncate">{inv.stripe_payment_url}</p>
+              <button onClick={() => navigator.clipboard.writeText(inv.stripe_payment_url)}
+                className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex-shrink-0">Copy</button>
+            </div>
           )}
         </div>
       </div>
@@ -125,7 +123,6 @@ function ViewDialog({ inv, onClose }) {
   )
 }
 
-// ── Create / Edit Invoice Dialog ──────────────────────────────────────────────
 function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, timeEntries }) {
   const supabase = createSupabaseBrowserClient()
   const today = new Date().toISOString().split('T')[0]
@@ -135,9 +132,9 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     payment_terms: 'net_30', tax_rate: 0, discount_amount: 0, discount_percent: 0,
     notes: '', line_items: [{ ...BLANK_ITEM }], is_recurring: false, recurrence_interval: 'monthly',
   }
-  const [form,   setForm]   = useState(blank)
+  const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
-  const [err,    setErr]    = useState(null)
+  const [err, setErr] = useState(null)
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
@@ -169,9 +166,9 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     const unbilled = timeEntries.filter(e => e.customer_id === form.customer_id && e.billable && !e.invoice_id)
     if (!unbilled.length) { alert('No unbilled time entries for this customer'); return }
     const newItems = unbilled.map(e => ({
-      description: `${e.description || e.ticket_title || 'Support time'} (${(e.minutes / 60).toFixed(1)}h)`,
-      quantity: parseFloat((e.minutes / 60).toFixed(2)),
-      unit_price: e.hourly_rate || 0,
+      description: `${e.description || e.ticket_title || 'Support time'} (${(e.minutes / 60).toFixed(2)}h @ $${e.hourly_rate || 0}/hr)`,
+      quantity:    1,
+      unit_price:  parseFloat(((e.minutes / 60) * (e.hourly_rate || 0)).toFixed(2)),
       _time_entry_id: e.id,
     }))
     setForm(f => ({ ...f, line_items: [...f.line_items.filter(i => i.description), ...newItems] }))
@@ -355,22 +352,21 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
   )
 }
 
-// ── Record Payment Dialog ─────────────────────────────────────────────────────
 function RecordPaymentDialog({ inv, onClose, onSaved }) {
   const supabase = createSupabaseBrowserClient()
-  const [amount,  setAmount]  = useState('')
-  const [method,  setMethod]  = useState('bank_transfer')
-  const [notes,   setNotes]   = useState('')
-  const [saving,  setSaving]  = useState(false)
-  const balance = inv?.balance_due ?? inv?.total ?? 0
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('bank_transfer')
+  const [notes,  setNotes]  = useState('')
+  const [saving, setSaving] = useState(false)
+  const balance = Number(inv?.total ?? 0) - Number(inv?.amount_paid ?? 0)
 
   const handleSave = async () => {
     const paid = parseFloat(amount)
     if (!paid || paid <= 0) return
     setSaving(true)
-    const newPaid    = (inv.amount_paid || 0) + paid
-    const newBalance = (inv.total || 0) - newPaid
-    const newStatus  = newBalance <= 0 ? 'paid' : 'partial'
+    const newPaid   = Number(inv.amount_paid || 0) + paid
+    const newBalance = Number(inv.total || 0) - newPaid
+    const newStatus = newBalance <= 0 ? 'paid' : 'partial'
     await supabase.from('invoices').update({
       amount_paid: newPaid,
       status:      newStatus,
@@ -388,13 +384,13 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
         </div>
         <p className="text-sm text-slate-500 mb-4">
-          {inv.invoice_number} · Balance due: <strong className="text-slate-900 dark:text-white">${balance.toFixed(2)}</strong>
+          {inv.invoice_number} · Balance due: <strong className="text-slate-900 dark:text-white">${Math.max(0, balance).toFixed(2)}</strong>
         </p>
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Amount ($) *</label>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount ($) *</label>
             <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
-              placeholder={`Up to ${balance.toFixed(2)}`} autoFocus className={`mt-1 ${inp}`} />
+              placeholder={`Up to ${Math.max(0, balance).toFixed(2)}`} autoFocus className={`mt-1 ${inp}`} />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Method</label>
@@ -409,17 +405,17 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes (optional)</label>
             <input value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Reference number, check #, etc." className={`mt-1 ${inp}`} />
+              placeholder="Reference #, check number, etc." className={`mt-1 ${inp}`} />
           </div>
-          <p className="text-xs text-slate-400">
-            {parseFloat(amount) >= balance
-              ? '✓ This will mark the invoice as fully paid'
-              : parseFloat(amount) > 0
-                ? `Remaining balance after payment: $${Math.max(0, balance - parseFloat(amount)).toFixed(2)}`
-                : ''}
-          </p>
+          {parseFloat(amount) > 0 && (
+            <p className="text-xs text-slate-400">
+              {parseFloat(amount) >= balance
+                ? '✓ This will mark the invoice as fully paid'
+                : `Remaining after payment: $${Math.max(0, balance - parseFloat(amount)).toFixed(2)}`}
+            </p>
+          )}
           <div className="flex gap-2 pt-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50">Cancel</button>
             <button onClick={handleSave} disabled={!amount || parseFloat(amount) <= 0 || saving}
               className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
               {saving ? 'Saving…' : 'Record Payment'}
@@ -431,81 +427,94 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
   )
 }
 
-// ── Send Invoice Email Dialog ─────────────────────────────────────────────────
 function SendEmailDialog({ inv, onClose, onSent }) {
   const supabase = createSupabaseBrowserClient()
   const [email,   setEmail]   = useState(inv?.contact_email || '')
   const [sending, setSending] = useState(false)
   const [sent,    setSent]    = useState(false)
   const [err,     setErr]     = useState(null)
-  const balance = inv?.balance_due ?? inv?.total ?? 0
-  const items   = Array.isArray(inv?.line_items) ? inv.line_items : []
 
   const handleSend = async () => {
     if (!email.trim()) { setErr('Email address is required'); return }
     setSending(true); setErr(null)
+
+    const balance = Number(inv.total ?? 0) - Number(inv.amount_paid ?? 0)
+    const items   = Array.isArray(inv?.line_items) ? inv.line_items : []
+
+    // Generate Stripe link first if not already created
+    let paymentUrl = inv.stripe_payment_url
+    if (!paymentUrl) {
+      try {
+        const { data: stripeData } = await supabase.functions.invoke('stripe-create-payment-link', {
+          body: { invoice_id: inv.id }
+        })
+        if (stripeData?.url) paymentUrl = stripeData.url
+      } catch { /* continue without payment link */ }
+    }
 
     const lineRows = items.map(i =>
       `<tr>
         <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${i.description}</td>
         <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${i.quantity}</td>
         <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price).toFixed(2)}</td>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${(Number(i.quantity)*Number(i.unit_price)).toFixed(2)}</td>
+        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${(Number(i.quantity) * Number(i.unit_price)).toFixed(2)}</td>
       </tr>`
     ).join('')
 
-    const payBtn = inv.stripe_payment_url
-      ? `<div style="text-align:center;margin-top:24px;">
-           <a href="${inv.stripe_payment_url}" style="background:#f59e0b;color:#000;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;">
+    const payBtn = paymentUrl
+      ? `<div style="text-align:center;margin-top:32px;">
+           <a href="${paymentUrl}" style="background:#f59e0b;color:#000000;padding:16px 40px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block;">
              Pay Now — $${balance.toFixed(2)}
            </a>
+           <p style="color:#94a3b8;font-size:12px;margin-top:8px;">Secure payment powered by Stripe</p>
          </div>`
       : ''
 
-    const body = `
+    const html = `
 <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f8fafc;">
   <div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;">
     <h1 style="color:#f59e0b;margin:0;font-size:24px;">Invoice ${inv.invoice_number}</h1>
-    <p style="color:#94a3b8;margin:8px 0 0;">Issued: ${inv.issue_date} &nbsp;·&nbsp; Due: ${inv.due_date}</p>
+    <p style="color:#94a3b8;margin:8px 0 0;font-size:14px;">Issued: ${inv.issue_date} &nbsp;·&nbsp; Due: ${inv.due_date}</p>
   </div>
-  <div style="background:#fff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
+  <div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
+    <p style="color:#475569;font-size:14px;margin-top:0;">Hello, please find your invoice from <strong>Valhalla IT</strong> below.</p>
     <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
       <thead>
         <tr style="background:#f1f5f9;">
-          <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;">Description</th>
-          <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;text-transform:uppercase;">Qty</th>
-          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;text-transform:uppercase;">Rate</th>
-          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;text-transform:uppercase;">Total</th>
+          <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;">Description</th>
+          <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;">Qty</th>
+          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Rate</th>
+          <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Total</th>
         </tr>
       </thead>
       <tbody>${lineRows}</tbody>
     </table>
-    <div style="text-align:right;padding-top:8px;border-top:2px solid #0f172a;">
-      <p style="font-size:20px;font-weight:bold;color:#0f172a;margin:0;">Total Due: $${balance.toFixed(2)}</p>
+    <div style="text-align:right;padding:12px 0;border-top:2px solid #0f172a;margin-top:8px;">
+      ${(inv.discount_amount || 0) > 0 ? `<p style="color:#10b981;margin:4px 0;font-size:14px;">Discount: -$${Number(inv.discount_amount).toFixed(2)}</p>` : ''}
+      ${(inv.tax_rate || 0) > 0 ? `<p style="color:#64748b;margin:4px 0;font-size:14px;">Tax (${inv.tax_rate}%): $${Number(inv.tax_amount || 0).toFixed(2)}</p>` : ''}
+      <p style="font-size:20px;font-weight:bold;color:#0f172a;margin:8px 0 0;">Amount Due: $${balance.toFixed(2)}</p>
     </div>
-    ${inv.notes ? `<p style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:8px;color:#64748b;font-size:13px;">${inv.notes}</p>` : ''}
+    ${inv.notes ? `<p style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:8px;color:#64748b;font-size:13px;border-left:4px solid #f59e0b;">${inv.notes}</p>` : ''}
     ${payBtn}
+    <p style="color:#94a3b8;font-size:12px;margin-top:24px;text-align:center;">Questions? Reply to this email or contact your account manager.</p>
   </div>
 </div>`
 
-    // Use Supabase Edge Function (Resend) to send email
     const { error } = await supabase.functions.invoke('send-invoice-email', {
       body: {
         to:      email.trim(),
-        subject: `Invoice ${inv.invoice_number} — $${balance.toFixed(2)} due ${inv.due_date}`,
-        html:    body,
+        subject: `Invoice ${inv.invoice_number} from Valhalla IT — $${balance.toFixed(2)} due ${inv.due_date}`,
+        html,
       }
     })
 
     if (error) {
-      // Fallback: if edge function doesn't exist yet, open mailto
-      const mailtoBody = `Invoice ${inv.invoice_number}\nTotal: $${balance.toFixed(2)}\nDue: ${inv.due_date}${inv.stripe_payment_url ? `\n\nPay online: ${inv.stripe_payment_url}` : ''}`
+      const mailtoBody = `Invoice ${inv.invoice_number}\nTotal: $${balance.toFixed(2)}\nDue: ${inv.due_date}${paymentUrl ? `\n\nPay online: ${paymentUrl}` : ''}`
       window.location.href = `mailto:${email}?subject=Invoice ${inv.invoice_number}&body=${encodeURIComponent(mailtoBody)}`
       setSending(false); onClose()
       return
     }
 
-    // Mark as sent if draft
     if (inv.status === 'draft') {
       await supabase.from('invoices').update({ status: 'sent' }).eq('id', inv.id)
     }
@@ -521,7 +530,6 @@ function SendEmailDialog({ inv, onClose, onSent }) {
           <h2 className="font-semibold text-slate-900 dark:text-white">Send Invoice</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
         </div>
-
         {sent ? (
           <div className="text-center py-6">
             <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
@@ -533,9 +541,11 @@ function SendEmailDialog({ inv, onClose, onSent }) {
             <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-sm">
               <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number} · {inv.customer_name}</p>
               <p className="text-slate-500 mt-0.5">Total: <strong>${(inv.total || 0).toFixed(2)}</strong> · Due: {fmt(inv.due_date)}</p>
-              {inv.stripe_payment_url && (
-                <p className="text-emerald-600 text-xs mt-1">✓ Pay Now button will be included in email</p>
-              )}
+              <p className="text-xs text-slate-400 mt-1">
+                {inv.stripe_payment_url
+                  ? '✓ Pay Now button will be included'
+                  : 'A Stripe Pay Now button will be auto-generated and included'}
+              </p>
             </div>
             {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
             <div>
@@ -543,11 +553,8 @@ function SendEmailDialog({ inv, onClose, onSent }) {
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="client@company.com" autoFocus className={`mt-1 ${inp}`} />
             </div>
-            <p className="text-xs text-slate-400">
-              The invoice details and a Pay Now link (if generated) will be included in the email.
-            </p>
             <div className="flex gap-2">
-              <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+              <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50">Cancel</button>
               <button onClick={handleSend} disabled={!email.trim() || sending}
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -561,7 +568,6 @@ function SendEmailDialog({ inv, onClose, onSent }) {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function InvoicesPage() {
   const supabase = createSupabaseBrowserClient()
 
@@ -577,6 +583,7 @@ export default function InvoicesPage() {
   const [sendingInv,    setSendingInv]    = useState(null)
   const [statusLoading, setStatusLoading] = useState(null)
   const [stripeLoading, setStripeLoading] = useState(null)
+  const [linkCopied,    setLinkCopied]    = useState(null)
 
   useEffect(() => {
     const init = async () => {
@@ -633,13 +640,11 @@ export default function InvoicesPage() {
       }
       if (data?.url) {
         await loadAll()
-        // Copy to clipboard and show confirmation
         try {
           await navigator.clipboard.writeText(data.url)
           setLinkCopied(inv.id)
           setTimeout(() => setLinkCopied(null), 3000)
         } catch {
-          // Clipboard failed — show the link in a prompt
           window.prompt('Copy this payment link to share with your client:', data.url)
         }
       }
@@ -650,6 +655,16 @@ export default function InvoicesPage() {
     }
   }
 
+  const copyLink = async (inv) => {
+    try {
+      await navigator.clipboard.writeText(inv.stripe_payment_url)
+      setLinkCopied(inv.id)
+      setTimeout(() => setLinkCopied(null), 3000)
+    } catch {
+      window.prompt('Copy this payment link:', inv.stripe_payment_url)
+    }
+  }
+
   const deleteInvoice = async (id) => {
     if (!confirm('Delete this invoice? This cannot be undone.')) return
     await supabase.from('invoices').delete().eq('id', id)
@@ -657,12 +672,11 @@ export default function InvoicesPage() {
   }
 
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
-  const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + (i.balance_due ?? i.total ?? 0), 0)
+  const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + (Number(i.total||0) - Number(i.amount_paid||0)), 0)
   const overdueCount = invoices.filter(i => i.status === 'overdue').length
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Invoices</h1>
@@ -674,11 +688,10 @@ export default function InvoicesPage() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total Invoices', value: invoices.length,               icon: FileText,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
-          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
+          { label: 'Outstanding',    value: `$${Math.max(0,outstanding).toFixed(2)}`, icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-950/30' },
           { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
           { label: 'Overdue',        value: overdueCount,                  icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30' },
         ].map(s => (
@@ -694,20 +707,6 @@ export default function InvoicesPage() {
         ))}
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 text-xs text-slate-400 px-1">
-        <span className="flex items-center gap-1"><Eye className="w-3.5 h-3.5" /> View</span>
-        <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> Edit</span>
-        <span className="flex items-center gap-1 text-blue-500"><Mail className="w-3.5 h-3.5" /> Email to client</span>
-        <span className="flex items-center gap-1 text-blue-500"><Send className="w-3.5 h-3.5" /> Mark Sent</span>
-        <span className="flex items-center gap-1 text-violet-500"><CreditCard className="w-3.5 h-3.5" /> Record payment</span>
-        <span className="flex items-center gap-1 text-emerald-500"><CheckCircle2 className="w-3.5 h-3.5" /> Mark paid</span>
-        <span className="flex items-center gap-1 text-amber-500"><Link className="w-3.5 h-3.5" /> Generate Stripe link</span>
-        <span className="flex items-center gap-1 text-blue-400"><ExternalLink className="w-3.5 h-3.5" /> Open payment link</span>
-        <span className="flex items-center gap-1 text-rose-400"><Trash2 className="w-3.5 h-3.5" /> Delete</span>
-      </div>
-
-      {/* Invoice list */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {loading ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -734,14 +733,14 @@ export default function InvoicesPage() {
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {invoices.map(inv => {
               const cfg     = STATUS_CFG[inv.status] || STATUS_CFG.draft
-              const balance = inv.balance_due ?? inv.total ?? 0
+              const balance = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
               const isPaid  = ['paid','void'].includes(inv.status)
               const isStatusLoading = statusLoading === inv.id
               const isStripeLoading = stripeLoading === inv.id
+              const isCopied = linkCopied === inv.id
 
               return (
                 <div key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number}</p>
@@ -762,7 +761,6 @@ export default function InvoicesPage() {
                     </p>
                   </div>
 
-                  {/* Amount */}
                   <div className="text-right flex-shrink-0">
                     <p className="text-lg font-bold text-slate-900 dark:text-white">${(inv.total || 0).toFixed(2)}</p>
                     {(inv.amount_paid || 0) > 0 && !isPaid && (
@@ -770,64 +768,43 @@ export default function InvoicesPage() {
                     )}
                   </div>
 
-                  {/* Action buttons */}
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    {/* View */}
-                    <Btn icon={Eye} onClick={() => setViewing(inv)} title="View invoice" />
-                    {/* Edit */}
+                    <Btn icon={Eye}      onClick={() => setViewing(inv)} title="View invoice" />
                     <Btn icon={FileText} onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
-                    {/* Email to client */}
                     {!isPaid && (
                       <Btn icon={Mail} onClick={() => setSendingInv(inv)} title="Email invoice to client" color="text-blue-500" />
                     )}
-                    {/* Mark as Sent (draft only) */}
                     {inv.status === 'draft' && (
                       <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent"
                         color="text-blue-400" spinning={isStatusLoading} />
                     )}
-                    {/* Record partial/manual payment */}
                     {!isPaid && (
-                      <Btn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record payment (cash, check, bank transfer)"
-                        color="text-violet-500" />
+                      <Btn icon={CreditCard} onClick={() => setPayingInv(inv)}
+                        title="Record payment (cash, check, bank transfer)" color="text-violet-500" />
                     )}
-                    {/* Mark fully paid */}
                     {!isPaid && (
                       <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid"
                         color="text-emerald-500" spinning={isStatusLoading} />
                     )}
-                    {/* Generate Stripe payment link */}
+                    {/* Generate Stripe link — copies to clipboard */}
                     {!isPaid && (
                       <Btn
-                        icon={linkCopied === inv.id ? CheckCircle2 : Link}
+                        icon={isCopied ? CheckCircle2 : Link}
                         onClick={() => generateStripeLink(inv)}
-                        title={linkCopied === inv.id ? 'Link copied!' : 'Generate & copy Stripe payment link'}
-                        color={linkCopied === inv.id ? 'text-emerald-500' : 'text-amber-500'}
+                        title={isCopied ? 'Link copied to clipboard!' : 'Generate Stripe payment link (copies to clipboard)'}
+                        color={isCopied ? 'text-emerald-500' : 'text-amber-500'}
                         spinning={isStripeLoading}
                         disabled={isStripeLoading}
                       />
                     )}
-                    {/* Open existing Stripe link in new tab (for admin to preview) */}
+                    {/* Copy existing link */}
                     {inv.stripe_payment_url && !isPaid && (
-                      <Btn icon={ExternalLink}
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(inv.stripe_payment_url)
-                            setLinkCopied(inv.id)
-                            setTimeout(() => setLinkCopied(null), 3000)
-                          } catch {
-                            window.prompt('Copy this payment link:', inv.stripe_payment_url)
-                          }
-                        }}
-                        title="Copy existing payment link"
-                        color="text-blue-400"
+                      <Btn icon={isCopied ? CheckCircle2 : ExternalLink}
+                        onClick={() => copyLink(inv)}
+                        title={isCopied ? 'Copied!' : 'Copy existing payment link'}
+                        color={isCopied ? 'text-emerald-500' : 'text-blue-400'}
                       />
                     )}
-                    {/* Open existing Stripe link */}
-                    {inv.stripe_payment_url && !isPaid && (
-                      <Btn icon={ExternalLink} onClick={() => window.open(inv.stripe_payment_url, '_blank')}
-                        title="Open Stripe payment link" color="text-blue-400" />
-                    )}
-                    {/* Delete */}
                     <Btn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete invoice" color="text-rose-400" />
                   </div>
                 </div>
@@ -837,31 +814,15 @@ export default function InvoicesPage() {
         )}
       </div>
 
-      {/* Dialogs */}
       <InvoiceDialog
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null) }}
         onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }}
         editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries}
       />
-
       {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
-
-      {payingInv && (
-        <RecordPaymentDialog
-          inv={payingInv}
-          onClose={() => setPayingInv(null)}
-          onSaved={() => { setPayingInv(null); loadAll() }}
-        />
-      )}
-
-      {sendingInv && (
-        <SendEmailDialog
-          inv={sendingInv}
-          onClose={() => setSendingInv(null)}
-          onSent={() => { setSendingInv(null); loadAll() }}
-        />
-      )}
+      {payingInv && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
+      {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
     </div>
   )
 }
