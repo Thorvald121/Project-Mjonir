@@ -4,7 +4,60 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import {
+  ArrowLeft, Clock, User, Building2, Loader2,
+  Lock, Mail, MessageSquare, Send, AlertTriangle,
+  Tag, ChevronDown, Paperclip, Play, Square, Timer,
+} from 'lucide-react'
 
+const PRIORITY_CLS = {
+  critical: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300',
+  high:     'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300',
+  medium:   'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300',
+  low:      'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300',
+}
+const STATUS_CLS = {
+  open:        'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
+  in_progress: 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
+  waiting:     'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+  resolved:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+  closed:      'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+}
+const lbl = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
+const fmtDate = (d, fmt = 'short') => {
+  if (!d) return '—'
+  try {
+    return new Date(d).toLocaleString('en-US', fmt === 'short'
+      ? { month: 'short', day: 'numeric', year: 'numeric' }
+      : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  } catch { return '—' }
+}
+
+// ── Live timer display ────────────────────────────────────────────────────────
+function LiveTimer({ startedAt }) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const start = new Date(startedAt).getTime()
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+
+  const h = Math.floor(elapsed / 3600)
+  const m = Math.floor((elapsed % 3600) / 60)
+  const s = elapsed % 60
+  const pad = (n) => String(n).padStart(2, '0')
+
+  return (
+    <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
+      {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
+    </span>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function TicketDetailClient() {
   const params   = useParams()
   const router   = useRouter()
@@ -13,23 +66,41 @@ export default function TicketDetailClient() {
 
   const [ticket,    setTicket]    = useState(null)
   const [comments,  setComments]  = useState([])
+  const [techUsers, setTechUsers] = useState([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState(null)
-  const [noteText,  setNoteText]  = useState('')
-  const [noteMode,  setNoteMode]  = useState('internal')
-  const [submitting, setSubmitting] = useState(false)
   const [updating,  setUpdating]  = useState(false)
+
+  // Notes
+  const [noteMode,   setNoteMode]   = useState('internal')
+  const [noteText,   setNoteText]   = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [attachment, setAttachment] = useState(null)
+  const fileInputRef = useRef(null)
+
+  // Sidebar edit fields
   const [editFields, setEditFields] = useState({
     contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '',
   })
-  const [techUsers, setTechUsers] = useState([])
-  const [techOpen,  setTechOpen]  = useState(false)
   const [techSearch, setTechSearch] = useState('')
-  const fileInputRef = useRef(null)
-  const [attachment, setAttachment] = useState(null)
+  const [techOpen,   setTechOpen]   = useState(false)
 
+  // Timer
+  const [timerSaving, setTimerSaving] = useState(false)
+  const [orgId,       setOrgId]       = useState(null)
+  const [myEmail,     setMyEmail]     = useState(null)
+
+  // ── Load data ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!id) return
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setMyEmail(user?.email ?? null)
+      const { data: member } = await supabase
+        .from('organization_members').select('organization_id').eq('user_id', user?.id).single()
+      if (member) setOrgId(member.organization_id)
+    }
+    init()
     loadTicket()
     loadComments()
     loadTechs()
@@ -37,22 +108,16 @@ export default function TicketDetailClient() {
 
   const loadTicket = async () => {
     setLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('tickets').select('*').eq('id', id).single()
-      if (error) { setError(error.message); return }
-      setTicket(data)
-      setEditFields({
-        contact_name:  data.contact_name  ?? '',
-        contact_email: data.contact_email ?? '',
-        sla_due_date:  data.sla_due_date  ? data.sla_due_date.slice(0, 16) : '',
-        assigned_to:   data.assigned_to   ?? '',
-      })
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
+    const { data, error } = await supabase.from('tickets').select('*').eq('id', id).single()
+    if (error) { setError(error.message); setLoading(false); return }
+    setTicket(data)
+    setEditFields({
+      contact_name:  data.contact_name  ?? '',
+      contact_email: data.contact_email ?? '',
+      sla_due_date:  data.sla_due_date  ? data.sla_due_date.slice(0, 16) : '',
+      assigned_to:   data.assigned_to   ?? '',
+    })
+    setLoading(false)
   }
 
   const loadComments = async () => {
@@ -67,6 +132,7 @@ export default function TicketDetailClient() {
     setTechUsers(data ?? [])
   }
 
+  // ── Field updates ───────────────────────────────────────────────────────────
   const updateField = async (field, value) => {
     setUpdating(true)
     await supabase.from('tickets').update({ [field]: value }).eq('id', id)
@@ -85,6 +151,48 @@ export default function TicketDetailClient() {
     }
   }
 
+  // ── Timer controls ──────────────────────────────────────────────────────────
+  const startTimer = async () => {
+    const now = new Date().toISOString()
+    await supabase.from('tickets').update({
+      timer_started: now,
+      status: ticket.status === 'open' ? 'in_progress' : ticket.status,
+    }).eq('id', id)
+    await loadTicket()
+  }
+
+  const stopTimer = async () => {
+    if (!ticket?.timer_started) return
+    setTimerSaving(true)
+
+    const startTime = new Date(ticket.timer_started).getTime()
+    const mins = Math.max(1, Math.round((Date.now() - startTime) / 60000))
+
+    // Clear timer on ticket
+    await supabase.from('tickets').update({ timer_started: null }).eq('id', id)
+
+    // Create time entry automatically
+    if (orgId) {
+      await supabase.from('time_entries').insert({
+        organization_id: orgId,
+        ticket_id:       id,
+        ticket_title:    ticket.title,
+        customer_id:     ticket.customer_id  || null,
+        customer_name:   ticket.customer_name || null,
+        technician:      myEmail,
+        description:     `Time on: ${ticket.title}`,
+        minutes:         mins,
+        billable:        true,
+        hourly_rate:     null,
+        date:            new Date().toISOString().split('T')[0],
+      })
+    }
+
+    setTimerSaving(false)
+    await loadTicket()
+  }
+
+  // ── Submit note ─────────────────────────────────────────────────────────────
   const submitNote = async () => {
     if (!noteText.trim() || submitting || !ticket) return
     setSubmitting(true)
@@ -118,38 +226,12 @@ export default function TicketDetailClient() {
       await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', id)
     }
 
-    setNoteText('')
-    setAttachment(null)
+    setNoteText(''); setAttachment(null)
     await loadComments()
     setSubmitting(false)
   }
 
-  const fmt = (d) => {
-    if (!d) return '—'
-    try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' }
-  }
-
-  const fmtDt = (d) => {
-    if (!d) return '—'
-    try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return '—' }
-  }
-
-  const PRIORITY_CLS = {
-    critical: 'bg-rose-100 text-rose-700 border-rose-200',
-    high:     'bg-orange-100 text-orange-700 border-orange-200',
-    medium:   'bg-amber-100 text-amber-700 border-amber-200',
-    low:      'bg-emerald-100 text-emerald-700 border-emerald-200',
-  }
-  const STATUS_CLS = {
-    open:        'bg-blue-100 text-blue-700',
-    in_progress: 'bg-violet-100 text-violet-700',
-    waiting:     'bg-amber-100 text-amber-700',
-    resolved:    'bg-emerald-100 text-emerald-700',
-    closed:      'bg-slate-100 text-slate-600',
-  }
-  const lbl = (s) => s?.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
-  const inp = "w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-
+  // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) return (
     <div className="max-w-5xl space-y-4 animate-pulse">
       <div className="h-5 w-36 bg-slate-100 dark:bg-slate-800 rounded" />
@@ -161,28 +243,24 @@ export default function TicketDetailClient() {
     </div>
   )
 
-  if (error) return (
-    <div className="text-center py-20">
-      <p className="text-rose-500 mb-2">Error loading ticket: {error}</p>
-      <button onClick={() => router.push('/tickets')} className="text-amber-500 hover:underline text-sm">← Back to Tickets</button>
-    </div>
-  )
-
-  if (!ticket) return (
+  if (error || !ticket) return (
     <div className="text-center py-20 text-slate-400">
-      <p className="text-lg font-medium mb-2">Ticket not found</p>
+      <p className="text-lg font-medium mb-2">{error || 'Ticket not found'}</p>
       <button onClick={() => router.push('/tickets')} className="text-amber-500 hover:underline text-sm">← Back to Tickets</button>
     </div>
   )
 
   const canEmailClient = !!ticket.contact_email
-  const filteredTechs = techUsers.filter(t => !techSearch || t.user_email.toLowerCase().includes(techSearch.toLowerCase()))
+  const filteredTechs  = techUsers.filter(t => !techSearch || t.user_email.toLowerCase().includes(techSearch.toLowerCase()))
+  const isTimerRunning = !!ticket.timer_started
+  const inp = "w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
   return (
     <div className="max-w-5xl space-y-4">
+      {/* Back */}
       <button onClick={() => router.push('/tickets')}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
-        ← Back to Tickets
+        <ArrowLeft className="w-4 h-4" /> Back to Tickets
       </button>
 
       {/* Header */}
@@ -195,7 +273,7 @@ export default function TicketDetailClient() {
             <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 capitalize">{ticket.category}</span>
             {ticket.customer_name && <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">{ticket.customer_name}</span>}
             {ticket.tags?.map(tag => (
-              <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 border border-violet-200">#{tag}</span>
+              <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border border-violet-200">#{tag}</span>
             ))}
           </div>
         </div>
@@ -208,7 +286,6 @@ export default function TicketDetailClient() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Main */}
         <div className="lg:col-span-2 space-y-4">
-
           {ticket.description && (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-3">Description</h3>
@@ -219,6 +296,7 @@ export default function TicketDetailClient() {
           {/* Notes & Replies */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+              <MessageSquare className="w-4 h-4 text-slate-400" />
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Notes &amp; Replies</h3>
               <span className="text-xs text-slate-400 ml-auto">{comments.length} entries</span>
             </div>
@@ -228,16 +306,17 @@ export default function TicketDetailClient() {
                   {comments.map(comment => (
                     <div key={comment.id} className={`rounded-lg border p-3 ${comment.is_staff ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/40' : 'bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900/40'}`}>
                       <div className="flex items-center gap-2 mb-2">
+                        {comment.is_staff ? <Lock className="w-3 h-3 text-amber-600" /> : <Mail className="w-3 h-3 text-blue-600" />}
                         <span className="font-medium text-slate-900 dark:text-white text-xs">{comment.author_name || comment.author_email}</span>
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${comment.is_staff ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                           {comment.is_staff ? 'Internal' : 'Client Reply'}
                         </span>
-                        <span className="text-xs text-slate-400 ml-auto">{fmtDt(comment.created_at)}</span>
+                        <span className="text-xs text-slate-400 ml-auto">{fmtDate(comment.created_at, 'long')}</span>
                       </div>
                       <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap text-xs leading-relaxed">{comment.content}</p>
                       {comment.attachment_url && (
                         <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                          📎 {comment.attachment_name || 'Attachment'}
+                          <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
                         </a>
                       )}
                     </div>
@@ -245,22 +324,21 @@ export default function TicketDetailClient() {
                 </div>
               )}
 
-              {/* Compose */}
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
                 <div className="flex border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
                   <button onClick={() => setNoteMode('internal')}
                     className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-r border-slate-200 dark:border-slate-700 ${noteMode === 'internal' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
-                    🔒 Internal Note
+                    <Lock className="w-3.5 h-3.5" /> Internal Note
                   </button>
                   <button onClick={() => setNoteMode('reply')}
                     className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors ${noteMode === 'reply' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
-                    ✉️ Reply to Client
+                    <Mail className="w-3.5 h-3.5" /> Reply to Client
                     {!canEmailClient && <span className="ml-1 text-[10px] text-rose-500">(no email)</span>}
                   </button>
                 </div>
                 <div className="p-3 space-y-2">
                   {noteMode === 'reply' && !canEmailClient && (
-                    <p className="text-xs text-rose-600 bg-rose-50 px-3 py-2 rounded border border-rose-200">No contact email — add one in the sidebar to enable replies.</p>
+                    <p className="text-xs text-rose-600 bg-rose-50 px-3 py-2 rounded border border-rose-200">No contact email — add one in the sidebar.</p>
                   )}
                   {noteMode === 'reply' && canEmailClient && (
                     <p className="text-xs text-blue-600">Will be emailed to <strong>{ticket.contact_email}</strong></p>
@@ -274,14 +352,15 @@ export default function TicketDetailClient() {
                       <input type="file" ref={fileInputRef} className="hidden" onChange={e => setAttachment(e.target.files?.[0] ?? null)} />
                       <button type="button" onClick={() => fileInputRef.current?.click()}
                         className="flex items-center gap-1 h-7 px-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors">
-                        📎 {attachment ? attachment.name : 'Attach'}
+                        <Paperclip className="w-3.5 h-3.5" />{attachment ? attachment.name : 'Attach'}
                       </button>
                       {attachment && <button onClick={() => setAttachment(null)} className="text-[11px] text-rose-500 hover:underline">Remove</button>}
                     </div>
                     <button onClick={submitNote}
                       disabled={!noteText.trim() || submitting || (noteMode === 'reply' && !canEmailClient)}
                       className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-colors ${noteMode === 'internal' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                      {submitting ? 'Saving…' : noteMode === 'internal' ? '🔒 Add Note' : '✉️ Send Reply'}
+                      {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {noteMode === 'internal' ? <><Lock className="w-3.5 h-3.5" /> Add Note</> : <><Send className="w-3.5 h-3.5" /> Send Reply</>}
                     </button>
                   </div>
                 </div>
@@ -292,89 +371,154 @@ export default function TicketDetailClient() {
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-4">
 
-            <div>
-              <p className="text-xs text-slate-400">Created</p>
-              <p className="text-sm text-slate-900 dark:text-white mt-0.5">{fmtDt(ticket.created_at)}</p>
+          {/* ── TIMER CARD ─────────────────────────────────────────────────── */}
+          <div className={`rounded-xl border shadow-sm p-4 ${isTimerRunning ? 'bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900/40' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Timer className={`w-4 h-4 ${isTimerRunning ? 'text-violet-600 dark:text-violet-400' : 'text-slate-400'}`} />
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Time Tracker</p>
             </div>
 
-            <div>
-              <p className="text-xs text-slate-400 mb-1">Priority</p>
-              <select value={ticket.priority} onChange={e => updateField('priority', e.target.value)} disabled={updating} className={inp}>
-                {['critical','high','medium','low'].map(p => <option key={p} value={p}>{lbl(p)}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-400 mb-1">Category</p>
-              <select value={ticket.category} onChange={e => updateField('category', e.target.value)} disabled={updating} className={inp}>
-                {['hardware','software','network','security','account','email','printing','other'].map(c => <option key={c} value={c}>{lbl(c)}</option>)}
-              </select>
-            </div>
-
-            <div className="relative">
-              <p className="text-xs text-slate-400 mb-1">Assigned To</p>
-              <div className="relative">
-                <input
-                  value={techOpen ? techSearch : (editFields.assigned_to || '')}
-                  onChange={e => { setTechSearch(e.target.value); setTechOpen(true); setEditFields(p => ({ ...p, assigned_to: e.target.value })) }}
-                  onFocus={() => { setTechSearch(editFields.assigned_to || ''); setTechOpen(true) }}
-                  onBlur={() => setTimeout(() => { setTechOpen(false); saveEditField('assigned_to') }, 150)}
-                  placeholder="Unassigned"
-                  className={`${inp} pr-6`} />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">▾</span>
-              </div>
-              {techOpen && filteredTechs.length > 0 && (
-                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                  {filteredTechs.map(t => (
-                    <button key={t.id} type="button"
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                      onMouseDown={() => { setEditFields(p => ({ ...p, assigned_to: t.user_email })); setTechOpen(false); updateField('assigned_to', t.user_email) }}>
-                      {t.user_email}
-                    </button>
-                  ))}
+            {isTimerRunning ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
+                  <span className="text-xs text-violet-600 dark:text-violet-400 font-medium">Timer running</span>
                 </div>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-400">Customer</p>
-              <p className="text-sm text-slate-900 dark:text-white mt-0.5">{ticket.customer_name || '—'}</p>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-400 mb-1">Contact Name</p>
-              <input value={editFields.contact_name}
-                onChange={e => setEditFields(p => ({ ...p, contact_name: e.target.value }))}
-                onBlur={() => saveEditField('contact_name')}
-                placeholder="Contact name" className={inp} />
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-400 mb-1">Contact Email</p>
-              <input type="email" value={editFields.contact_email}
-                onChange={e => setEditFields(p => ({ ...p, contact_email: e.target.value }))}
-                onBlur={() => saveEditField('contact_email')}
-                placeholder="email@client.com" className={inp} />
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-400 mb-1">SLA Due Date</p>
-              <input type="datetime-local" value={editFields.sla_due_date}
-                onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))}
-                onBlur={() => saveEditField('sla_due_date')}
-                className={inp} />
-            </div>
-
-            {ticket.time_spent_minutes > 0 && (
-              <div>
-                <p className="text-xs text-slate-400">Time Logged</p>
-                <p className="text-sm text-slate-900 dark:text-white mt-0.5">
-                  {Math.floor(ticket.time_spent_minutes / 60)}h {ticket.time_spent_minutes % 60}m
+                <LiveTimer startedAt={ticket.timer_started} />
+                <p className="text-[10px] text-slate-400">
+                  Started at {new Date(ticket.timer_started).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </p>
+                <button
+                  onClick={stopTimer}
+                  disabled={timerSaving}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors"
+                >
+                  {timerSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5 fill-white" />}
+                  {timerSaving ? 'Saving time entry…' : 'Stop & Log Time'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {ticket.time_spent_minutes > 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {Math.floor(ticket.time_spent_minutes / 60)}h {ticket.time_spent_minutes % 60}m logged so far
+                  </p>
+                )}
+                <button
+                  onClick={startTimer}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  Start Timer
+                </button>
+                <p className="text-[10px] text-slate-400 text-center">
+                  Automatically creates a time entry when stopped
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Ticket details card */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-4">
+
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-slate-400">Created</p>
+                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{fmtDate(ticket.created_at, 'long')}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Priority</p>
+                <select value={ticket.priority} onChange={e => updateField('priority', e.target.value)} disabled={updating} className={inp}>
+                  {['critical','high','medium','low'].map(p => <option key={p} value={p}>{lbl(p)}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <Tag className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Category</p>
+                <select value={ticket.category} onChange={e => updateField('category', e.target.value)} disabled={updating} className={inp}>
+                  {['hardware','software','network','security','account','email','printing','other'].map(c => <option key={c} value={c}>{lbl(c)}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1 relative">
+                <p className="text-xs text-slate-400 mb-1">Assigned To</p>
+                <div className="relative">
+                  <input
+                    value={techOpen ? techSearch : (editFields.assigned_to || '')}
+                    onChange={e => { setTechSearch(e.target.value); setTechOpen(true); setEditFields(p => ({ ...p, assigned_to: e.target.value })) }}
+                    onFocus={() => { setTechSearch(editFields.assigned_to || ''); setTechOpen(true) }}
+                    onBlur={() => setTimeout(() => { setTechOpen(false); saveEditField('assigned_to') }, 150)}
+                    placeholder="Unassigned"
+                    className={`${inp} pr-6`}
+                  />
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+                {techOpen && filteredTechs.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    {filteredTechs.map(t => (
+                      <button key={t.id} type="button"
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        onMouseDown={() => { setEditFields(p => ({ ...p, assigned_to: t.user_email })); setTechOpen(false); updateField('assigned_to', t.user_email) }}>
+                        {t.user_email}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <Building2 className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-slate-400">Customer</p>
+                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{ticket.customer_name || '—'}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Contact Name</p>
+                <input value={editFields.contact_name}
+                  onChange={e => setEditFields(p => ({ ...p, contact_name: e.target.value }))}
+                  onBlur={() => saveEditField('contact_name')}
+                  placeholder="Contact name" className={inp} />
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Contact Email</p>
+                <input type="email" value={editFields.contact_email}
+                  onChange={e => setEditFields(p => ({ ...p, contact_email: e.target.value }))}
+                  onBlur={() => saveEditField('contact_email')}
+                  placeholder="email@client.com" className={inp} />
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">SLA Due Date</p>
+                <input type="datetime-local" value={editFields.sla_due_date}
+                  onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))}
+                  onBlur={() => saveEditField('sla_due_date')}
+                  className={inp} />
+              </div>
+            </div>
 
           </div>
         </div>
