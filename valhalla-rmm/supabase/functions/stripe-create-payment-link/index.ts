@@ -1,52 +1,23 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function stripeRequest(path: string, method: string, body?: Record<string, unknown>) {
-  const key = Deno.env.get('STRIPE_SECRET_KEY')!
-  const encoded = body
-    ? Object.entries(flattenStripeParams(body))
-        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-        .join('&')
-    : undefined
-
+async function stripePost(path: string, params: Record<string, string>) {
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method,
+    method: 'POST',
     headers: {
-      'Authorization': `Bearer ${key}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Bearer ${Deno.env.get('STRIPE_SECRET_KEY')}`,
+      'Content-Type':  'application/x-www-form-urlencoded',
     },
-    body: encoded,
+    body: new URLSearchParams(params).toString(),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || `Stripe error: ${res.status}`)
+  if (!res.ok) throw new Error(data?.error?.message || `Stripe error ${res.status}`)
   return data
-}
-
-function flattenStripeParams(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const [key, value] of Object.entries(obj)) {
-    const fullKey = prefix ? `${prefix}[${key}]` : key
-    if (value === null || value === undefined) continue
-    if (typeof value === 'object' && !Array.isArray(value)) {
-      Object.assign(result, flattenStripeParams(value as Record<string, unknown>, fullKey))
-    } else if (Array.isArray(value)) {
-      value.forEach((item, i) => {
-        if (typeof item === 'object') {
-          Object.assign(result, flattenStripeParams(item as Record<string, unknown>, `${fullKey}[${i}]`))
-        } else {
-          result[`${fullKey}[${i}]`] = String(item)
-        }
-      })
-    } else {
-      result[fullKey] = String(value)
-    }
-  }
-  return result
 }
 
 serve(async (req) => {
@@ -56,26 +27,35 @@ serve(async (req) => {
 
   try {
     const { invoice_id } = await req.json()
+
     if (!invoice_id) {
       return new Response(JSON.stringify({ error: 'invoice_id is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
+    const supabaseUrl  = Deno.env.get('SUPABASE_URL')!
+    const supabaseKey  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const stripeKey    = Deno.env.get('STRIPE_SECRET_KEY')!
+
+    if (!stripeKey) throw new Error('STRIPE_SECRET_KEY secret is not set in Supabase Edge Function secrets')
+
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
     // Fetch invoice
     const { data: invoice, error: invErr } = await supabase
-      .from('invoices').select('*').eq('id', invoice_id).single()
-    if (invErr || !invoice) {
-      return new Response(JSON.stringify({ error: 'Invoice not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-    }
+      .from('invoices')
+      .select('id, invoice_number, total, amount_paid, status, line_items, contact_email, customer_id, customer_name')
+      .eq('id', invoice_id)
+      .single()
 
-    const balanceDue = invoice.balance_due ?? invoice.total ?? 0
-    if (balanceDue <= 0) {
+    if (invErr || !invoice) throw new Error(`Invoice not found: ${invErr?.message}`)
+
+    // Compute amount — balance_due is computed so derive it manually
+    const total      = Number(invoice.total ?? 0)
+    const amountPaid = Number(invoice.amount_paid ?? 0)
+    const balance    = Math.max(0, total - amountPaid)
+
+    if (balance <= 0) {
       return new Response(JSON.stringify({ error: 'Invoice is already paid' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
@@ -83,17 +63,20 @@ serve(async (req) => {
     // Get or create Stripe customer
     let stripeCustomerId: string | undefined
     if (invoice.customer_id) {
-      const { data: customer } = await supabase
-        .from('customers').select('stripe_customer_id, name, contact_email').eq('id', invoice.customer_id).single()
+      const { data: cust } = await supabase
+        .from('customers')
+        .select('stripe_customer_id, name, contact_email')
+        .eq('id', invoice.customer_id)
+        .single()
 
-      if (customer?.stripe_customer_id) {
-        stripeCustomerId = customer.stripe_customer_id
-      } else if (customer) {
-        const sc = await stripeRequest('/customers', 'POST', {
-          name:  customer.name,
-          email: invoice.contact_email || customer.contact_email || undefined,
-          metadata: { supabase_customer_id: invoice.customer_id },
-        })
+      if (cust?.stripe_customer_id) {
+        stripeCustomerId = cust.stripe_customer_id
+      } else if (cust) {
+        const custParams: Record<string, string> = { name: cust.name }
+        const email = invoice.contact_email || cust.contact_email
+        if (email) custParams['email'] = email
+        custParams['metadata[supabase_customer_id]'] = invoice.customer_id
+        const sc = await stripePost('/customers', custParams)
         stripeCustomerId = sc.id
         await supabase.from('customers').update({ stripe_customer_id: sc.id }).eq('id', invoice.customer_id)
       }
@@ -101,18 +84,17 @@ serve(async (req) => {
 
     const appUrl = 'https://project-mjonir.vercel.app'
 
-    // Build line items — Stripe checkout uses indexed params
-    const items = Array.isArray(invoice.line_items) && invoice.line_items.length > 0
+    // Build line items
+    const rawItems = Array.isArray(invoice.line_items) && invoice.line_items.length > 0
       ? invoice.line_items
-      : [{ description: `Invoice ${invoice.invoice_number}`, quantity: 1, unit_price: balanceDue }]
+      : [{ description: `Invoice ${invoice.invoice_number}`, quantity: 1, unit_price: balance }]
 
-    const sessionParams: Record<string, unknown> = {
-      mode: 'payment',
-      'success_url': `${appUrl}/invoices?payment=success&invoice=${invoice.invoice_number}`,
+    const sessionParams: Record<string, string> = {
+      'mode':        'payment',
+      'success_url': `${appUrl}/invoices?payment=success`,
       'cancel_url':  `${appUrl}/invoices?payment=cancelled`,
-      'metadata[invoice_id]':        invoice_id,
-      'metadata[invoice_number]':    invoice.invoice_number,
       'metadata[supabase_invoice_id]': invoice_id,
+      'metadata[invoice_number]':      invoice.invoice_number,
     }
 
     if (stripeCustomerId) {
@@ -121,18 +103,19 @@ serve(async (req) => {
       sessionParams['customer_email'] = invoice.contact_email
     }
 
-    // Add line items
-    items.forEach((item, i) => {
-      const total = Number(item.quantity) * Number(item.unit_price)
-      sessionParams[`line_items[${i}][price_data][currency]`]                  = 'usd'
-      sessionParams[`line_items[${i}][price_data][product_data][name]`]        = item.description || 'Service'
-      sessionParams[`line_items[${i}][price_data][unit_amount]`]               = Math.round(Number(item.unit_price) * 100)
-      sessionParams[`line_items[${i}][quantity]`]                              = Number(item.quantity)
+    rawItems.forEach((item, i) => {
+      const cents = Math.round(Number(item.unit_price ?? 0) * 100)
+      const qty   = String(Math.max(1, Math.round(Number(item.quantity ?? 1))))
+      const name  = String(item.description || 'Service').slice(0, 250)
+      sessionParams[`line_items[${i}][price_data][currency]`]           = 'usd'
+      sessionParams[`line_items[${i}][price_data][product_data][name]`] = name
+      sessionParams[`line_items[${i}][price_data][unit_amount]`]        = String(cents)
+      sessionParams[`line_items[${i}][quantity]`]                       = qty
     })
 
-    const session = await stripeRequest('/checkout/sessions', 'POST', sessionParams)
+    const session = await stripePost('/checkout/sessions', sessionParams)
 
-    // Save URL back to invoice
+    // Save URL to invoice
     await supabase.from('invoices').update({
       stripe_payment_url: session.url,
       status: invoice.status === 'draft' ? 'sent' : invoice.status,
@@ -142,7 +125,7 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }),
+    return new Response(JSON.stringify({ error: String(err?.message ?? err) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 })
