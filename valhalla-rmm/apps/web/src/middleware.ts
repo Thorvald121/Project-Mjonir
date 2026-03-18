@@ -5,6 +5,8 @@ const PUBLIC_ROUTES = [
   '/login',
   '/portal/login',
   '/invite',
+  '/forgot-password',
+  '/reset-password',
   '/csat',
   '/quote-approval',
   '/auth/callback',
