@@ -1,13 +1,13 @@
 // @ts-nocheck
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { Plus, Search, BookOpen, Pencil, Trash2, Loader2, X } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
-  const ref = React.useRef(onRefresh)
+  const ref = useRef(onRefresh)
   ref.current = onRefresh
-  React.useEffect(() => {
+  useEffect(() => {
     const h = (e) => {
       if (!tables.length || tables.includes(e.detail?.table)) ref.current()
     }

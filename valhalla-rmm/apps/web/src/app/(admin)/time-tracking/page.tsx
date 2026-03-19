@@ -1,14 +1,13 @@
 // @ts-nocheck
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { format, parseISO } from 'date-fns'
 import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
-  const ref = React.useRef(onRefresh)
+  const ref = useRef(onRefresh)
   ref.current = onRefresh
-  React.useEffect(() => {
+  useEffect(() => {
     const h = (e) => {
       if (!tables.length || tables.includes(e.detail?.table)) ref.current()
     }
@@ -232,7 +231,7 @@ export default function TimeTrackingPage() {
     return d.toISOString().slice(0, 7)
   })
 
-  const fmt = (d) => { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return '—' } }
+  const fmt = (d) => { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
 
   return (
     <div className="space-y-4">
@@ -265,7 +264,7 @@ export default function TimeTrackingPage() {
           <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)} className={sel}>
             <option value="all">All Time</option>
             {monthOptions.map(m => (
-              <option key={m} value={m}>{format(parseISO(m + '-01'), 'MMM yyyy')}</option>
+              <option key={m} value={m}>{new Date(m + '-02').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</option>
             ))}
           </select>
           <select value={techFilter} onChange={e => setTechFilter(e.target.value)} className={sel}>

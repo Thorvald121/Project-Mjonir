@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { format, parseISO, addDays } from 'date-fns'
 import {
   Plus, FileText, Send, CheckCircle2, RotateCcw,
   Trash2, Edit, Clock, DollarSign, TrendingUp, X,
@@ -34,7 +33,7 @@ const STATUS_CFG = {
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 const BLANK_ITEM = { description: '', quantity: '1', unit_price: '' }
 
-function fmt(d) { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' } }
+function fmt(d) { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d } }
 
 function calcTotals(items, taxRate, discountAmt, discountPct) {
   const sub = items.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unit_price || 0)), 0)
@@ -57,7 +56,7 @@ function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = 
 function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) {
   const supabase = createSupabaseBrowserClient()
   const today = new Date().toISOString().split('T')[0]
-  const defaultExpiry = format(addDays(new Date(), 30), 'yyyy-MM-dd')
+  const defaultExpiry = (() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0] })()
   const blank = {
     customer_id: '', customer_name: '', contact_name: '', contact_email: '',
     title: '', issue_date: today, expiry_date: defaultExpiry,
@@ -347,7 +346,7 @@ export default function QuotesPage() {
     if (!confirm(`Convert ${q.quote_number} to an invoice?`)) return
     setConverting(q.id)
     const today = new Date().toISOString().split('T')[0]
-    const dueDate = format(addDays(new Date(), 30), 'yyyy-MM-dd')
+    const dueDate = (() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0] })()
     const { error } = await supabase.from('invoices').insert({
       organization_id: orgId, invoice_number: `INV-${Date.now().toString().slice(-6)}`,
       customer_id: q.customer_id, customer_name: q.customer_name,

@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { format, parseISO } from 'date-fns'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
   CheckCircle2, Send, Trash2, Eye, X, Loader2,
@@ -54,7 +53,7 @@ function calcTotals(items, taxRate, discountAmt, discountPct) {
   return { subtotal: sub, discount_amount: pctDisc + flat, taxAmount: tax, total: taxable + tax }
 }
 
-function fmt(d) { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return d || '—' } }
+function fmt(d) { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d } }
 
 function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) {
   return (
