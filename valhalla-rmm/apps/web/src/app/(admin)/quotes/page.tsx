@@ -325,7 +325,7 @@ export default function QuotesPage() {
 
   useRealtimeRefresh(['quotes'], loadAll)
 
-  const loadAll = async () => {
+  async function loadAll() {
     setLoading(true)
     const [q, c] = await Promise.all([
       supabase.from('quotes').select('*').order('created_at', { ascending: false }).limit(200),

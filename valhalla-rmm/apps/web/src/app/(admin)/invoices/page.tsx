@@ -507,7 +507,7 @@ export default function InvoicesPage() {
 
   useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
 
-  const loadAll = async () => {
+  async function loadAll() {
     setLoading(true)
     const [inv, cust, time] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),

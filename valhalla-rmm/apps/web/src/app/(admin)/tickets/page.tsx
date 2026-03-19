@@ -186,7 +186,7 @@ export default function TicketsPage() {
   // Auto-refresh when tickets change anywhere
   useRealtimeRefresh(['tickets'], loadAll)
 
-  const loadAll = async () => {
+  async function loadAll() {
     setLoading(true)
     const [t, c] = await Promise.all([
       supabase.from('tickets').select('*').order('created_at', { ascending: false }).limit(200),

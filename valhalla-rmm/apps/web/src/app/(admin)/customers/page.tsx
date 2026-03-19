@@ -199,7 +199,7 @@ export default function CustomersPage() {
 
   useRealtimeRefresh(['customers'], loadCustomers)
 
-  const loadCustomers = async () => {
+  async function loadCustomers() {
     setLoading(true)
     const { data } = await supabase.from('customers').select('*').order('name').limit(200)
     setCustomers(data ?? [])

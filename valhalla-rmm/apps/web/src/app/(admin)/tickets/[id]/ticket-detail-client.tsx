@@ -106,7 +106,7 @@ export default function TicketDetailClient() {
     loadComments()
   })
 
-  const loadTicket = async () => {
+  async function loadTicket() {
     setLoading(true)
     const { data, error } = await supabase.from('tickets').select('*').eq('id', id).single()
     if (error) { setError(error.message); setLoading(false); return }
@@ -120,12 +120,12 @@ export default function TicketDetailClient() {
     setLoading(false)
   }
 
-  const loadComments = async () => {
+  async function loadComments() {
     const { data } = await supabase.from('ticket_comments').select('*').eq('ticket_id', id).order('created_at', { ascending: true })
     setComments(data ?? [])
   }
 
-  const loadTechs = async () => {
+  async function loadTechs() {
     const { data } = await supabase.from('organization_members').select('id,user_email').in('role', ['owner','admin','technician'])
     setTechUsers(data ?? [])
   }

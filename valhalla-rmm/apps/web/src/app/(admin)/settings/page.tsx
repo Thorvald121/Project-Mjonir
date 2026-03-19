@@ -247,7 +247,7 @@ function TeamSection({ orgId }) {
 
   useRealtimeRefresh(['organization_members'], loadMembers)
 
-  const loadMembers = async () => {
+  async function loadMembers() {
     setLoading(true)
     const { data } = await supabase.from('organization_members').select('*').eq('organization_id', orgId).order('created_at')
     setMembers(data ?? [])
@@ -392,7 +392,7 @@ export default function SettingsPage() {
     init()
   }, [])
 
-  const loadOrg = async () => {
+  async function loadOrg() {
     if (!orgId) return
     const { data } = await supabase.from('organizations').select('*').eq('id', orgId).single()
     setOrg(data)

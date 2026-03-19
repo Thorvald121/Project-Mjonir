@@ -192,7 +192,7 @@ export default function TimeTrackingPage() {
 
   useRealtimeRefresh(['time_entries'], loadAll)
 
-  const loadAll = async () => {
+  async function loadAll() {
     setLoading(true)
     const [ent, tick, cust] = await Promise.all([
       supabase.from('time_entries').select('*').order('date', { ascending: false }).limit(1000),
