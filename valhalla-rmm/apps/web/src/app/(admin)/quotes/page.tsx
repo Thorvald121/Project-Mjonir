@@ -1,17 +1,26 @@
 // @ts-nocheck
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 import { format, parseISO, addDays } from 'date-fns'
 import {
   Plus, FileText, Send, CheckCircle2, RotateCcw,
   Trash2, Edit, Clock, DollarSign, TrendingUp, X,
   Loader2, Eye,
 } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = useRef(onRefresh)
+  ref.current = onRefresh
+  useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [tables.join(',')])
+}
 
 const STATUS_CFG = {
   draft:     { label: 'Draft',     cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
@@ -22,7 +31,6 @@ const STATUS_CFG = {
   expired:   { label: 'Expired',   cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
   converted: { label: 'Converted', cls: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' },
 }
-
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 const BLANK_ITEM = { description: '', quantity: '1', unit_price: '' }
 
@@ -81,11 +89,7 @@ function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) 
   }, [editing, open])
 
   const updateItem = (i, field, val) => {
-    setForm(f => {
-      const items = [...f.line_items]
-      items[i] = { ...items[i], [field]: val }
-      return { ...f, line_items: items }
-    })
+    setForm(f => { const items = [...f.line_items]; items[i] = { ...items[i], [field]: val }; return { ...f, line_items: items } })
   }
 
   const handleSave = async () => {
@@ -177,8 +181,7 @@ function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) 
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Message to Client</label>
             <textarea value={form.message_to_client} onChange={e => sf('message_to_client', e.target.value)} rows={3}
-              placeholder="Thank you for considering our services. Please review this proposal and approve below..."
-              className={`mt-1 ${inp} resize-none`} />
+              placeholder="Thank you for considering our services..." className={`mt-1 ${inp} resize-none`} />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Line Items</label>
@@ -196,8 +199,7 @@ function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) 
                     className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <div className="col-span-2 flex items-center gap-1">
                     <span className="text-sm font-medium text-slate-900 dark:text-white flex-1">${(Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2)}</span>
-                    <button onClick={() => setForm(f => ({ ...f, line_items: f.line_items.filter((_, j) => j !== i) }))}
-                      className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors"><X className="w-3 h-3" /></button>
+                    <button onClick={() => setForm(f => ({ ...f, line_items: f.line_items.filter((_, j) => j !== i) }))} className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors"><X className="w-3 h-3" /></button>
                   </div>
                 </div>
               ))}
@@ -215,8 +217,7 @@ function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) 
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Internal Notes</label>
-            <textarea value={form.notes} onChange={e => sf('notes', e.target.value)} rows={2}
-              placeholder="Internal notes (not shown to client)" className={`mt-1 ${inp} resize-none`} />
+            <textarea value={form.notes} onChange={e => sf('notes', e.target.value)} rows={2} placeholder="Internal notes (not shown to client)" className={`mt-1 ${inp} resize-none`} />
           </div>
           <div className="flex gap-2 pt-2">
             <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
@@ -233,10 +234,10 @@ function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) 
 
 function SendQuoteDialog({ quote, onClose, onSent }) {
   const supabase = createSupabaseBrowserClient()
-  const [email,   setEmail]   = useState(quote?.contact_email || '')
+  const [email, setEmail] = useState(quote?.contact_email || '')
   const [sending, setSending] = useState(false)
-  const [sent,    setSent]    = useState(false)
-  const [err,     setErr]     = useState(null)
+  const [sent, setSent] = useState(false)
+  const [err, setErr] = useState(null)
 
   if (!quote) return null
   const items = Array.isArray(quote.line_items) ? quote.line_items : []
@@ -246,58 +247,13 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
   const handleSend = async () => {
     if (!email.trim()) { setErr('Email address is required'); return }
     setSending(true); setErr(null)
-
-    const lineRows = items.map(i =>
-      `<tr>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;">${i.description}</td>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${i.quantity}</td>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price || 0).toFixed(2)}</td>
-        <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;">$${(Number(i.quantity || 0) * Number(i.unit_price || 0)).toFixed(2)}</td>
-      </tr>`
-    ).join('')
-
-    const html = `
-<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;background:#f8fafc;">
-  <div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;">
-    <h1 style="color:#f59e0b;margin:0;font-size:24px;">${quote.quote_number}</h1>
-    <p style="color:#94a3b8;margin:8px 0 0;font-size:14px;">Issued: ${quote.issue_date} &nbsp;·&nbsp; Expires: ${quote.expiry_date || '—'}</p>
-    <h2 style="color:#f8fafc;font-size:18px;margin-top:16px;margin-bottom:0;">${quote.title}</h2>
-  </div>
-  <div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
-    ${quote.message_to_client ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin-top:0;">${quote.message_to_client}</p>` : ''}
-    <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-      <thead><tr style="background:#f1f5f9;">
-        <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;">Description</th>
-        <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;">Qty</th>
-        <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Rate</th>
-        <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Total</th>
-      </tr></thead>
-      <tbody>${lineRows}</tbody>
-    </table>
-    <div style="text-align:right;padding:12px 0;border-top:2px solid #0f172a;">
-      ${(quote.discount_amount || 0) > 0 ? `<p style="color:#10b981;margin:4px 0;">Discount: -$${Number(quote.discount_amount).toFixed(2)}</p>` : ''}
-      ${(quote.tax_rate || 0) > 0 ? `<p style="color:#64748b;margin:4px 0;">Tax (${quote.tax_rate}%): $${Number(quote.tax_amount || 0).toFixed(2)}</p>` : ''}
-      <p style="font-size:20px;font-weight:bold;color:#0f172a;margin:8px 0 0;">Total: $${Number(quote.total || 0).toFixed(2)}</p>
-    </div>
-    ${quote.notes ? `<p style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:8px;color:#64748b;font-size:13px;">${quote.notes}</p>` : ''}
-    <div style="text-align:center;margin-top:32px;">
-      <a href="${approvalUrl}" style="display:inline-block;background:#10b981;color:#ffffff;padding:14px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;">
-        ✓ Review &amp; Approve This Quote
-      </a>
-      <p style="color:#94a3b8;font-size:12px;margin-top:12px;">This quote expires on ${quote.expiry_date || 'N/A'}.</p>
-    </div>
-  </div>
-</div>`
-
-    const { error } = await supabase.functions.invoke('send-invoice-email', {
-      body: { to: email.trim(), subject: `Quote ${quote.quote_number} — ${quote.title} ($${Number(quote.total || 0).toFixed(2)})`, html }
-    })
-
+    const lineRows = items.map(i => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;">${i.description}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${i.quantity}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price || 0).toFixed(2)}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;">$${(Number(i.quantity || 0) * Number(i.unit_price || 0)).toFixed(2)}</td></tr>`).join('')
+    const html = `<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;background:#f8fafc;"><div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;"><h1 style="color:#f59e0b;margin:0;font-size:24px;">${quote.quote_number}</h1><p style="color:#94a3b8;margin:8px 0 0;font-size:14px;">Issued: ${quote.issue_date} &nbsp;·&nbsp; Expires: ${quote.expiry_date || '—'}</p><h2 style="color:#f8fafc;font-size:18px;margin-top:16px;margin-bottom:0;">${quote.title}</h2></div><div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">${quote.message_to_client ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin-top:0;">${quote.message_to_client}</p>` : ''}<table style="width:100%;border-collapse:collapse;margin:16px 0;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;">Description</th><th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;">Qty</th><th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Rate</th><th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Total</th></tr></thead><tbody>${lineRows}</tbody></table><div style="text-align:right;padding:12px 0;border-top:2px solid #0f172a;"><p style="font-size:20px;font-weight:bold;color:#0f172a;margin:8px 0 0;">Total: $${Number(quote.total || 0).toFixed(2)}</p></div><div style="text-align:center;margin-top:32px;"><a href="${approvalUrl}" style="display:inline-block;background:#10b981;color:#ffffff;padding:14px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;">✓ Review &amp; Approve This Quote</a><p style="color:#94a3b8;font-size:12px;margin-top:12px;">This quote expires on ${quote.expiry_date || 'N/A'}.</p></div></div></div>`
+    const { error } = await supabase.functions.invoke('send-invoice-email', { body: { to: email.trim(), subject: `Quote ${quote.quote_number} — ${quote.title} ($${Number(quote.total || 0).toFixed(2)})`, html } })
     if (error) {
       window.location.href = `mailto:${email}?subject=Quote ${quote.quote_number}&body=Please review your quote at: ${approvalUrl}`
       setSending(false); onClose(); return
     }
-
     await supabase.from('quotes').update({ status: 'sent' }).eq('id', quote.id)
     setSending(false); setSent(true)
     setTimeout(() => { onSent(); onClose() }, 1500)
@@ -320,12 +276,11 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
           <div className="space-y-4">
             <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-sm space-y-1.5">
               <div className="flex justify-between"><span className="text-slate-400">Quote</span><span className="font-medium text-slate-900 dark:text-white">{quote.quote_number}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Title</span><span className="text-slate-700 dark:text-slate-300 truncate max-w-[240px]">{quote.title}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Total</span><span className="font-bold text-slate-900 dark:text-white">${Number(quote.total || 0).toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Expires</span><span className="text-amber-500">{fmt(quote.expiry_date)}</span></div>
             </div>
             <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 rounded-lg text-xs text-blue-700 dark:text-blue-400">
-              The email will include an <strong>Approve / Reject</strong> link. When the client approves, you can convert it to an invoice in one click.
+              The email will include an <strong>Approve / Reject</strong> link.
             </div>
             {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
             <div>
@@ -369,7 +324,6 @@ export default function QuotesPage() {
     init()
   }, [])
 
-  // Auto-refresh when quotes change elsewhere (e.g. client approves)
   useRealtimeRefresh(['quotes'], loadAll)
 
   const loadAll = async () => {
@@ -425,7 +379,6 @@ export default function QuotesPage() {
           <Plus className="w-4 h-4" /> New Quote
         </button>
       </div>
-
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Pipeline Value',    value: `$${pipelineValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: TrendingUp,   color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
@@ -444,7 +397,6 @@ export default function QuotesPage() {
           </div>
         ))}
       </div>
-
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {loading ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -473,47 +425,26 @@ export default function QuotesPage() {
             {quotes.map(q => {
               const cfg = STATUS_CFG[q.status] || STATUS_CFG.draft
               const isExpired = q.expiry_date && new Date(q.expiry_date) < new Date() && !['approved','converted','rejected'].includes(q.status)
-              const isConverting = converting === q.id
               return (
                 <div key={q.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-slate-900 dark:text-white">{q.quote_number}</p>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
-                      {isExpired && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
-                          <Clock className="w-2.5 h-2.5" />Expired
-                        </span>
-                      )}
+                      {isExpired && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1"><Clock className="w-2.5 h-2.5" />Expired</span>}
                     </div>
                     <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{q.title}</p>
-                    <p className="text-xs text-slate-400">
-                      {q.customer_name} · Issued {fmt(q.issue_date)}
-                      {q.expiry_date && ` · Expires ${fmt(q.expiry_date)}`}
-                    </p>
+                    <p className="text-xs text-slate-400">{q.customer_name} · Issued {fmt(q.issue_date)}{q.expiry_date && ` · Expires ${fmt(q.expiry_date)}`}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-lg font-bold text-slate-900 dark:text-white">${(q.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    {!['approved','converted'].includes(q.status) && (
-                      <Btn icon={Edit} onClick={() => { setEditing(q); setFormOpen(true) }} title="Edit quote" />
-                    )}
-                    {['draft','sent'].includes(q.status) && (
-                      <Btn icon={Send} onClick={() => setSending(q)} title="Send to client" color="text-blue-500" />
-                    )}
-                    {q.approval_token && (
-                      <Btn icon={Eye}
-                        onClick={() => window.open(`${typeof window !== 'undefined' ? window.location.origin : ''}/quote-approval?token=${q.approval_token}`, '_blank')}
-                        title="Preview approval page" color="text-violet-500" />
-                    )}
-                    {q.status === 'approved' && (
-                      <Btn icon={RotateCcw} onClick={() => handleConvertToInvoice(q)} title="Convert to invoice"
-                        color="text-emerald-500" spinning={isConverting} />
-                    )}
-                    {q.status !== 'converted' && (
-                      <Btn icon={Trash2} onClick={() => handleDelete(q)} title="Delete quote" color="text-rose-400" />
-                    )}
+                    {!['approved','converted'].includes(q.status) && <Btn icon={Edit} onClick={() => { setEditing(q); setFormOpen(true) }} title="Edit quote" />}
+                    {['draft','sent'].includes(q.status) && <Btn icon={Send} onClick={() => setSending(q)} title="Send to client" color="text-blue-500" />}
+                    {q.approval_token && <Btn icon={Eye} onClick={() => window.open(`${typeof window !== 'undefined' ? window.location.origin : ''}/quote-approval?token=${q.approval_token}`, '_blank')} title="Preview approval page" color="text-violet-500" />}
+                    {q.status === 'approved' && <Btn icon={RotateCcw} onClick={() => handleConvertToInvoice(q)} title="Convert to invoice" color="text-emerald-500" spinning={converting === q.id} />}
+                    {q.status !== 'converted' && <Btn icon={Trash2} onClick={() => handleDelete(q)} title="Delete quote" color="text-rose-400" />}
                   </div>
                 </div>
               )
@@ -521,21 +452,8 @@ export default function QuotesPage() {
           </div>
         )}
       </div>
-
-      <QuoteFormDialog
-        open={formOpen}
-        onClose={() => { setFormOpen(false); setEditing(null) }}
-        onSaved={() => { setFormOpen(false); setEditing(null); loadAll() }}
-        editing={editing} orgId={orgId} customers={customers}
-      />
-
-      {sending && (
-        <SendQuoteDialog
-          quote={sending}
-          onClose={() => setSending(null)}
-          onSent={() => { setSending(null); loadAll() }}
-        />
-      )}
+      <QuoteFormDialog open={formOpen} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); loadAll() }} editing={editing} orgId={orgId} customers={customers} />
+      {sending && <SendQuoteDialog quote={sending} onClose={() => setSending(null)} onSent={() => { setSending(null); loadAll() }} />}
     </div>
   )
 }

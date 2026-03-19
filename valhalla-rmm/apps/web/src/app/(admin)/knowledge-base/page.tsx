@@ -1,12 +1,20 @@
 // @ts-nocheck
 'use client'
-
-export const dynamic = 'force-dynamic'
-
 import { useState, useMemo, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 import { Plus, Search, BookOpen, Pencil, Trash2, Loader2, X } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = React.useRef(onRefresh)
+  ref.current = onRefresh
+  React.useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener("supabase:change", h)
+    return () => window.removeEventListener("supabase:change", h)
+  }, [tables.join(",")]) // eslint-disable-line
+}
 
 const CATEGORY_CLS = {
   troubleshooting: 'bg-rose-100 text-rose-700',

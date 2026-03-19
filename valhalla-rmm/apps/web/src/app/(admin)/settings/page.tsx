@@ -1,17 +1,26 @@
 // @ts-nocheck
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 import {
   Loader2, Save, Shield, User, Clock,
   Building2, Zap, ChevronRight, CheckCircle2,
   AlertCircle, Settings2, Mail, Users,
 } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = useRef(onRefresh)
+  ref.current = onRefresh
+  useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [tables.join(',')])
+}
 
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
@@ -75,7 +84,7 @@ function OrgSection({ org, onSaved }) {
       <FieldRow label="Company Name">
         <input value={form.name} onChange={e => sf('name', e.target.value)} className={inp} />
       </FieldRow>
-      <FieldRow label="Support Email" hint="Must match the Gmail account connected for email-to-ticket ingestion.">
+      <FieldRow label="Support Email" hint="Used for notifications and admin alerts.">
         <input type="email" value={form.company_email} onChange={e => sf('company_email', e.target.value)} placeholder="support@yourcompany.com" className={inp} />
       </FieldRow>
       <FieldRow label="App URL" hint="Public URL — used in CSAT links and email footers.">
@@ -105,40 +114,33 @@ function OrgSection({ org, onSaved }) {
 
 function SlaSection({ org, onSaved }) {
   const supabase = createSupabaseBrowserClient()
-  const [sla,   setSla]   = useState({ critical: 1, high: 4, medium: 24, low: 72 })
-  const [notif, setNotif] = useState({ ticket_assigned_email: true, sla_breach_email: true, customer_reply_push: true })
+  const [sla,         setSla]         = useState({ critical: 1, high: 4, medium: 24, low: 72 })
+  const [notif,       setNotif]       = useState({ ticket_assigned_email: true, sla_breach_email: true, customer_reply_push: true })
   const [savingSla,   setSavingSla]   = useState(false)
   const [savingNotif, setSavingNotif] = useState(false)
   const [savedSla,    setSavedSla]    = useState(false)
   const [savedNotif,  setSavedNotif]  = useState(false)
 
   useEffect(() => {
-    if (org?.sla_config) {
-      try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {}
-    }
-    if (org?.notification_config) {
-      try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {}
-    }
+    if (org?.sla_config) { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
+    if (org?.notification_config) { try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
   }, [org])
 
   const saveSla = async () => {
     setSavingSla(true)
     await supabase.from('organizations').update({ sla_config: sla }).eq('id', org.id)
     setSavingSla(false); setSavedSla(true)
-    setTimeout(() => setSavedSla(false), 2000)
-    onSaved()
+    setTimeout(() => setSavedSla(false), 2000); onSaved()
   }
 
   const saveNotif = async () => {
     setSavingNotif(true)
     await supabase.from('organizations').update({ notification_config: notif }).eq('id', org.id)
     setSavingNotif(false); setSavedNotif(true)
-    setTimeout(() => setSavedNotif(false), 2000)
-    onSaved()
+    setTimeout(() => setSavedNotif(false), 2000); onSaved()
   }
 
   const PCLS = { critical: 'text-rose-500', high: 'text-orange-500', medium: 'text-amber-500', low: 'text-emerald-500' }
-
   return (
     <Section title="SLA & Alerts" description="Response time targets and notification preferences.">
       <div>
@@ -264,11 +266,8 @@ function TeamSection({ orgId }) {
       setSuccess(`Invite sent to ${invEmail.trim()}`)
       setInvEmail('')
       loadMembers()
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setInviting(false)
-    }
+    } catch (e) { setErr(e.message) }
+    finally { setInviting(false) }
   }
 
   const updateRole = async (memberId, role) => {
@@ -307,7 +306,6 @@ function TeamSection({ orgId }) {
         {err     && <p className="text-xs text-rose-600">{err}</p>}
         {success && <p className="text-xs text-emerald-600">✓ {success}</p>}
       </div>
-
       <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-sm">Loading…</div>
@@ -345,15 +343,9 @@ function TeamSection({ orgId }) {
 
 function AccountSection({ user }) {
   const supabase = createSupabaseBrowserClient()
-  const router   = useRouter()
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
+  const router = useRouter()
+  const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login') }
   const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
-
   return (
     <Section title="My Account" description="Your personal account details.">
       <FieldRow label="Email" hint="Email cannot be changed here.">
@@ -368,8 +360,7 @@ function AccountSection({ user }) {
         </div>
       </FieldRow>
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
-        <button onClick={handleSignOut}
-          className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+        <button onClick={handleSignOut} className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
           Sign Out
         </button>
       </div>

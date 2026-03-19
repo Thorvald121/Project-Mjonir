@@ -1,13 +1,21 @@
 // @ts-nocheck
 'use client'
-
-export const dynamic = 'force-dynamic'
-
 import { useState, useMemo, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 import { format, parseISO } from 'date-fns'
 import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = React.useRef(onRefresh)
+  ref.current = onRefresh
+  React.useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener("supabase:change", h)
+    return () => window.removeEventListener("supabase:change", h)
+  }, [tables.join(",")]) // eslint-disable-line
+}
 
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 const sel = "px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
