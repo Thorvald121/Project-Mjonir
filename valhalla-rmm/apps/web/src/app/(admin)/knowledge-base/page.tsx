@@ -1,6 +1,8 @@
 // @ts-nocheck
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useState, useMemo, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
