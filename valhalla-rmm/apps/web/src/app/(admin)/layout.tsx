@@ -1,7 +1,5 @@
 'use client'
 
-
-
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -33,37 +31,67 @@ const ADMIN_ITEMS = [
   { label: 'Settings',            icon: Settings,  href: '/settings' },
 ]
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
-  const router = useRouter()
-  const supabase = createSupabaseBrowserClient()
+// Tables to watch for real-time changes
+const REALTIME_TABLES = [
+  'tickets',
+  'ticket_comments',
+  'customers',
+  'customer_contacts',
+  'invoices',
+  'quotes',
+  'time_entries',
+  'knowledge_articles',
+  'organization_members',
+]
 
-  const [collapsed, setCollapsed] = useState(false)
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const pathname  = usePathname()
+  const router    = useRouter()
+  const supabase  = createSupabaseBrowserClient()
+
+  const [collapsed,  setCollapsed]  = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [dark, setDark] = useState(false)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [dark,       setDark]       = useState(false)
+  const [userEmail,  setUserEmail]  = useState<string | null>(null)
 
   useEffect(() => {
-    const init = async () => {
-      const savedTheme = localStorage.getItem('theme')
-      setDark(savedTheme === 'dark')
-      document.documentElement.classList.toggle('dark', savedTheme === 'dark')
+    // Load theme preference
+    const saved  = localStorage.getItem('theme')
+    const isDark = saved === 'dark'
+    setDark(isDark)
+    document.documentElement.classList.toggle('dark', isDark)
 
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.replace('/login'); return }
-      setUserEmail(user.email ?? null)
+    // Get current user
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email ?? null)
+    })
+  }, [])
 
-      // Check role - redirect clients away from admin
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('role')
-        .eq('user_id', user.id)
-        .single()
+  // ── Global real-time subscriptions ─────────────────────────────────────────
+  // Subscribes to all key tables and emits a custom DOM event that pages
+  // can listen to with useRealtimeRefresh or window.addEventListener.
+  // This way no individual page needs its own Supabase channel setup.
+  useEffect(() => {
+    const channel = supabase.channel('global-admin-realtime')
 
-      const role = member?.role ?? 'client'
-      if (role === 'client') {
-        router.replace('/portal')
-      }
+    REALTIME_TABLES.forEach(table => {
+      channel.on(
+        // @ts-ignore
+        'postgres_changes',
+        { event: '*', schema: 'public', table },
+        (payload: any) => {
+          // Dispatch a custom event so any page component can listen
+          window.dispatchEvent(new CustomEvent('supabase:change', {
+            detail: { table, event: payload.eventType }
+          }))
+        }
+      )
+    })
+
+    channel.subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
   }, [])
 
