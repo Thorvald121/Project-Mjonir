@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 import { format, parseISO, addDays } from 'date-fns'
 import {
   Plus, FileText, Send, CheckCircle2, RotateCcw,
@@ -365,6 +366,9 @@ export default function QuotesPage() {
     }
     init()
   }, [])
+
+  // Auto-refresh when quotes change elsewhere (e.g. client approves)
+  useRealtimeRefresh(['quotes'], loadAll)
 
   const loadAll = async () => {
     setLoading(true)

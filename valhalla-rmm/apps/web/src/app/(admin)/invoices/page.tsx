@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useRealtimeRefresh } from '@/hooks/useRealtimeRefresh'
 import { format, parseISO } from 'date-fns'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
@@ -631,6 +632,9 @@ export default function InvoicesPage() {
     }
     init()
   }, [])
+
+  // Auto-refresh when invoices or time_entries change elsewhere
+  useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
 
   const loadAll = async () => {
     setLoading(true)
