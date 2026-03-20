@@ -54,7 +54,7 @@ function getSlaLabel(slaDue, status) {
   return h > 0 ? `${h}h ${m}m left` : `${m}m left`
 }
 
-function NewTicketDialog({ open, onClose, onSaved, customers }) {
+function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   const supabase = createSupabaseBrowserClient()
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState(null)
@@ -71,6 +71,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers }) {
     const cust = customers.find(c => c.id === form.customer_id)
     const tags = form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []
     const { error } = await supabase.from('tickets').insert({
+      organization_id: orgId,
       title:         form.title.trim(),
       description:   form.description || null,
       priority:      form.priority,
@@ -372,6 +373,7 @@ export default function TicketsPage() {
         onClose={() => setDialogOpen(false)}
         onSaved={loadAll}
         customers={customers}
+        orgId={orgId}
       />
 
       {confirmDelete && (
