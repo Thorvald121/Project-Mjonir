@@ -190,9 +190,7 @@ export default function TimeTrackingPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['time_entries'], loadAll)
-
-  async function loadAll() {
+  const loadAll = async () => {
     setLoading(true)
     const [ent, tick, cust] = await Promise.all([
       supabase.from('time_entries').select('*').order('date', { ascending: false }).limit(1000),
@@ -204,6 +202,9 @@ export default function TimeTrackingPage() {
     setCustomers(cust.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['time_entries'], loadAll)
+
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this time entry? This cannot be undone.')) return

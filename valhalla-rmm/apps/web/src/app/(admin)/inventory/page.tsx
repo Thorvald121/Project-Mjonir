@@ -495,9 +495,7 @@ export default function InventoryPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['inventory_items'], loadAll)
-
-  async function loadAll() {
+  const loadAll = async () => {
     setLoading(true)
     const [inv, cust] = await Promise.all([
       supabase.from('inventory_items').select('*').order('created_at', { ascending: false }).limit(500),
@@ -507,6 +505,9 @@ export default function InventoryPage() {
     setCustomers(cust.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['inventory_items'], loadAll)
+
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this inventory item? This cannot be undone.')) return

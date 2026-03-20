@@ -197,14 +197,15 @@ export default function CustomersPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['customers'], loadCustomers)
-
-  async function loadCustomers() {
+  const loadCustomers = async () => {
     setLoading(true)
     const { data } = await supabase.from('customers').select('*').order('name').limit(200)
     setCustomers(data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['customers'], loadCustomers)
+
 
   const filtered = useMemo(() => customers.filter(c => {
     const q = search.toLowerCase()

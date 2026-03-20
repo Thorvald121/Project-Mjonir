@@ -505,9 +505,7 @@ export default function InvoicesPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
-
-  async function loadAll() {
+  const loadAll = async () => {
     setLoading(true)
     const [inv, cust, time] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),
@@ -527,6 +525,9 @@ export default function InvoicesPage() {
     setTimeEntries(time.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
+
 
   const markStatus = async (inv, status) => {
     setStatusLoading(inv.id)

@@ -185,9 +185,7 @@ export default function TicketsPage() {
   }, [])
 
   // Auto-refresh when tickets change anywhere
-  useRealtimeRefresh(['tickets'], loadAll)
-
-  async function loadAll() {
+  const loadAll = async () => {
     setLoading(true)
     const [t, c] = await Promise.all([
       supabase.from('tickets').select('*').order('created_at', { ascending: false }).limit(200),
@@ -197,6 +195,9 @@ export default function TicketsPage() {
     setCustomers(c.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['tickets'], loadAll)
+
 
   const uniqueCustomers = useMemo(() => [...new Set(tickets.map(t => t.customer_name).filter(Boolean))].sort(), [tickets])
   const uniqueAssignees = useMemo(() => [...new Set(tickets.map(t => t.assigned_to).filter(Boolean))].sort(), [tickets])

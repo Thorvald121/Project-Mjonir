@@ -174,14 +174,15 @@ export default function KnowledgeBasePage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['knowledge_articles'], loadArticles)
-
-  async function loadArticles() {
+  const loadArticles = async () => {
     setLoading(true)
     const { data } = await supabase.from('knowledge_articles').select('*').order('updated_at', { ascending: false }).limit(200)
     setArticles(data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['knowledge_articles'], loadArticles)
+
 
   const handleDelete = async (e, article) => {
     e.stopPropagation()

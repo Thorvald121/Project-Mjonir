@@ -309,9 +309,7 @@ export default function TicketAutomationsPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['ticket_automation_rules'], loadAll)
-
-  async function loadAll() {
+  const loadAll = async () => {
     setLoading(true)
     const [r, c, t] = await Promise.all([
       supabase.from('ticket_automation_rules').select('*').order('created_at', { ascending: false }),
@@ -323,6 +321,9 @@ export default function TicketAutomationsPage() {
     setTechs(t.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['ticket_automation_rules'], loadAll)
+
 
   const toggleActive = async (rule) => {
     await supabase.from('ticket_automation_rules').update({ is_active: !rule.is_active }).eq('id', rule.id)

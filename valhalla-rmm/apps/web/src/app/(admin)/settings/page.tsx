@@ -245,14 +245,15 @@ function TeamSection({ orgId }) {
 
   useEffect(() => { if (orgId) loadMembers() }, [orgId])
 
-  useRealtimeRefresh(['organization_members'], loadMembers)
-
-  async function loadMembers() {
+  const loadMembers = async () => {
     setLoading(true)
     const { data } = await supabase.from('organization_members').select('*').eq('organization_id', orgId).order('created_at')
     setMembers(data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['organization_members'], loadMembers)
+
 
   const inviteMember = async () => {
     if (!invEmail.trim()) return
@@ -392,7 +393,7 @@ export default function SettingsPage() {
     init()
   }, [])
 
-  async function loadOrg() {
+  const loadOrg = async () => {
     if (!orgId) return
     const { data } = await supabase.from('organizations').select('*').eq('id', orgId).single()
     setOrg(data)

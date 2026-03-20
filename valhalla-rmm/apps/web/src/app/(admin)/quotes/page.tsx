@@ -323,9 +323,7 @@ export default function QuotesPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['quotes'], loadAll)
-
-  async function loadAll() {
+  const loadAll = async () => {
     setLoading(true)
     const [q, c] = await Promise.all([
       supabase.from('quotes').select('*').order('created_at', { ascending: false }).limit(200),
@@ -335,6 +333,9 @@ export default function QuotesPage() {
     setCustomers(c.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['quotes'], loadAll)
+
 
   const handleDelete = async (q) => {
     if (!confirm(`Delete ${q.quote_number}?`)) return
