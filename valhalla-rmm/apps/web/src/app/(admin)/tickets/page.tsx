@@ -178,9 +178,17 @@ export default function TicketsPage() {
   const [myEmail,        setMyEmail]        = useState(null)
   const [bulkLoading,    setBulkLoading]    = useState(false)
   const [deleteLoading,  setDeleteLoading]  = useState(false)
+  const [orgId,          setOrgId]          = useState(null)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setMyEmail(data.user?.email ?? null))
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setMyEmail(user?.email ?? null)
+      const { data: member } = await supabase
+        .from('organization_members').select('organization_id').eq('user_id', user.id).single()
+      if (member) setOrgId(member.organization_id)
+    }
+    init()
     loadAll()
   }, [])
 
