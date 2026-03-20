@@ -86,14 +86,20 @@ export default function TicketDetailClient() {
   const [timerSaving, setTimerSaving] = useState(false)
   const [orgId,       setOrgId]       = useState(null)
   const [myEmail,     setMyEmail]     = useState(null)
+  const orgIdRef   = useRef(null)
+  const myEmailRef = useRef(null)
 
   useEffect(() => {
     if (!id) return
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setMyEmail(user?.email ?? null)
+      myEmailRef.current = user?.email ?? null
       const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user?.id).single()
-      if (member) setOrgId(member.organization_id)
+      if (member) {
+        setOrgId(member.organization_id)
+        orgIdRef.current = member.organization_id
+      }
     }
     init()
     loadTicket()
@@ -159,11 +165,13 @@ export default function TicketDetailClient() {
     setTimerSaving(true)
     const mins = Math.max(1, Math.round((Date.now() - new Date(ticket.timer_started).getTime()) / 60000))
     await supabase.from('tickets').update({ timer_started: null }).eq('id', id)
-    if (orgId) {
+    const currentOrgId   = orgIdRef.current   || orgId
+    const currentMyEmail = myEmailRef.current || myEmail
+    if (currentOrgId) {
       await supabase.from('time_entries').insert({
-        organization_id: orgId, ticket_id: id, ticket_title: ticket.title,
+        organization_id: currentOrgId, ticket_id: id, ticket_title: ticket.title,
         customer_id: ticket.customer_id || null, customer_name: ticket.customer_name || null,
-        technician: myEmail, description: `Time on: ${ticket.title}`,
+        technician: currentMyEmail, description: `Time on: ${ticket.title}`,
         minutes: mins, billable: true, hourly_rate: null,
         date: new Date().toISOString().split('T')[0],
       })
