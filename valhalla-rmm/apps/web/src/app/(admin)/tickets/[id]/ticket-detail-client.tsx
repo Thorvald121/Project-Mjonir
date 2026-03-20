@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
@@ -9,18 +9,6 @@ import {
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
 } from 'lucide-react'
-
-function useRealtimeRefresh(tables, onRefresh) {
-  const ref = useRef(onRefresh)
-  ref.current = onRefresh
-  useEffect(() => {
-    const h = (e) => {
-      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
-    }
-    window.addEventListener('supabase:change', h)
-    return () => window.removeEventListener('supabase:change', h)
-  }, [tables.join(',')])
-}
 
 const PRIORITY_CLS = {
   critical: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300',
@@ -47,8 +35,8 @@ function LiveTimer({ startedAt }) {
     const start = new Date(startedAt).getTime()
     const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000))
     tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
   }, [startedAt])
   const h = Math.floor(elapsed / 3600)
   const m = Math.floor((elapsed % 3600) / 60)
@@ -64,59 +52,46 @@ function LiveTimer({ startedAt }) {
 export default function TicketDetailClient() {
   const params   = useParams()
   const router   = useRouter()
-  const id       = params?.id
   const supabase = createSupabaseBrowserClient()
 
-  const [ticket,    setTicket]    = useState(null)
-  const [comments,  setComments]  = useState([])
-  const [techUsers, setTechUsers] = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState(null)
-  const [updating,  setUpdating]  = useState(false)
-
-  const [noteMode,   setNoteMode]   = useState('internal')
-  const [noteText,   setNoteText]   = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [attachment, setAttachment] = useState(null)
-  const fileInputRef = useRef(null)
-
-  const [editFields, setEditFields] = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '' })
-  const [techSearch, setTechSearch] = useState('')
-  const [techOpen,   setTechOpen]   = useState(false)
+  // All state first
+  const [ticketId,    setTicketId]    = useState(null)
+  const [ticket,      setTicket]      = useState(null)
+  const [comments,    setComments]    = useState([])
+  const [techUsers,   setTechUsers]   = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState(null)
+  const [updating,    setUpdating]    = useState(false)
+  const [noteMode,    setNoteMode]    = useState('internal')
+  const [noteText,    setNoteText]    = useState('')
+  const [submitting,  setSubmitting]  = useState(false)
+  const [attachment,  setAttachment]  = useState(null)
+  const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '' })
+  const [techSearch,  setTechSearch]  = useState('')
+  const [techOpen,    setTechOpen]    = useState(false)
   const [timerSaving, setTimerSaving] = useState(false)
-  const [orgId,       setOrgId]       = useState(null)
-  const [myEmail,     setMyEmail]     = useState(null)
-  const orgIdRef   = useRef(null)
-  const myEmailRef = useRef(null)
 
-  useEffect(() => {
-    if (!id) return
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setMyEmail(user?.email ?? null)
-      myEmailRef.current = user?.email ?? null
-      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user?.id).single()
-      if (member) {
-        setOrgId(member.organization_id)
-        orgIdRef.current = member.organization_id
-      }
-    }
-    init()
-    loadTicket()
-    loadComments()
-    loadTechs()
-  }, [id])
+  // Refs — immune to TDZ and component teardown
+  const idRef          = useRef(null)
+  const orgIdRef       = useRef(null)
+  const myEmailRef     = useRef(null)
+  const ticketRef      = useRef(null)
+  const fileInputRef   = useRef(null)
+  const refreshRef     = useRef(null)
 
-  useRealtimeRefresh(['tickets', 'ticket_comments', 'time_entries'], () => {
-    loadTicket()
-    loadComments()
-  })
+  // Sync id from params into ref immediately
+  const id = params?.id
+  idRef.current = id
 
-  async function loadTicket() {
+  // All data functions as const (NOT hoisted) — they use refs, never state
+  const loadTicket = useCallback(async () => {
+    const currentId = idRef.current
+    if (!currentId) return
     setLoading(true)
-    const { data, error } = await supabase.from('tickets').select('*').eq('id', id).single()
-    if (error) { setError(error.message); setLoading(false); return }
+    const { data, error: err } = await supabase.from('tickets').select('*').eq('id', currentId).single()
+    if (err) { setError(err.message); setLoading(false); return }
     setTicket(data)
+    ticketRef.current = data
     setEditFields({
       contact_name:  data.contact_name  ?? '',
       contact_email: data.contact_email ?? '',
@@ -124,56 +99,103 @@ export default function TicketDetailClient() {
       assigned_to:   data.assigned_to   ?? '',
     })
     setLoading(false)
-  }
+  }, [])
 
-  async function loadComments() {
-    const { data } = await supabase.from('ticket_comments').select('*').eq('ticket_id', id).order('created_at', { ascending: true })
+  const loadComments = useCallback(async () => {
+    const currentId = idRef.current
+    if (!currentId) return
+    const { data } = await supabase.from('ticket_comments').select('*').eq('ticket_id', currentId).order('created_at', { ascending: true })
     setComments(data ?? [])
-  }
+  }, [])
 
-  async function loadTechs() {
+  const loadTechs = useCallback(async () => {
     const { data } = await supabase.from('organization_members').select('id,user_email').in('role', ['owner','admin','technician'])
     setTechUsers(data ?? [])
-  }
+  }, [])
+
+  // Real-time refresh using stable ref
+  refreshRef.current = () => { loadTicket(); loadComments() }
+  useEffect(() => {
+    const tables = ['tickets', 'ticket_comments', 'time_entries']
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) refreshRef.current()
+    }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [])
+
+  // Init
+  useEffect(() => {
+    if (!id) return
+    idRef.current = id
+
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      myEmailRef.current = user?.email ?? null
+      const { data: member } = await supabase
+        .from('organization_members').select('organization_id').eq('user_id', user?.id).single()
+      if (member) orgIdRef.current = member.organization_id
+    }
+
+    init()
+    loadTicket()
+    loadComments()
+    loadTechs()
+  }, [id])
 
   const updateField = async (field, value) => {
+    const currentId = idRef.current
+    if (!currentId) return
     setUpdating(true)
-    await supabase.from('tickets').update({ [field]: value }).eq('id', id)
+    await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
     await loadTicket()
     setUpdating(false)
   }
 
   const saveEditField = (field) => {
-    if (!ticket) return
+    const t = ticketRef.current
+    if (!t) return
     const value = editFields[field]
     if (field === 'sla_due_date') {
       const iso = value ? new Date(value).toISOString() : null
-      if (iso !== (ticket.sla_due_date ?? null)) updateField(field, iso)
+      if (iso !== (t.sla_due_date ?? null)) updateField(field, iso)
     } else {
-      if (value !== (ticket[field] ?? '')) updateField(field, value || null)
+      if (value !== (t[field] ?? '')) updateField(field, value || null)
     }
   }
 
   const startTimer = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t || !currentId) return
     const now = new Date().toISOString()
-    await supabase.from('tickets').update({ timer_started: now, status: ticket.status === 'open' ? 'in_progress' : ticket.status }).eq('id', id)
+    await supabase.from('tickets').update({
+      timer_started: now,
+      status: t.status === 'open' ? 'in_progress' : t.status,
+    }).eq('id', currentId)
     await loadTicket()
   }
 
   const stopTimer = async () => {
-    if (!ticket?.timer_started) return
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t?.timer_started || !currentId) return
     setTimerSaving(true)
-    const mins = Math.max(1, Math.round((Date.now() - new Date(ticket.timer_started).getTime()) / 60000))
-    await supabase.from('tickets').update({ timer_started: null }).eq('id', id)
-    const currentOrgId   = orgIdRef.current   || orgId
-    const currentMyEmail = myEmailRef.current || myEmail
-    if (currentOrgId) {
+    const mins = Math.max(1, Math.round((Date.now() - new Date(t.timer_started).getTime()) / 60000))
+    await supabase.from('tickets').update({ timer_started: null }).eq('id', currentId)
+    if (orgIdRef.current) {
       await supabase.from('time_entries').insert({
-        organization_id: currentOrgId, ticket_id: id, ticket_title: ticket.title,
-        customer_id: ticket.customer_id || null, customer_name: ticket.customer_name || null,
-        technician: currentMyEmail, description: `Time on: ${ticket.title}`,
-        minutes: mins, billable: true, hourly_rate: null,
-        date: new Date().toISOString().split('T')[0],
+        organization_id: orgIdRef.current,
+        ticket_id:       currentId,
+        ticket_title:    t.title,
+        customer_id:     t.customer_id   || null,
+        customer_name:   t.customer_name || null,
+        technician:      myEmailRef.current,
+        description:     'Time on: ' + t.title,
+        minutes:         mins,
+        billable:        true,
+        hourly_rate:     null,
+        date:            new Date().toISOString().split('T')[0],
       })
     }
     setTimerSaving(false)
@@ -181,30 +203,38 @@ export default function TicketDetailClient() {
   }
 
   const submitNote = async () => {
-    if (!noteText.trim() || submitting || !ticket) return
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!noteText.trim() || submitting || !t || !currentId) return
     setSubmitting(true)
     const { data: { user } } = await supabase.auth.getUser()
     let attachment_url = null
     let attachment_name = null
     if (attachment) {
-      const ext = attachment.name.split('.').pop()
-      const path = `ticket-attachments/${id}/${Date.now()}.${ext}`
+      const ext  = attachment.name.split('.').pop()
+      const path = `ticket-attachments/${currentId}/${Date.now()}.${ext}`
       const { data: up } = await supabase.storage.from('attachments').upload(path, attachment)
       if (up) {
         const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(path)
-        attachment_url = publicUrl; attachment_name = attachment.name
+        attachment_url = publicUrl
+        attachment_name = attachment.name
       }
     }
     await supabase.from('ticket_comments').insert({
-      ticket_id: id, organization_id: ticket.organization_id,
-      author_name: user?.email ?? 'Unknown', author_email: user?.email ?? '',
-      content: noteText.trim(), is_staff: noteMode === 'internal',
-      attachment_url, attachment_name,
+      ticket_id:       currentId,
+      organization_id: t.organization_id,
+      author_name:     user?.email ?? 'Unknown',
+      author_email:    user?.email ?? '',
+      content:         noteText.trim(),
+      is_staff:        noteMode === 'internal',
+      attachment_url,
+      attachment_name,
     })
-    if (noteMode === 'reply' && !ticket.first_response_at) {
-      await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', id)
+    if (noteMode === 'reply' && !t.first_response_at) {
+      await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', currentId)
     }
-    setNoteText(''); setAttachment(null)
+    setNoteText('')
+    setAttachment(null)
     await loadComments()
     setSubmitting(false)
   }
