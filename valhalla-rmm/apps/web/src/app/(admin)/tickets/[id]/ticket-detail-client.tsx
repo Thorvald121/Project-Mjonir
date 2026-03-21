@@ -59,6 +59,9 @@ export default function TicketDetailClient() {
   const [ticket,      setTicket]      = useState(null)
   const [comments,    setComments]    = useState([])
   const [techUsers,   setTechUsers]   = useState([])
+  const [customers,   setCustomers]   = useState([])
+  const [custSearch,  setCustSearch]  = useState('')
+  const [custOpen,    setCustOpen]    = useState(false)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
   const [updating,    setUpdating]    = useState(false)
@@ -66,7 +69,7 @@ export default function TicketDetailClient() {
   const [noteText,    setNoteText]    = useState('')
   const [submitting,  setSubmitting]  = useState(false)
   const [attachment,  setAttachment]  = useState(null)
-  const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '' })
+  const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
   const [techSearch,  setTechSearch]  = useState('')
   const [techOpen,    setTechOpen]    = useState(false)
   const [timerSaving, setTimerSaving] = useState(false)
@@ -97,6 +100,8 @@ export default function TicketDetailClient() {
       contact_email: data.contact_email ?? '',
       sla_due_date:  data.sla_due_date  ? data.sla_due_date.slice(0, 16) : '',
       assigned_to:   data.assigned_to   ?? '',
+      customer_id:   data.customer_id   ?? '',
+      customer_name: data.customer_name ?? '',
     })
     setLoading(false)
   }, [])
@@ -111,6 +116,11 @@ export default function TicketDetailClient() {
   const loadTechs = useCallback(async () => {
     const { data } = await supabase.from('organization_members').select('id,user_email').in('role', ['owner','admin','technician'])
     setTechUsers(data ?? [])
+  }, [])
+
+  const loadCustomers = useCallback(async () => {
+    const { data } = await supabase.from('customers').select('id,name').eq('status','active').order('name').limit(200)
+    setCustomers(data ?? [])
   }, [])
 
   // Real-time refresh using stable ref
@@ -141,6 +151,7 @@ export default function TicketDetailClient() {
     loadTicket()
     loadComments()
     loadTechs()
+    loadCustomers()
   }, [id])
 
   const updateField = async (field, value) => {
@@ -492,10 +503,49 @@ export default function TicketDetailClient() {
               </div>
             </div>
             <div className="flex items-start gap-2.5">
-              <Building2 className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-slate-400">Customer</p>
-                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{ticket.customer_name || '—'}</p>
+              <Building2 className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1 relative">
+                <p className="text-xs text-slate-400 mb-1">Customer</p>
+                <div className="relative">
+                  <input
+                    value={custOpen ? custSearch : (editFields.customer_name || '')}
+                    onChange={e => { setCustSearch(e.target.value); setCustOpen(true); setEditFields(p => ({ ...p, customer_name: e.target.value })) }}
+                    onFocus={() => { setCustSearch(editFields.customer_name || ''); setCustOpen(true) }}
+                    onBlur={() => setTimeout(() => setCustOpen(false), 150)}
+                    placeholder="No customer assigned"
+                    className={`${inp} pr-6`}
+                  />
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+                {custOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    <button type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors italic"
+                      onMouseDown={() => {
+                        setEditFields(p => ({ ...p, customer_id: '', customer_name: '' }))
+                        setCustOpen(false)
+                        updateField('customer_id', null)
+                        updateField('customer_name', null)
+                      }}>
+                      — No customer
+                    </button>
+                    {customers
+                      .filter(c => !custSearch || c.name.toLowerCase().includes(custSearch.toLowerCase()))
+                      .map(c => (
+                        <button key={c.id} type="button"
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                          onMouseDown={() => {
+                            setEditFields(p => ({ ...p, customer_id: c.id, customer_name: c.name }))
+                            setCustOpen(false)
+                            updateField('customer_id', c.id)
+                            updateField('customer_name', c.name)
+                          }}>
+                          {c.name}
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-start gap-2.5">
