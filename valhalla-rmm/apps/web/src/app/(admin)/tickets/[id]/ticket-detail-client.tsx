@@ -230,6 +230,37 @@ export default function TicketDetailClient() {
       attachment_url,
       attachment_name,
     })
+
+    // Send actual email to client when replying
+    if (noteMode === 'reply' && t.contact_email) {
+      const subject  = `Re: ${t.title} [#${currentId}]`
+      const bodyText = noteText.trim()
+      const html = `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;">
+  <div style="background:#0f172a;padding:20px 24px;border-radius:10px 10px 0 0;">
+    <h2 style="color:#f59e0b;margin:0;font-size:16px;">Reply from Valhalla IT</h2>
+    <p style="color:#94a3b8;margin:6px 0 0;font-size:13px;">${t.title}</p>
+  </div>
+  <div style="background:#ffffff;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e2e8f0;border-top:none;">
+    <p style="color:#1e293b;font-size:14px;line-height:1.6;white-space:pre-wrap;">${bodyText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+    ${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}" style="color:#f59e0b;">${attachment_name || 'Attachment'}</a></p>` : ''}
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+    <p style="color:#94a3b8;font-size:12px;margin:0;">
+      To reply, simply reply to this email. Your response will be added to your support ticket automatically.<br>
+      Ticket reference: <strong style="color:#64748b;">${t.title}</strong>
+    </p>
+  </div>
+</div>`
+
+      await supabase.functions.invoke('send-invoice-email', {
+        body: {
+          to:      t.contact_email,
+          subject,
+          html,
+        }
+      })
+    }
+
     if (noteMode === 'reply' && !t.first_response_at) {
       await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', currentId)
     }
