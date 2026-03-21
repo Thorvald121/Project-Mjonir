@@ -204,14 +204,16 @@ export default function PipelinePage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['leads'], loadAll)
-
   const loadAll = async () => {
     setLoading(true)
     const { data } = await supabase.from('leads').select('*').order('updated_at', { ascending: false }).limit(200)
     setLeads(data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['leads'], loadAll)
+
+
 
   const moveStage = async (lead, newStage) => {
     await supabase.from('leads').update({ stage: newStage }).eq('id', lead.id)
