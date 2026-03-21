@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
@@ -24,32 +24,24 @@ const STATUS_CLS = {
   closed:      'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
 }
 const lbl = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
-const fmtDate = (d, fmt = 'short') => {
+const fmtDate = (d) => {
   if (!d) return '—'
-  try {
-    return new Date(d).toLocaleString('en-US', fmt === 'short'
-      ? { month: 'short', day: 'numeric', year: 'numeric' }
-      : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-  } catch { return '—' }
+  try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return '—' }
 }
 
-// ── Live timer display ────────────────────────────────────────────────────────
 function LiveTimer({ startedAt }) {
   const [elapsed, setElapsed] = useState(0)
-
   useEffect(() => {
     const start = new Date(startedAt).getTime()
     const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000))
     tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
   }, [startedAt])
-
   const h = Math.floor(elapsed / 3600)
   const m = Math.floor((elapsed % 3600) / 60)
   const s = elapsed % 60
   const pad = (n) => String(n).padStart(2, '0')
-
   return (
     <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
       {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
@@ -57,163 +49,191 @@ function LiveTimer({ startedAt }) {
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
 export default function TicketDetailClient() {
   const params   = useParams()
   const router   = useRouter()
-  const id       = params?.id
   const supabase = createSupabaseBrowserClient()
 
-  const [ticket,    setTicket]    = useState(null)
-  const [comments,  setComments]  = useState([])
-  const [techUsers, setTechUsers] = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState(null)
-  const [updating,  setUpdating]  = useState(false)
-
-  // Notes
-  const [noteMode,   setNoteMode]   = useState('internal')
-  const [noteText,   setNoteText]   = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [attachment, setAttachment] = useState(null)
-  const fileInputRef = useRef(null)
-
-  // Sidebar edit fields
-  const [editFields, setEditFields] = useState({
-    contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '',
-  })
-  const [techSearch, setTechSearch] = useState('')
-  const [techOpen,   setTechOpen]   = useState(false)
-
-  // Timer
+  // All state first
+  const [ticketId,    setTicketId]    = useState(null)
+  const [ticket,      setTicket]      = useState(null)
+  const [comments,    setComments]    = useState([])
+  const [techUsers,   setTechUsers]   = useState([])
+  const [customers,   setCustomers]   = useState([])
+  const [custSearch,  setCustSearch]  = useState('')
+  const [custOpen,    setCustOpen]    = useState(false)
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState(null)
+  const [updating,    setUpdating]    = useState(false)
+  const [noteMode,    setNoteMode]    = useState('internal')
+  const [noteText,    setNoteText]    = useState('')
+  const [submitting,  setSubmitting]  = useState(false)
+  const [attachment,  setAttachment]  = useState(null)
+  const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
+  const [techSearch,  setTechSearch]  = useState('')
+  const [techOpen,    setTechOpen]    = useState(false)
   const [timerSaving, setTimerSaving] = useState(false)
-  const [orgId,       setOrgId]       = useState(null)
-  const [myEmail,     setMyEmail]     = useState(null)
 
-  // ── Load data ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!id) return
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setMyEmail(user?.email ?? null)
-      const { data: member } = await supabase
-        .from('organization_members').select('organization_id').eq('user_id', user?.id).single()
-      if (member) setOrgId(member.organization_id)
-    }
-    init()
-    loadTicket()
-    loadComments()
-    loadTechs()
-  }, [id])
+  // Refs — immune to TDZ and component teardown
+  const idRef          = useRef(null)
+  const orgIdRef       = useRef(null)
+  const myEmailRef     = useRef(null)
+  const ticketRef      = useRef(null)
+  const fileInputRef   = useRef(null)
+  const refreshRef     = useRef(null)
 
-  const loadTicket = async () => {
+  // Sync id from params into ref immediately
+  const id = params?.id
+  idRef.current = id
+
+  // All data functions as const (NOT hoisted) — they use refs, never state
+  const loadTicket = useCallback(async () => {
+    const currentId = idRef.current
+    if (!currentId) return
     setLoading(true)
-    const { data, error } = await supabase.from('tickets').select('*').eq('id', id).single()
-    if (error) { setError(error.message); setLoading(false); return }
+    const { data, error: err } = await supabase.from('tickets').select('*').eq('id', currentId).single()
+    if (err) { setError(err.message); setLoading(false); return }
     setTicket(data)
+    ticketRef.current = data
     setEditFields({
       contact_name:  data.contact_name  ?? '',
       contact_email: data.contact_email ?? '',
       sla_due_date:  data.sla_due_date  ? data.sla_due_date.slice(0, 16) : '',
       assigned_to:   data.assigned_to   ?? '',
+      customer_id:   data.customer_id   ?? '',
+      customer_name: data.customer_name ?? '',
     })
     setLoading(false)
-  }
+  }, [])
 
-  const loadComments = async () => {
-    const { data } = await supabase
-      .from('ticket_comments').select('*').eq('ticket_id', id).order('created_at', { ascending: true })
+  const loadComments = useCallback(async () => {
+    const currentId = idRef.current
+    if (!currentId) return
+    const { data } = await supabase.from('ticket_comments').select('*').eq('ticket_id', currentId).order('created_at', { ascending: true })
     setComments(data ?? [])
-  }
+  }, [])
 
-  const loadTechs = async () => {
-    const { data } = await supabase
-      .from('organization_members').select('id,user_email').in('role', ['owner','admin','technician'])
+  const loadTechs = useCallback(async () => {
+    const { data } = await supabase.from('organization_members').select('id,user_email').in('role', ['owner','admin','technician'])
     setTechUsers(data ?? [])
-  }
+  }, [])
 
-  // ── Field updates ───────────────────────────────────────────────────────────
+  const loadCustomers = useCallback(async () => {
+    const { data } = await supabase.from('customers').select('id,name').eq('status','active').order('name').limit(200)
+    setCustomers(data ?? [])
+  }, [])
+
+  // Real-time refresh using stable ref
+  refreshRef.current = () => { loadTicket(); loadComments() }
+  useEffect(() => {
+    const tables = ['tickets', 'ticket_comments', 'time_entries']
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) refreshRef.current()
+    }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [])
+
+  // Init
+  useEffect(() => {
+    if (!id) return
+    idRef.current = id
+
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      myEmailRef.current = user?.email ?? null
+      const { data: member } = await supabase
+        .from('organization_members').select('organization_id').eq('user_id', user?.id).single()
+      if (member) orgIdRef.current = member.organization_id
+    }
+
+    init()
+    loadTicket()
+    loadComments()
+    loadTechs()
+    loadCustomers()
+  }, [id])
+
   const updateField = async (field, value) => {
+    const currentId = idRef.current
+    if (!currentId) return
     setUpdating(true)
-    await supabase.from('tickets').update({ [field]: value }).eq('id', id)
+    await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
     await loadTicket()
     setUpdating(false)
   }
 
   const saveEditField = (field) => {
-    if (!ticket) return
+    const t = ticketRef.current
+    if (!t) return
     const value = editFields[field]
     if (field === 'sla_due_date') {
       const iso = value ? new Date(value).toISOString() : null
-      if (iso !== (ticket.sla_due_date ?? null)) updateField(field, iso)
+      if (iso !== (t.sla_due_date ?? null)) updateField(field, iso)
     } else {
-      if (value !== (ticket[field] ?? '')) updateField(field, value || null)
+      if (value !== (t[field] ?? '')) updateField(field, value || null)
     }
   }
 
-  // ── Timer controls ──────────────────────────────────────────────────────────
   const startTimer = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t || !currentId) return
     const now = new Date().toISOString()
     await supabase.from('tickets').update({
       timer_started: now,
-      status: ticket.status === 'open' ? 'in_progress' : ticket.status,
-    }).eq('id', id)
+      status: t.status === 'open' ? 'in_progress' : t.status,
+    }).eq('id', currentId)
     await loadTicket()
   }
 
   const stopTimer = async () => {
-    if (!ticket?.timer_started) return
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t?.timer_started || !currentId) return
     setTimerSaving(true)
-
-    const startTime = new Date(ticket.timer_started).getTime()
-    const mins = Math.max(1, Math.round((Date.now() - startTime) / 60000))
-
-    // Clear timer on ticket
-    await supabase.from('tickets').update({ timer_started: null }).eq('id', id)
-
-    // Create time entry automatically
-    if (orgId) {
+    const mins = Math.max(1, Math.round((Date.now() - new Date(t.timer_started).getTime()) / 60000))
+    await supabase.from('tickets').update({ timer_started: null }).eq('id', currentId)
+    if (orgIdRef.current) {
       await supabase.from('time_entries').insert({
-        organization_id: orgId,
-        ticket_id:       id,
-        ticket_title:    ticket.title,
-        customer_id:     ticket.customer_id  || null,
-        customer_name:   ticket.customer_name || null,
-        technician:      myEmail,
-        description:     `Time on: ${ticket.title}`,
+        organization_id: orgIdRef.current,
+        ticket_id:       currentId,
+        ticket_title:    t.title,
+        customer_id:     t.customer_id   || null,
+        customer_name:   t.customer_name || null,
+        technician:      myEmailRef.current,
+        description:     'Time on: ' + t.title,
         minutes:         mins,
         billable:        true,
         hourly_rate:     null,
         date:            new Date().toISOString().split('T')[0],
       })
     }
-
     setTimerSaving(false)
     await loadTicket()
   }
 
-  // ── Submit note ─────────────────────────────────────────────────────────────
   const submitNote = async () => {
-    if (!noteText.trim() || submitting || !ticket) return
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!noteText.trim() || submitting || !t || !currentId) return
     setSubmitting(true)
     const { data: { user } } = await supabase.auth.getUser()
-
     let attachment_url = null
     let attachment_name = null
     if (attachment) {
       const ext  = attachment.name.split('.').pop()
-      const path = `ticket-attachments/${id}/${Date.now()}.${ext}`
+      const path = `ticket-attachments/${currentId}/${Date.now()}.${ext}`
       const { data: up } = await supabase.storage.from('attachments').upload(path, attachment)
       if (up) {
         const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(path)
-        attachment_url  = publicUrl
+        attachment_url = publicUrl
         attachment_name = attachment.name
       }
     }
-
     await supabase.from('ticket_comments').insert({
-      ticket_id:       id,
-      organization_id: ticket.organization_id,
+      ticket_id:       currentId,
+      organization_id: t.organization_id,
       author_name:     user?.email ?? 'Unknown',
       author_email:    user?.email ?? '',
       content:         noteText.trim(),
@@ -222,16 +242,46 @@ export default function TicketDetailClient() {
       attachment_name,
     })
 
-    if (noteMode === 'reply' && !ticket.first_response_at) {
-      await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', id)
+    // Send actual email to client when replying
+    if (noteMode === 'reply' && t.contact_email) {
+      const subject  = `Re: ${t.title} [#${currentId}]`
+      const bodyText = noteText.trim()
+      const html = `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;">
+  <div style="background:#0f172a;padding:20px 24px;border-radius:10px 10px 0 0;">
+    <h2 style="color:#f59e0b;margin:0;font-size:16px;">Reply from Valhalla IT</h2>
+    <p style="color:#94a3b8;margin:6px 0 0;font-size:13px;">${t.title}</p>
+  </div>
+  <div style="background:#ffffff;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e2e8f0;border-top:none;">
+    <p style="color:#1e293b;font-size:14px;line-height:1.6;white-space:pre-wrap;">${bodyText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+    ${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}" style="color:#f59e0b;">${attachment_name || 'Attachment'}</a></p>` : ''}
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+    <p style="color:#94a3b8;font-size:12px;margin:0;">
+      To reply, simply reply to this email. Your response will be added to your support ticket automatically.<br>
+      Ticket reference: <strong style="color:#64748b;">${t.title}</strong>
+    </p>
+  </div>
+</div>`
+
+      await supabase.functions.invoke('send-invoice-email', {
+        body: {
+          from:    'Valhalla IT Support <support@valhalla-rmm.com>',
+          to:      t.contact_email,
+          subject,
+          html,
+        }
+      })
     }
 
-    setNoteText(''); setAttachment(null)
+    if (noteMode === 'reply' && !t.first_response_at) {
+      await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', currentId)
+    }
+    setNoteText('')
+    setAttachment(null)
     await loadComments()
     setSubmitting(false)
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) return (
     <div className="max-w-5xl space-y-4 animate-pulse">
       <div className="h-5 w-36 bg-slate-100 dark:bg-slate-800 rounded" />
@@ -257,13 +307,11 @@ export default function TicketDetailClient() {
 
   return (
     <div className="max-w-5xl space-y-4">
-      {/* Back */}
       <button onClick={() => router.push('/tickets')}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Tickets
       </button>
 
-      {/* Header */}
       <div className="flex flex-col sm:flex-row gap-4 items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{ticket.title}</h1>
@@ -284,7 +332,6 @@ export default function TicketDetailClient() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Main */}
         <div className="lg:col-span-2 space-y-4">
           {ticket.description && (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
@@ -293,7 +340,6 @@ export default function TicketDetailClient() {
             </div>
           )}
 
-          {/* Notes & Replies */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
               <MessageSquare className="w-4 h-4 text-slate-400" />
@@ -311,7 +357,7 @@ export default function TicketDetailClient() {
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${comment.is_staff ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                           {comment.is_staff ? 'Internal' : 'Client Reply'}
                         </span>
-                        <span className="text-xs text-slate-400 ml-auto">{fmtDate(comment.created_at, 'long')}</span>
+                        <span className="text-xs text-slate-400 ml-auto">{fmtDate(comment.created_at)}</span>
                       </div>
                       <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap text-xs leading-relaxed">{comment.content}</p>
                       {comment.attachment_url && (
@@ -369,16 +415,12 @@ export default function TicketDetailClient() {
           </div>
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-4">
-
-          {/* ── TIMER CARD ─────────────────────────────────────────────────── */}
           <div className={`rounded-xl border shadow-sm p-4 ${isTimerRunning ? 'bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900/40' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
             <div className="flex items-center gap-2 mb-3">
               <Timer className={`w-4 h-4 ${isTimerRunning ? 'text-violet-600 dark:text-violet-400' : 'text-slate-400'}`} />
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Time Tracker</p>
             </div>
-
             {isTimerRunning ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -386,14 +428,9 @@ export default function TicketDetailClient() {
                   <span className="text-xs text-violet-600 dark:text-violet-400 font-medium">Timer running</span>
                 </div>
                 <LiveTimer startedAt={ticket.timer_started} />
-                <p className="text-[10px] text-slate-400">
-                  Started at {new Date(ticket.timer_started).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                </p>
-                <button
-                  onClick={stopTimer}
-                  disabled={timerSaving}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors"
-                >
+                <p className="text-[10px] text-slate-400">Started at {new Date(ticket.timer_started).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
+                <button onClick={stopTimer} disabled={timerSaving}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors">
                   {timerSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5 fill-white" />}
                   {timerSaving ? 'Saving time entry…' : 'Stop & Log Time'}
                 </button>
@@ -401,35 +438,25 @@ export default function TicketDetailClient() {
             ) : (
               <div className="space-y-2">
                 {ticket.time_spent_minutes > 0 && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {Math.floor(ticket.time_spent_minutes / 60)}h {ticket.time_spent_minutes % 60}m logged so far
-                  </p>
+                  <p className="text-xs text-slate-500">{Math.floor(ticket.time_spent_minutes / 60)}h {ticket.time_spent_minutes % 60}m logged so far</p>
                 )}
-                <button
-                  onClick={startTimer}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors"
-                >
-                  <Play className="w-3.5 h-3.5 fill-white" />
-                  Start Timer
+                <button onClick={startTimer}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors">
+                  <Play className="w-3.5 h-3.5 fill-white" /> Start Timer
                 </button>
-                <p className="text-[10px] text-slate-400 text-center">
-                  Automatically creates a time entry when stopped
-                </p>
+                <p className="text-[10px] text-slate-400 text-center">Auto-creates a time entry when stopped</p>
               </div>
             )}
           </div>
 
-          {/* Ticket details card */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-4">
-
             <div className="flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
               <div>
                 <p className="text-xs text-slate-400">Created</p>
-                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{fmtDate(ticket.created_at, 'long')}</p>
+                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{fmtDate(ticket.created_at)}</p>
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
               <AlertTriangle className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
@@ -439,7 +466,6 @@ export default function TicketDetailClient() {
                 </select>
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
               <Tag className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
@@ -449,7 +475,6 @@ export default function TicketDetailClient() {
                 </select>
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
               <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1 relative">
@@ -478,15 +503,52 @@ export default function TicketDetailClient() {
                 )}
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
-              <Building2 className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-slate-400">Customer</p>
-                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{ticket.customer_name || '—'}</p>
+              <Building2 className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1 relative">
+                <p className="text-xs text-slate-400 mb-1">Customer</p>
+                <div className="relative">
+                  <input
+                    value={custOpen ? custSearch : (editFields.customer_name || '')}
+                    onChange={e => { setCustSearch(e.target.value); setCustOpen(true); setEditFields(p => ({ ...p, customer_name: e.target.value })) }}
+                    onFocus={() => { setCustSearch(editFields.customer_name || ''); setCustOpen(true) }}
+                    onBlur={() => setTimeout(() => setCustOpen(false), 150)}
+                    placeholder="No customer assigned"
+                    className={`${inp} pr-6`}
+                  />
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+                {custOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    <button type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors italic"
+                      onMouseDown={() => {
+                        setEditFields(p => ({ ...p, customer_id: '', customer_name: '' }))
+                        setCustOpen(false)
+                        updateField('customer_id', null)
+                        updateField('customer_name', null)
+                      }}>
+                      — No customer
+                    </button>
+                    {customers
+                      .filter(c => !custSearch || c.name.toLowerCase().includes(custSearch.toLowerCase()))
+                      .map(c => (
+                        <button key={c.id} type="button"
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                          onMouseDown={() => {
+                            setEditFields(p => ({ ...p, customer_id: c.id, customer_name: c.name }))
+                            setCustOpen(false)
+                            updateField('customer_id', c.id)
+                            updateField('customer_name', c.name)
+                          }}>
+                          {c.name}
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
               <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
@@ -497,7 +559,6 @@ export default function TicketDetailClient() {
                   placeholder="Contact name" className={inp} />
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
               <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
@@ -508,7 +569,6 @@ export default function TicketDetailClient() {
                   placeholder="email@client.com" className={inp} />
               </div>
             </div>
-
             <div className="flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
@@ -519,7 +579,6 @@ export default function TicketDetailClient() {
                   className={inp} />
               </div>
             </div>
-
           </div>
         </div>
       </div>

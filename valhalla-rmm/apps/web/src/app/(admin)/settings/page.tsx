@@ -1,14 +1,26 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
-  Loader2, Save, Shield, User, Bell, Clock,
+  Loader2, Save, Shield, User, Clock,
   Building2, Zap, ChevronRight, CheckCircle2,
   AlertCircle, Settings2, Mail, Users,
 } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = useRef(onRefresh)
+  ref.current = onRefresh
+  useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [tables.join(',')])
+}
 
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
@@ -72,13 +84,13 @@ function OrgSection({ org, onSaved }) {
       <FieldRow label="Company Name">
         <input value={form.name} onChange={e => sf('name', e.target.value)} className={inp} />
       </FieldRow>
-      <FieldRow label="Support Email" hint="Used for email-to-ticket ingestion via Gmail.">
+      <FieldRow label="Support Email" hint="Used for notifications and admin alerts.">
         <input type="email" value={form.company_email} onChange={e => sf('company_email', e.target.value)} placeholder="support@yourcompany.com" className={inp} />
       </FieldRow>
       <FieldRow label="App URL" hint="Public URL — used in CSAT links and email footers.">
         <input value={form.app_url} onChange={e => sf('app_url', e.target.value)} placeholder="https://valhalla-rmm.com" className={inp} />
       </FieldRow>
-      <FieldRow label="Client Portal URL" hint="Share this link with clients.">
+      <FieldRow label="Client Portal URL" hint="Share with clients.">
         <div className="flex items-center gap-2">
           <code className="flex-1 text-xs bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 truncate text-slate-600 dark:text-slate-400">
             {form.app_url || 'https://your-app.vercel.app'}/portal
@@ -102,40 +114,33 @@ function OrgSection({ org, onSaved }) {
 
 function SlaSection({ org, onSaved }) {
   const supabase = createSupabaseBrowserClient()
-  const [sla,   setSla]   = useState({ critical: 1, high: 4, medium: 24, low: 72 })
-  const [notif, setNotif] = useState({ ticket_assigned_email: true, sla_breach_email: true, customer_reply_push: true })
+  const [sla,         setSla]         = useState({ critical: 1, high: 4, medium: 24, low: 72 })
+  const [notif,       setNotif]       = useState({ ticket_assigned_email: true, sla_breach_email: true, customer_reply_push: true })
   const [savingSla,   setSavingSla]   = useState(false)
   const [savingNotif, setSavingNotif] = useState(false)
   const [savedSla,    setSavedSla]    = useState(false)
   const [savedNotif,  setSavedNotif]  = useState(false)
 
   useEffect(() => {
-    if (org?.sla_config) {
-      try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {}
-    }
-    if (org?.notification_config) {
-      try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {}
-    }
+    if (org?.sla_config) { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
+    if (org?.notification_config) { try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
   }, [org])
 
   const saveSla = async () => {
     setSavingSla(true)
     await supabase.from('organizations').update({ sla_config: sla }).eq('id', org.id)
     setSavingSla(false); setSavedSla(true)
-    setTimeout(() => setSavedSla(false), 2000)
-    onSaved()
+    setTimeout(() => setSavedSla(false), 2000); onSaved()
   }
 
   const saveNotif = async () => {
     setSavingNotif(true)
     await supabase.from('organizations').update({ notification_config: notif }).eq('id', org.id)
     setSavingNotif(false); setSavedNotif(true)
-    setTimeout(() => setSavedNotif(false), 2000)
-    onSaved()
+    setTimeout(() => setSavedNotif(false), 2000); onSaved()
   }
 
   const PCLS = { critical: 'text-rose-500', high: 'text-orange-500', medium: 'text-amber-500', low: 'text-emerald-500' }
-
   return (
     <Section title="SLA & Alerts" description="Response time targets and notification preferences.">
       <div>
@@ -194,37 +199,12 @@ function SlaSection({ org, onSaved }) {
 
 function IntegrationsSection({ org }) {
   const items = [
-    {
-      name: 'Gmail', icon: Mail,
-      description: 'Inbound email → automatic ticket creation. Client replies sync as comments.',
-      hint: 'The Gmail account must match your Support Email in Organization settings.',
-      status: org?.company_email ? 'configured' : 'not_configured',
-      statusLabel: org?.company_email ? `Configured (${org.company_email})` : 'No email configured',
-    },
-    {
-      name: 'Stripe', icon: Zap,
-      description: 'Invoice payment links and MSP subscription billing.',
-      hint: 'Add STRIPE_SECRET_KEY in Supabase Dashboard → Settings → Edge Function Secrets.',
-      status: 'manual', statusLabel: 'Via Supabase secrets',
-    },
-    {
-      name: 'Resend', icon: Mail,
-      description: 'Transactional email delivery for invoices and notifications.',
-      hint: 'RESEND_API_KEY is configured in Supabase Edge Function Secrets.',
-      status: 'configured', statusLabel: 'Configured via secrets',
-    },
-    {
-      name: 'Anthropic AI', icon: Zap,
-      description: 'AI-powered ticket triage — auto-assigns priority and category.',
-      hint: 'ANTHROPIC_API_KEY is configured in Supabase Edge Function Secrets.',
-      status: 'configured', statusLabel: 'Configured via secrets',
-    },
+    { name: 'Gmail', icon: Mail, description: 'Inbound email → automatic ticket creation.', hint: 'The Gmail account must match your Support Email in Organization settings.', status: org?.company_email ? 'configured' : 'not_configured', statusLabel: org?.company_email ? `Configured (${org.company_email})` : 'No email configured' },
+    { name: 'Stripe', icon: Zap, description: 'Invoice payment links and MSP subscription billing.', hint: 'Add STRIPE_SECRET_KEY in Supabase Dashboard → Settings → Edge Function Secrets.', status: 'manual', statusLabel: 'Via Supabase secrets' },
+    { name: 'Resend', icon: Mail, description: 'Transactional email delivery for invoices and notifications.', hint: 'RESEND_API_KEY is configured in Supabase Edge Function Secrets.', status: 'configured', statusLabel: 'Configured via secrets' },
+    { name: 'Anthropic AI', icon: Zap, description: 'AI-powered ticket triage — auto-assigns priority and category.', hint: 'ANTHROPIC_API_KEY is configured in Supabase Edge Function Secrets.', status: 'configured', statusLabel: 'Configured via secrets' },
   ]
-  const SCLS = {
-    configured:     'bg-emerald-100 text-emerald-700',
-    not_configured: 'bg-amber-100 text-amber-700',
-    manual:         'bg-blue-100 text-blue-700',
-  }
+  const SCLS = { configured: 'bg-emerald-100 text-emerald-700', not_configured: 'bg-amber-100 text-amber-700', manual: 'bg-blue-100 text-blue-700' }
   return (
     <Section title="Integrations" description="External services connected to Valhalla RMM.">
       <div className="space-y-3">
@@ -272,31 +252,23 @@ function TeamSection({ orgId }) {
     setLoading(false)
   }
 
+  useRealtimeRefresh(['organization_members'], loadMembers)
+
+
   const inviteMember = async () => {
     if (!invEmail.trim()) return
     setInviting(true); setErr(null); setSuccess(null)
-
     try {
       const { data, error } = await supabase.functions.invoke('invite-user', {
-        body: {
-          email:           invEmail.trim(),
-          role:            invRole,
-          organization_id: orgId,
-          redirect_to:     `${window.location.origin}/invite`,
-        }
+        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: `${window.location.origin}/invite` }
       })
-
       if (error) { setErr(error.message); return }
       if (data?.error) { setErr(data.error); return }
-
       setSuccess(`Invite sent to ${invEmail.trim()}`)
       setInvEmail('')
       loadMembers()
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setInviting(false)
-    }
+    } catch (e) { setErr(e.message) }
+    finally { setInviting(false) }
   }
 
   const updateRole = async (memberId, role) => {
@@ -310,12 +282,7 @@ function TeamSection({ orgId }) {
     loadMembers()
   }
 
-  const ROLE_CLS = {
-    owner:      'bg-amber-100 text-amber-700',
-    admin:      'bg-violet-100 text-violet-700',
-    technician: 'bg-blue-100 text-blue-700',
-    client:     'bg-slate-100 text-slate-600',
-  }
+  const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
 
   return (
     <Section title="Team Members" description="Manage who has access to your Valhalla RMM account.">
@@ -323,14 +290,9 @@ function TeamSection({ orgId }) {
         <p className="text-sm font-medium text-slate-900 dark:text-white">Invite Team Member</p>
         <p className="text-xs text-slate-400">They will receive an email with a link to set their password and sign in.</p>
         <div className="flex gap-2">
-          <input
-            value={invEmail}
-            onChange={e => setInvEmail(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && inviteMember()}
-            placeholder="email@company.com"
-            type="email"
-            className="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-          />
+          <input value={invEmail} onChange={e => setInvEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && inviteMember()}
+            placeholder="email@company.com" type="email"
+            className="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
           <select value={invRole} onChange={e => setInvRole(e.target.value)}
             className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500">
             <option value="technician">Technician</option>
@@ -345,7 +307,6 @@ function TeamSection({ orgId }) {
         {err     && <p className="text-xs text-rose-600">{err}</p>}
         {success && <p className="text-xs text-emerald-600">✓ {success}</p>}
       </div>
-
       <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-sm">Loading…</div>
@@ -368,14 +329,9 @@ function TeamSection({ orgId }) {
                   <option value="technician">Technician</option>
                   <option value="client">Client</option>
                 </select>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full hidden sm:inline ${ROLE_CLS[member.role] ?? ''}`}>
-                  {member.role}
-                </span>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full hidden sm:inline ${ROLE_CLS[member.role] ?? ''}`}>{member.role}</span>
                 {member.role !== 'owner' && (
-                  <button onClick={() => removeMember(member.id)}
-                    className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">
-                    ✕
-                  </button>
+                  <button onClick={() => removeMember(member.id)} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">✕</button>
                 )}
               </div>
             ))}
@@ -388,20 +344,9 @@ function TeamSection({ orgId }) {
 
 function AccountSection({ user }) {
   const supabase = createSupabaseBrowserClient()
-  const router   = useRouter()
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
-  const ROLE_CLS = {
-    owner:      'bg-amber-100 text-amber-700',
-    admin:      'bg-violet-100 text-violet-700',
-    technician: 'bg-blue-100 text-blue-700',
-    client:     'bg-slate-100 text-slate-600',
-  }
-
+  const router = useRouter()
+  const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login') }
+  const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
   return (
     <Section title="My Account" description="Your personal account details.">
       <FieldRow label="Email" hint="Email cannot be changed here.">
@@ -416,8 +361,7 @@ function AccountSection({ user }) {
         </div>
       </FieldRow>
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
-        <button onClick={handleSignOut}
-          className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+        <button onClick={handleSignOut} className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
           Sign Out
         </button>
       </div>
@@ -437,8 +381,7 @@ export default function SettingsPage() {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data: member } = await supabase
-        .from('organization_members').select('organization_id,role').eq('user_id', user.id).single()
+      const { data: member } = await supabase.from('organization_members').select('organization_id,role').eq('user_id', user.id).single()
       if (member) {
         setOrgId(member.organization_id)
         setUser({ ...user, role: member.role })
@@ -475,11 +418,7 @@ export default function SettingsPage() {
               const active = section === item.id
               return (
                 <button key={item.id} onClick={() => setSection(item.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
-                    active
-                      ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}>
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${active ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   <item.icon className="w-4 h-4 flex-shrink-0" />
                   {item.label}
                   {active && <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-50" />}

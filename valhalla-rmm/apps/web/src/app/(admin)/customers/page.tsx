@@ -1,10 +1,21 @@
 // @ts-nocheck
 'use client'
-
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Plus, Search, LayoutGrid, List, Building2, Phone, Mail, Edit, X, Loader2 } from 'lucide-react'
+import { Plus, Search, LayoutGrid, List, Building2, Phone, Mail, Edit, X } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = useRef(onRefresh)
+  ref.current = onRefresh
+  useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener("supabase:change", h)
+    return () => window.removeEventListener("supabase:change", h)
+  }, [tables.join(",")]) // eslint-disable-line
+}
 
 const STATUS_CLS = {
   active:   'bg-emerald-100 text-emerald-700',
@@ -12,22 +23,21 @@ const STATUS_CLS = {
   prospect: 'bg-blue-100 text-blue-700',
 }
 const CONTRACT_LABELS = {
-  managed:          'Managed',
+  managed:            'Managed',
   time_and_materials: 'T&M',
-  block_hours:      'Block Hours',
-  project:          'Project',
+  block_hours:        'Block Hours',
+  project:            'Project',
 }
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
-// ── New / Edit Customer Dialog ─────────────────────────────────────────────
 function CustomerDialog({ open, onClose, onSaved, customer, orgId }) {
   const supabase = createSupabaseBrowserClient()
   const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState(null)
-  const [form, setForm] = useState({
-    name: '', status: 'active', contract_type: 'managed', industry: '',
-    contact_name: '', contact_email: '', contact_phone: '',
-    monthly_rate: '', hourly_rate: '', after_hours_rate: '', notes: '',
+  const [err,    setErr]    = useState(null)
+  const [form,   setForm]   = useState({
+    name:'', status:'active', contract_type:'managed', industry:'',
+    contact_name:'', contact_email:'', contact_phone:'',
+    monthly_rate:'', hourly_rate:'', after_hours_rate:'', notes:'',
   })
   const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -56,34 +66,30 @@ function CustomerDialog({ open, onClose, onSaved, customer, orgId }) {
     if (!form.name.trim()) { setErr('Name is required'); return }
     if (!orgId) { setErr('Organization not found — please refresh'); return }
     setSaving(true); setErr(null)
-
     const payload = {
       organization_id:  orgId,
       name:             form.name.trim(),
       status:           form.status,
-      contract_type:    form.contract_type || null,
-      industry:         form.industry || null,
-      contact_name:     form.contact_name || null,
-      contact_email:    form.contact_email || null,
-      contact_phone:    form.contact_phone || null,
+      contract_type:    form.contract_type    || null,
+      industry:         form.industry         || null,
+      contact_name:     form.contact_name     || null,
+      contact_email:    form.contact_email    || null,
+      contact_phone:    form.contact_phone    || null,
       monthly_rate:     form.monthly_rate     ? parseFloat(form.monthly_rate)     : null,
       hourly_rate:      form.hourly_rate      ? parseFloat(form.hourly_rate)      : null,
       after_hours_rate: form.after_hours_rate ? parseFloat(form.after_hours_rate) : null,
-      notes:            form.notes || null,
+      notes:            form.notes            || null,
     }
-
     const { error } = customer
       ? await supabase.from('customers').update(payload).eq('id', customer.id)
       : await supabase.from('customers').insert(payload)
-
     if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false); onSaved()
   }
 
   const handleDelete = async () => {
     if (!confirm(`Delete ${customer.name}? This cannot be undone.`)) return
-    const { error } = await supabase.from('customers').delete().eq('id', customer.id)
-    if (error) { setErr(error.message); return }
+    await supabase.from('customers').delete().eq('id', customer.id)
     onSaved()
   }
 
@@ -99,12 +105,12 @@ function CustomerDialog({ open, onClose, onSaved, customer, orgId }) {
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Company Name *</label>
-            <input value={form.name} onChange={e => s('name', e.target.value)} required placeholder="Acme Corp" className={`mt-1 ${inp}`} />
+            <input value={form.name} onChange={e => s('name',e.target.value)} required placeholder="Acme Corp" className={`mt-1 ${inp}`} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</label>
-              <select value={form.status} onChange={e => s('status', e.target.value)} className={`mt-1 ${inp}`}>
+              <select value={form.status} onChange={e => s('status',e.target.value)} className={`mt-1 ${inp}`}>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="prospect">Prospect</option>
@@ -112,7 +118,7 @@ function CustomerDialog({ open, onClose, onSaved, customer, orgId }) {
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contract Type</label>
-              <select value={form.contract_type} onChange={e => s('contract_type', e.target.value)} className={`mt-1 ${inp}`}>
+              <select value={form.contract_type} onChange={e => s('contract_type',e.target.value)} className={`mt-1 ${inp}`}>
                 <option value="managed">Managed</option>
                 <option value="time_and_materials">Time & Materials</option>
                 <option value="block_hours">Block Hours</option>
@@ -122,39 +128,37 @@ function CustomerDialog({ open, onClose, onSaved, customer, orgId }) {
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Industry</label>
-            <input value={form.industry} onChange={e => s('industry', e.target.value)} placeholder="e.g. Healthcare, Finance" className={`mt-1 ${inp}`} />
+            <input value={form.industry} onChange={e => s('industry',e.target.value)} placeholder="e.g. Healthcare, Finance" className={`mt-1 ${inp}`} />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Monthly Rate</label>
-              <input type="number" value={form.monthly_rate} onChange={e => s('monthly_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
+              <input type="number" value={form.monthly_rate} onChange={e => s('monthly_rate',e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Hourly Rate</label>
-              <input type="number" value={form.hourly_rate} onChange={e => s('hourly_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
+              <input type="number" value={form.hourly_rate} onChange={e => s('hourly_rate',e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">After Hours</label>
-              <input type="number" value={form.after_hours_rate} onChange={e => s('after_hours_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
+              <input type="number" value={form.after_hours_rate} onChange={e => s('after_hours_rate',e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
             </div>
           </div>
           <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Primary Contact</p>
             <div className="space-y-3">
-              <input value={form.contact_name} onChange={e => s('contact_name', e.target.value)} placeholder="Contact name" className={inp} />
-              <input type="email" value={form.contact_email} onChange={e => s('contact_email', e.target.value)} placeholder="contact@company.com" className={inp} />
-              <input value={form.contact_phone} onChange={e => s('contact_phone', e.target.value)} placeholder="Phone number" className={inp} />
+              <input value={form.contact_name}  onChange={e => s('contact_name',e.target.value)}  placeholder="Contact name"       className={inp} />
+              <input type="email" value={form.contact_email} onChange={e => s('contact_email',e.target.value)} placeholder="contact@company.com" className={inp} />
+              <input value={form.contact_phone} onChange={e => s('contact_phone',e.target.value)} placeholder="Phone number"        className={inp} />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
-            <textarea value={form.notes} onChange={e => s('notes', e.target.value)} rows={3} placeholder="Internal notes about this customer..." className={`mt-1 ${inp} resize-none`} />
+            <textarea value={form.notes} onChange={e => s('notes',e.target.value)} rows={3} placeholder="Internal notes..." className={`mt-1 ${inp} resize-none`} />
           </div>
           <div className="flex gap-2 pt-2">
             {customer && (
-              <button type="button" onClick={handleDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
-                Delete
-              </button>
+              <button type="button" onClick={handleDelete} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">Delete</button>
             )}
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
@@ -167,7 +171,6 @@ function CustomerDialog({ open, onClose, onSaved, customer, orgId }) {
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function CustomersPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
@@ -196,11 +199,13 @@ export default function CustomersPage() {
 
   const loadCustomers = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('customers').select('*').order('name').limit(200)
+    const { data } = await supabase.from('customers').select('*').order('name').limit(200)
     setCustomers(data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['customers'], loadCustomers)
+
 
   const filtered = useMemo(() => customers.filter(c => {
     const q = search.toLowerCase()
@@ -213,12 +218,10 @@ export default function CustomersPage() {
   const totalMRR    = customers.filter(c => c.status === 'active').reduce((s, c) => s + (c.monthly_rate || 0), 0)
   const activeCount = customers.filter(c => c.status === 'active').length
   const prospects   = customers.filter(c => c.status === 'prospect').length
-
   const sel = "px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
 
   return (
     <div className="space-y-4">
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total Organizations', value: customers.length },
@@ -233,7 +236,6 @@ export default function CustomersPage() {
         ))}
       </div>
 
-      {/* Toolbar */}
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div className="flex flex-wrap gap-2 items-center flex-1">
           <div className="relative flex-1 min-w-48 max-w-sm">
@@ -269,7 +271,6 @@ export default function CustomersPage() {
         </button>
       </div>
 
-      {/* Table View */}
       {view === 'table' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
@@ -311,7 +312,6 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Grid View */}
       {view === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(c => (
@@ -329,16 +329,8 @@ export default function CustomersPage() {
                 </div>
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${STATUS_CLS[c.status] ?? ''}`}>{c.status}</span>
               </div>
-              {c.contact_name && (
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <Mail className="w-3.5 h-3.5" />{c.contact_name}
-                </div>
-              )}
-              {c.contact_phone && (
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <Phone className="w-3.5 h-3.5" />{c.contact_phone}
-                </div>
-              )}
+              {c.contact_name && <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"><Mail className="w-3.5 h-3.5" />{c.contact_name}</div>}
+              {c.contact_phone && <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"><Phone className="w-3.5 h-3.5" />{c.contact_phone}</div>}
               <div className="flex gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <div>
                   <p className="text-xs text-slate-400">Monthly</p>

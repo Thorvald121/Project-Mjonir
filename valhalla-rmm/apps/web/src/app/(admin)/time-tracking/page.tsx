@@ -1,10 +1,20 @@
 // @ts-nocheck
 'use client'
-
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { format, parseISO } from 'date-fns'
 import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X } from 'lucide-react'
+
+function useRealtimeRefresh(tables, onRefresh) {
+  const ref = useRef(onRefresh)
+  ref.current = onRefresh
+  useEffect(() => {
+    const h = (e) => {
+      if (!tables.length || tables.includes(e.detail?.table)) ref.current()
+    }
+    window.addEventListener("supabase:change", h)
+    return () => window.removeEventListener("supabase:change", h)
+  }, [tables.join(",")]) // eslint-disable-line
+}
 
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 const sel = "px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -21,7 +31,6 @@ const BLANK = {
   hourly_rate: '', date: new Date().toISOString().split('T')[0],
 }
 
-// ── Log Time Dialog ───────────────────────────────────────────────────────────
 function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, customers }) {
   const supabase = createSupabaseBrowserClient()
   const [form, setForm] = useState({ ...BLANK })
@@ -69,7 +78,6 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
     if (!form.minutes || Number(form.minutes) < 1) { setErr('Please enter a valid number of minutes.'); return }
     if (!orgId) { setErr('Organization not found — please refresh'); return }
     setSaving(true); setErr(null)
-
     const payload = {
       organization_id: orgId,
       ticket_id:     form.ticket_id     || null,
@@ -83,11 +91,9 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
       hourly_rate:   form.hourly_rate !== '' ? Number(form.hourly_rate) : null,
       date:          form.date,
     }
-
     const { error } = editing
       ? await supabase.from('time_entries').update(payload).eq('id', editing.id)
       : await supabase.from('time_entries').insert(payload)
-
     if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false); onSaved()
   }
@@ -102,8 +108,6 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
         </div>
         <div className="p-5 space-y-4">
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
-
-          {/* Ticket */}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Ticket (optional)</label>
             <select value={form.ticket_id || '__none__'} onChange={e => handleTicketSelect(e.target.value)} className={`mt-1 ${inp}`}>
@@ -111,8 +115,6 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
               {tickets.map(t => <option key={t.id} value={t.id}>{t.title}{t.customer_name ? ` — ${t.customer_name}` : ''}</option>)}
             </select>
           </div>
-
-          {/* Customer */}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer</label>
             <select value={form.customer_id || '__none__'} onChange={e => handleCustomerSelect(e.target.value)} className={`mt-1 ${inp}`}>
@@ -120,52 +122,35 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
               {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-
-          {/* Technician */}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Technician</label>
-            <input value={form.technician} onChange={e => s('technician', e.target.value)}
-              placeholder="Technician email or name" className={`mt-1 ${inp}`} />
+            <input value={form.technician} onChange={e => s('technician', e.target.value)} placeholder="Technician email or name" className={`mt-1 ${inp}`} />
           </div>
-
-          {/* Description */}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</label>
-            <textarea value={form.description} onChange={e => s('description', e.target.value)}
-              rows={3} placeholder="What was worked on?" className={`mt-1 ${inp} resize-none`} />
+            <textarea value={form.description} onChange={e => s('description', e.target.value)} rows={3} placeholder="What was worked on?" className={`mt-1 ${inp} resize-none`} />
           </div>
-
           <div className="grid grid-cols-2 gap-3">
-            {/* Minutes */}
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Minutes *</label>
               <input type="number" min={1} value={form.minutes} onChange={e => s('minutes', e.target.value)} className={`mt-1 ${inp}`} />
-              {Number(form.minutes) > 0 && (
-                <p className="text-xs text-slate-400 mt-0.5">= {fmtHours(Number(form.minutes))}</p>
-              )}
+              {Number(form.minutes) > 0 && <p className="text-xs text-slate-400 mt-0.5">= {fmtHours(Number(form.minutes))}</p>}
             </div>
-            {/* Date */}
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</label>
               <input type="date" value={form.date} onChange={e => s('date', e.target.value)} className={`mt-1 ${inp}`} />
             </div>
           </div>
-
-          {/* Billable */}
           <div className="flex items-center gap-2">
             <input type="checkbox" id="billable" checked={form.billable} onChange={e => s('billable', e.target.checked)} className="w-4 h-4 accent-amber-500" />
             <label htmlFor="billable" className="text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer">Billable</label>
           </div>
-
-          {/* Hourly rate */}
           {form.billable && (
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Hourly Rate ($)</label>
-              <input type="number" min={0} step="0.01" value={form.hourly_rate} onChange={e => s('hourly_rate', e.target.value)}
-                placeholder="e.g. 125.00" className={`mt-1 ${inp}`} />
+              <input type="number" min={0} step="0.01" value={form.hourly_rate} onChange={e => s('hourly_rate', e.target.value)} placeholder="e.g. 125.00" className={`mt-1 ${inp}`} />
             </div>
           )}
-
           <div className="flex gap-2 pt-2">
             <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
             <button onClick={handleSave} disabled={!form.minutes || saving}
@@ -179,7 +164,6 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function TimeTrackingPage() {
   const supabase = createSupabaseBrowserClient()
 
@@ -219,6 +203,9 @@ export default function TimeTrackingPage() {
     setLoading(false)
   }
 
+  useRealtimeRefresh(['time_entries'], loadAll)
+
+
   const handleDelete = async (id) => {
     if (!confirm('Delete this time entry? This cannot be undone.')) return
     await supabase.from('time_entries').delete().eq('id', id)
@@ -245,11 +232,10 @@ export default function TimeTrackingPage() {
     return d.toISOString().slice(0, 7)
   })
 
-  const fmt = (d) => { try { return format(parseISO(d), 'MMM d, yyyy') } catch { return '—' } }
+  const fmt = (d) => { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
 
   return (
     <div className="space-y-4">
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total Hours',    value: fmtHours(totalMinutes),    icon: Clock,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
@@ -269,19 +255,17 @@ export default function TimeTrackingPage() {
         ))}
       </div>
 
-      {/* Toolbar */}
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div className="flex flex-wrap gap-2 items-center flex-1">
           <div className="relative flex-1 min-w-48 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search by ticket, customer, technician…"
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by ticket, customer, technician…"
               className="w-full pl-9 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
           <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)} className={sel}>
             <option value="all">All Time</option>
             {monthOptions.map(m => (
-              <option key={m} value={m}>{format(parseISO(m + '-01'), 'MMM yyyy')}</option>
+              <option key={m} value={m}>{new Date(m + '-02').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</option>
             ))}
           </select>
           <select value={techFilter} onChange={e => setTechFilter(e.target.value)} className={sel}>
@@ -300,7 +284,6 @@ export default function TimeTrackingPage() {
         </button>
       </div>
 
-      {/* Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -326,9 +309,7 @@ export default function TimeTrackingPage() {
                   </td>
                 </tr>
               ) : filtered.map(entry => {
-                const amount = entry.billable && entry.hourly_rate
-                  ? (entry.hourly_rate * entry.minutes) / 60
-                  : null
+                const amount = entry.billable && entry.hourly_rate ? (entry.hourly_rate * entry.minutes) / 60 : null
                 return (
                   <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                     <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.date ? fmt(entry.date) : '—'}</td>
