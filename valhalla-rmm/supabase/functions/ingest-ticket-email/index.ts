@@ -13,14 +13,27 @@ serve(async (req) => {
   }
 
   try {
-    const { from, to, subject, body, html } = await req.json()
+    const payload = await req.json()
+    const { from, to, subject: subjectDirect, body: bodyDirect, raw_email } = payload
 
-    console.log('Inbound email from:', from, 'subject:', subject)
+    console.log('Received payload keys:', Object.keys(payload).join(', '))
 
-    if (!from || !subject) {
-      return new Response(JSON.stringify({ error: 'Missing from or subject' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    // Parse from raw email if provided, otherwise use direct fields
+    let subject   = subjectDirect || ''
+    let textBody  = bodyDirect    || ''
+    let htmlBody  = ''
+
+    if (raw_email) {
+      console.log('Parsing raw email, length:', raw_email.length)
+      const parsed = parseRawEmail(raw_email)
+      subject  = parsed.subject  || subjectDirect || ''
+      textBody = parsed.textBody || bodyDirect    || ''
+      htmlBody = parsed.htmlBody || ''
+      console.log('Parsed subject:', subject)
+      console.log('Parsed textBody length:', textBody.length)
+      console.log('Parsed textBody preview:', textBody.slice(0, 200))
+    } else {
+      console.log('No raw_email, using direct body:', textBody?.slice(0, 200))
     }
 
     const supabase = createClient(
@@ -28,69 +41,68 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     )
 
-    // ── Try to find ticket by ID embedded in subject ──────────────────────
-    // We embed ticket IDs in outbound email subjects as: [#ticket_id]
-    // e.g. "Re: Your ticket is being worked on [#a1b2c3d4-...]"
+    const senderEmail = extractEmail(from)
+    const senderName  = extractName(from)
+
+    console.log('From:', from, '→ email:', senderEmail, 'name:', senderName)
+    console.log('To:', to)
+    console.log('Subject:', subject)
+
+    // ── Find ticket ID — 5 strategies ────────────────────────────────────
     let ticketId = null
-    const idMatch = subject.match(/\[#([a-f0-9-]{36})\]/i)
-    if (idMatch) {
-      ticketId = idMatch[1]
-      console.log('Found ticket ID in subject:', ticketId)
+
+    // 1. UUID in subject [#uuid]
+    const subjectMatch = subject?.match(/\[#([a-f0-9-]{36})\]/i)
+    if (subjectMatch) { ticketId = subjectMatch[1]; console.log('Strategy 1 (subject):', ticketId) }
+
+    // 2. support+uuid@ in To address
+    if (!ticketId) {
+      const toMatch = to?.match(/support\+([a-f0-9-]{36})@/i)
+      if (toMatch) { ticketId = toMatch[1]; console.log('Strategy 2 (to address):', ticketId) }
     }
 
-    // ── Fallback: match by sender email across open tickets ───────────────
-    if (!ticketId) {
-      const senderEmail = extractEmail(from)
-      console.log('No ticket ID in subject, searching by sender email:', senderEmail)
-
-      if (senderEmail) {
-        const { data: matchedTickets } = await supabase
-          .from('tickets')
-          .select('id, title, status')
-          .eq('contact_email', senderEmail)
-          .not('status', 'in', '("closed","resolved")')
-          .order('created_at', { ascending: false })
-          .limit(1)
-
-        if (matchedTickets && matchedTickets.length > 0) {
-          ticketId = matchedTickets[0].id
-          console.log('Matched ticket by sender email:', ticketId)
-        }
-      }
+    // 3. TICKET_ID: in HTML body
+    if (!ticketId && htmlBody) {
+      const m = htmlBody.match(/TICKET_ID:([a-f0-9-]{36})/i)
+      if (m) { ticketId = m[1]; console.log('Strategy 3 (html body):', ticketId) }
     }
 
-    // ── No ticket found — create a new one ────────────────────────────────
+    // 4. TICKET_ID: in text body
+    if (!ticketId && textBody) {
+      const m = textBody.match(/TICKET_ID:([a-f0-9-]{36})/i)
+      if (m) { ticketId = m[1]; console.log('Strategy 4 (text body):', ticketId) }
+    }
+
+    // 5. Match by sender email
+    if (!ticketId && senderEmail) {
+      console.log('Strategy 5: searching by sender email:', senderEmail)
+      const { data: matched } = await supabase
+        .from('tickets')
+        .select('id,status')
+        .eq('contact_email', senderEmail)
+        .not('status', 'in', '("closed","resolved")')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (matched?.length > 0) { ticketId = matched[0].id; console.log('Strategy 5 matched:', ticketId) }
+    }
+
+    // ── No match — create new ticket ──────────────────────────────────────
     if (!ticketId) {
-      console.log('No matching ticket found — creating new ticket from email')
-
-      const senderEmail = extractEmail(from)
-      const senderName  = extractName(from)
-
-      // Find the org (single-org setup)
+      console.log('No ticket found — creating new one')
       const { data: orgs } = await supabase.from('organizations').select('id').limit(1)
       const orgId = orgs?.[0]?.id
+      if (!orgId) return new Response(JSON.stringify({ error: 'No org found' }), { status: 500 })
 
-      if (!orgId) {
-        return new Response(JSON.stringify({ error: 'No organization found' }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      // Try to find matching customer by email
-      const { data: contacts } = await supabase
-        .from('customers')
-        .select('id, name')
-        .or(`contact_email.eq.${senderEmail}`)
-        .limit(1)
-
-      const customer = contacts?.[0]
+      const { data: customers } = await supabase
+        .from('customers').select('id,name').eq('contact_email', senderEmail).limit(1)
+      const customer = customers?.[0]
 
       const { data: newTicket, error: ticketErr } = await supabase
         .from('tickets')
         .insert({
           organization_id: orgId,
-          title:           cleanSubject(subject),
-          description:     body || '',
+          title:           cleanSubject(subject || 'Email inquiry'),
+          description:     textBody || htmlBody || '',
           priority:        'medium',
           category:        'other',
           status:          'open',
@@ -100,90 +112,218 @@ serve(async (req) => {
           customer_name:   customer?.name || null,
           source:          'email',
         })
-        .select()
-        .single()
+        .select().single()
 
-      if (ticketErr) {
-        console.error('Failed to create ticket:', ticketErr.message)
-        return new Response(JSON.stringify({ error: ticketErr.message }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-
-      console.log('Created new ticket from email:', newTicket.id)
-
+      if (ticketErr) return new Response(JSON.stringify({ error: ticketErr.message }), { status: 500 })
+      console.log('Created new ticket:', newTicket.id)
       return new Response(JSON.stringify({ ok: true, action: 'created_ticket', ticket_id: newTicket.id }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // ── Ticket found — add reply as comment ───────────────────────────────
-    const senderName  = extractName(from)
-    const senderEmail = extractEmail(from)
+    // ── Add as comment on existing ticket ─────────────────────────────────
+    const rawBody   = textBody || htmlBody || ''
+    const cleanBody = stripQuotedReply(rawBody).trim()
+    const finalBody = cleanBody.length > 0 ? cleanBody : rawBody.trim()
+
+    console.log('Final body to save:', JSON.stringify(finalBody.slice(0, 300)))
+
+    if (!finalBody) {
+      console.log('ERROR: No body content found after all processing')
+      return new Response(JSON.stringify({ error: 'empty body' }), { status: 400 })
+    }
+
+    const { data: ticket } = await supabase
+      .from('tickets').select('status,contact_email,organization_id').eq('id', ticketId).single()
+
+    if (!ticket) return new Response(JSON.stringify({ error: 'Ticket not found' }), { status: 404 })
 
     const { error: commentErr } = await supabase
       .from('ticket_comments')
       .insert({
-        ticket_id:    ticketId,
-        author_name:  senderName || senderEmail || 'Client',
-        author_email: senderEmail || '',
-        content:      body || '(no body)',
-        is_staff:     false,
-        source:       'email',
+        ticket_id:       ticketId,
+        organization_id: ticket.organization_id,
+        author_name:     senderName || senderEmail || 'Client',
+        author_email:    senderEmail || '',
+        content:         finalBody,
+        is_staff:        false,
+        source:          'email',
       })
 
     if (commentErr) {
-      console.error('Failed to add comment:', commentErr.message)
-      return new Response(JSON.stringify({ error: commentErr.message }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      console.error('Comment insert error:', commentErr.message)
+      return new Response(JSON.stringify({ error: commentErr.message }), { status: 500 })
     }
 
-    // Update ticket status to open if it was waiting
-    const { data: ticket } = await supabase
-      .from('tickets')
-      .select('status, organization_id')
-      .eq('id', ticketId)
-      .single()
+    // Update ticket if needed
+    const updates = {}
+    if (!ticket.contact_email && senderEmail) updates.contact_email = senderEmail
+    if (ticket.status === 'waiting') updates.status = 'open'
+    if (Object.keys(updates).length > 0) await supabase.from('tickets').update(updates).eq('id', ticketId)
 
-    if (ticket?.status === 'waiting') {
-      await supabase.from('tickets').update({ status: 'open' }).eq('id', ticketId)
-    }
-
-    console.log('Added reply comment to ticket:', ticketId)
-
+    console.log('Added comment to ticket:', ticketId)
     return new Response(JSON.stringify({ ok: true, action: 'added_comment', ticket_id: ticketId }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
 
   } catch (err) {
-    console.error('Error:', err.message)
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    console.error('Unhandled error:', err.message)
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 })
   }
 })
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Email parsing ──────────────────────────────────────────────────────────────
+
+function parseRawEmail(raw) {
+  const nl      = raw.includes('\r\n') ? '\r\n' : '\n'
+  const lines   = raw.split(nl)
+  const headers = {}
+  let i = 0
+
+  // Parse headers
+  while (i < lines.length) {
+    const line = lines[i]
+    if (line === '' || line === '\r') { i++; break }
+    // Folded header continuation
+    if ((line.startsWith(' ') || line.startsWith('\t')) && i > 0) {
+      const lastKey = Object.keys(headers).pop()
+      if (lastKey) headers[lastKey] += ' ' + line.trim()
+    } else {
+      const colon = line.indexOf(':')
+      if (colon > 0) {
+        const key = line.slice(0, colon).toLowerCase().trim()
+        const val = line.slice(colon + 1).trim()
+        headers[key] = val
+      }
+    }
+    i++
+  }
+
+  const subject   = decodeHeader(headers['subject'] || '')
+  const ct        = headers['content-type'] || ''
+  const bodyLines = lines.slice(i)
+  const bodyRaw   = bodyLines.join('\n')
+
+  let textBody = ''
+  let htmlBody = ''
+
+  const boundary = extractBoundary(ct)
+
+  if (boundary) {
+    console.log('Multipart boundary:', boundary)
+    const parts = bodyRaw.split(new RegExp('--' + escapeRegex(boundary) + '(?:--)?'))
+    console.log('Parts found:', parts.length)
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (!trimmed || trimmed === '--') continue
+      const { headers: ph, body: pb } = parsePart(trimmed)
+      const partCt  = ph['content-type'] || ''
+      const partEnc = ph['content-transfer-encoding'] || ''
+      console.log('Part content-type:', partCt)
+      if (partCt.includes('text/plain') && !textBody) {
+        textBody = decodeBody(pb.trim(), partEnc)
+        console.log('Found text/plain, length:', textBody.length)
+      }
+      if (partCt.includes('text/html') && !htmlBody) {
+        htmlBody = decodeBody(pb.trim(), partEnc)
+        console.log('Found text/html, length:', htmlBody.length)
+      }
+    }
+  } else {
+    // Single part
+    const enc = headers['content-transfer-encoding'] || ''
+    if (ct.includes('text/html')) {
+      htmlBody = decodeBody(bodyRaw, enc)
+    } else {
+      textBody = decodeBody(bodyRaw, enc)
+    }
+    console.log('Single part, textBody length:', textBody.length, 'htmlBody length:', htmlBody.length)
+  }
+
+  return { subject, textBody, htmlBody }
+}
+
+function extractBoundary(ct) {
+  const m = ct.match(/boundary=["']?([^"';\s]+)["']?/i)
+  return m ? m[1] : null
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function parsePart(part) {
+  const lines   = part.split('\n')
+  const headers = {}
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i].replace(/\r$/, '')
+    if (line === '') { i++; break }
+    const colon = line.indexOf(':')
+    if (colon > 0) {
+      headers[line.slice(0, colon).toLowerCase().trim()] = line.slice(colon + 1).trim()
+    }
+    i++
+  }
+  return { headers, body: lines.slice(i).join('\n') }
+}
+
+function decodeBody(body, encoding) {
+  const enc = (encoding || '').toLowerCase().trim()
+  if (enc === 'base64') {
+    try { return atob(body.replace(/[\r\n\s]/g, '')) } catch (e) { console.error('base64 decode failed:', e.message); return body }
+  }
+  if (enc === 'quoted-printable') {
+    return body
+      .replace(/=\r?\n/g, '')
+      .replace(/=([A-Fa-f0-9]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+  }
+  return body
+}
+
+function decodeHeader(value) {
+  if (!value) return ''
+  return value.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_, _cs, enc, encoded) => {
+    try {
+      if (enc.toUpperCase() === 'B') return atob(encoded)
+      if (enc.toUpperCase() === 'Q') return encoded.replace(/_/g, ' ').replace(/=([A-Fa-f0-9]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    } catch {}
+    return encoded
+  })
+}
 
 function extractEmail(from) {
   if (!from) return null
-  // Match "Name <email@domain.com>" or just "email@domain.com"
-  const match = from.match(/<([^>]+)>/) || from.match(/([^\s]+@[^\s]+)/)
-  return match ? match[1].toLowerCase().trim() : null
+  const m = from.match(/<([^>]+)>/) || from.match(/([^\s]+@[^\s]+)/)
+  return m ? m[1].toLowerCase().trim() : null
 }
 
 function extractName(from) {
   if (!from) return null
-  // Match "John Smith <email>" → return "John Smith"
-  const match = from.match(/^"?([^"<]+)"?\s*</)
-  return match ? match[1].trim() : null
+  const m = from.match(/^"?([^"<]+)"?\s*</)
+  return m ? m[1].trim() : null
 }
 
 function cleanSubject(subject) {
-  // Remove Re:, Fwd:, and our ticket ID tags
-  return subject
-    .replace(/^(Re:|Fwd?:|AW:|WG:)\s*/gi, '')
-    .replace(/\[#[a-f0-9-]+\]/gi, '')
-    .trim() || 'Email inquiry'
+  return subject.replace(/^(Re:|Fwd?:|AW:|WG:)\s*/gi, '').replace(/\[#[a-f0-9-]+\]/gi, '').trim() || 'Email inquiry'
+}
+
+function stripQuotedReply(text) {
+  if (!text || text.length < 5) return text
+  const patterns = [
+    /^On .{10,200}wrote:\s*$/m,
+    /^-{3,}\s*Original Message\s*-{3,}/mi,
+    /^From:\s+/m,
+    /^Sent:\s+/m,
+    /^_{3,}/m,
+  ]
+  let cutAt = text.length
+  for (const p of patterns) {
+    const m = text.search(p)
+    if (m > 0 && m < cutAt) cutAt = m
+  }
+  const lines     = text.slice(0, cutAt).split('\n')
+  const cleanLines = lines.filter(l => !l.trimStart().startsWith('>'))
+  const result    = cleanLines.join('\n').trim()
+  return result.length > 10 ? result : text.trim()
 }

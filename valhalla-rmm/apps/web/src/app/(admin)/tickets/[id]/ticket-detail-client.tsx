@@ -257,16 +257,17 @@ export default function TicketDetailClient() {
     ${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}" style="color:#f59e0b;">${attachment_name || 'Attachment'}</a></p>` : ''}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
     <p style="color:#94a3b8;font-size:12px;margin:0;">
-      To reply, simply reply to this email. Your response will be added to your support ticket automatically.<br>
-      Ticket reference: <strong style="color:#64748b;">${t.title}</strong>
+      Reply to this email to respond. Your message will be added to your support ticket automatically.
     </p>
+    <!-- TICKET_ID:${currentId} -->
   </div>
 </div>`
 
       await supabase.functions.invoke('send-invoice-email', {
         body: {
-          from:    'Valhalla IT Support <support@valhalla-rmm.com>',
-          to:      t.contact_email,
+          from:     'Valhalla IT Support <support@valhalla-rmm.com>',
+          reply_to: `support+${currentId}@valhalla-rmm.com`,
+          to:       t.contact_email,
           subject,
           html,
         }

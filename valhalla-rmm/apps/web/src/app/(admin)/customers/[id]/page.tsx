@@ -325,6 +325,107 @@ function NewTicketDialog({ open, onClose, onSaved, customer, orgId }) {
   )
 }
 
+// ── Contact Dialog ────────────────────────────────────────────────────────────
+function ContactDialog({ open, onClose, onSaved, contact, customerId, orgId }) {
+  const supabase = createSupabaseBrowserClient()
+  const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'contact', notes: '', is_primary: false })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  useEffect(() => {
+    if (!open) return
+    setForm(contact ? {
+      name:       contact.name       ?? '',
+      email:      contact.email      ?? '',
+      phone:      contact.phone      ?? '',
+      role:       contact.role       ?? 'contact',
+      notes:      contact.notes      ?? '',
+      is_primary: contact.is_primary ?? false,
+    } : { name: '', email: '', phone: '', role: 'contact', notes: '', is_primary: false })
+    setErr(null)
+  }, [open, contact])
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { setErr('Name is required'); return }
+    setSaving(true); setErr(null)
+    const payload = {
+      organization_id: orgId,
+      customer_id:     customerId,
+      name:            form.name.trim(),
+      email:           form.email || null,
+      phone:           form.phone || null,
+      role:            form.role  || 'contact',
+      notes:           form.notes || null,
+      is_primary:      form.is_primary || false,
+    }
+    const { error } = contact
+      ? await supabase.from('customer_contacts').update(payload).eq('id', contact.id)
+      : await supabase.from('customer_contacts').insert(payload)
+    if (error) { setErr(error.message); setSaving(false); return }
+    setSaving(false); onSaved()
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+          <h2 className="font-semibold text-slate-900 dark:text-white">{contact ? 'Edit Contact' : 'Add Contact'}</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Name *</label>
+            <input value={form.name} onChange={e => s('name', e.target.value)} placeholder="Jane Smith" className={`mt-1 ${inp}`} autoFocus />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</label>
+              <input type="email" value={form.email} onChange={e => s('email', e.target.value)} placeholder="jane@company.com" className={`mt-1 ${inp}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</label>
+              <input type="tel" value={form.phone} onChange={e => s('phone', e.target.value)} placeholder="+1 555 000 0000" className={`mt-1 ${inp}`} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Role</label>
+            <select value={form.role} onChange={e => s('role', e.target.value)} className={`mt-1 ${inp}`}>
+              <option value="contact">General Contact</option>
+              <option value="billing">Billing</option>
+              <option value="technical">Technical</option>
+              <option value="manager">Manager</option>
+              <option value="executive">Executive</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
+            <textarea value={form.notes} onChange={e => s('notes', e.target.value)} rows={2} placeholder="Any notes about this contact..." className={`mt-1 ${inp} resize-none`} />
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+            <input type="checkbox" id="is_primary" checked={form.is_primary} onChange={e => s('is_primary', e.target.checked)} className="w-4 h-4 accent-amber-500" />
+            <label htmlFor="is_primary" className="cursor-pointer">
+              <p className="text-sm font-medium text-slate-900 dark:text-white">Primary Contact</p>
+              <p className="text-xs text-slate-400">Used as default for tickets and invoices</p>
+            </label>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+            <button onClick={handleSave} disabled={!form.name.trim() || saving}
+              className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {saving ? 'Saving…' : contact ? 'Save Changes' : 'Add Contact'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function CustomerDetailPage() {
   const params   = useParams()
@@ -338,22 +439,26 @@ export default function CustomerDetailPage() {
   const [invoices,    setInvoices]    = useState([])
   const [timeEntries, setTimeEntries] = useState([])
   const [inventory,   setInventory]   = useState([])
+  const [contacts,    setContacts]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
   const [orgId,       setOrgId]       = useState(null)
   const [editOpen,    setEditOpen]    = useState(false)
   const [ticketOpen,  setTicketOpen]  = useState(false)
   const [activeTab,   setActiveTab]   = useState('tickets')
+  const [contactOpen, setContactOpen] = useState(false)
+  const [editingContact, setEditingContact] = useState(null)
 
   const loadAll = useCallback(async () => {
     const id = idRef.current
     if (!id) return
-    const [cust, t, inv, te, items] = await Promise.all([
+    const [cust, t, inv, te, items, ctcts] = await Promise.all([
       supabase.from('customers').select('*').eq('id', id).single(),
       supabase.from('tickets').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
       supabase.from('invoices').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
       supabase.from('time_entries').select('*').eq('customer_id', id).order('date', { ascending: false }).limit(200),
       supabase.from('inventory_items').select('*').eq('customer_id', id).order('name').limit(100),
+      supabase.from('customer_contacts').select('*').eq('customer_id', id).order('is_primary', { ascending: false }).order('name'),
     ])
     if (cust.error) { setError('Customer not found'); setLoading(false); return }
     setCustomer(cust.data)
@@ -361,6 +466,7 @@ export default function CustomerDetailPage() {
     setInvoices(inv.data ?? [])
     setTimeEntries(te.data ?? [])
     setInventory(items.data ?? [])
+    setContacts(ctcts.data ?? [])
     setLoading(false)
   }, [])
 
@@ -391,10 +497,11 @@ export default function CustomerDetailPage() {
   const blockPct       = blockTotal > 0 ? Math.min(100, Math.round((blockUsed / blockTotal) * 100)) : 0
 
   const TABS = [
-    { id: 'tickets',     label: 'Tickets',      count: tickets.length },
-    { id: 'invoices',    label: 'Invoices',      count: invoices.length },
-    { id: 'time',        label: 'Time Entries',  count: timeEntries.length },
-    { id: 'assets',      label: 'Assets',        count: inventory.length },
+    { id: 'tickets',  label: 'Tickets',    count: tickets.length },
+    { id: 'contacts', label: 'Contacts',   count: contacts.length },
+    { id: 'invoices', label: 'Invoices',   count: invoices.length },
+    { id: 'time',     label: 'Time Entries', count: timeEntries.length },
+    { id: 'assets',   label: 'Assets',     count: inventory.length },
   ]
 
   if (loading) return (
@@ -601,6 +708,63 @@ export default function CustomerDetailPage() {
           </div>
         )}
 
+        {/* Contacts tab */}
+        {activeTab === 'contacts' && (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {contacts.length === 0 ? (
+              <div className="p-12 text-center">
+                <Users className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm mb-3">No contacts yet for this customer</p>
+                <button onClick={() => { setEditingContact(null); setContactOpen(true) }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+                  <Plus className="w-4 h-4" /> Add First Contact
+                </button>
+              </div>
+            ) : (
+              <>
+                {contacts.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
+                      <span className="text-amber-700 font-semibold text-sm">{c.name?.[0]?.toUpperCase()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-900 dark:text-white text-sm">{c.name}</p>
+                        {c.is_primary && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Primary</span>}
+                        {c.role && c.role !== 'contact' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 capitalize">{c.role}</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-0.5">
+                        {c.email && <a href={`mailto:${c.email}`} className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-600 transition-colors"><Mail className="w-3 h-3" />{c.email}</a>}
+                        {c.phone && <a href={`tel:${c.phone}`} className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-600 transition-colors"><Phone className="w-3 h-3" />{c.phone}</a>}
+                      </div>
+                      {c.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{c.notes}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => { setEditingContact(c); setContactOpen(true) }}
+                        className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={async () => {
+                        if (!confirm(`Remove ${c.name}?`)) return
+                        await supabase.from('customer_contacts').delete().eq('id', c.id)
+                        loadAll()
+                      }} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="px-4 py-3">
+                  <button onClick={() => { setEditingContact(null); setContactOpen(true) }}
+                    className="flex items-center gap-2 text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors">
+                    <Plus className="w-4 h-4" /> Add Contact
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Assets tab */}
         {activeTab === 'assets' && (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -650,6 +814,12 @@ export default function CustomerDetailPage() {
         onClose={() => setTicketOpen(false)}
         onSaved={() => { setTicketOpen(false); loadAll() }}
         customer={customer} orgId={orgId}
+      />
+      <ContactDialog
+        open={contactOpen}
+        onClose={() => { setContactOpen(false); setEditingContact(null) }}
+        onSaved={() => { setContactOpen(false); setEditingContact(null); loadAll() }}
+        contact={editingContact} customerId={params?.id} orgId={orgId}
       />
     </div>
   )

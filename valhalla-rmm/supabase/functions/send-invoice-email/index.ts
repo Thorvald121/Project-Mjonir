@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { to, subject, html, from } = await req.json()
+    const { to, subject, html, from, reply_to } = await req.json()
 
     if (!to || !subject || !html) {
       return new Response(JSON.stringify({ error: 'Missing to, subject, or html' }), {
@@ -27,8 +27,16 @@ serve(async (req) => {
       })
     }
 
-    // Use provided from address, or default to invoices@ for invoices
     const fromAddress = from || 'Valhalla IT <invoices@valhalla-rmm.com>'
+
+    const payload = {
+      from:    fromAddress,
+      to:      [to],
+      subject,
+      html,
+    }
+
+    if (reply_to) payload.reply_to = reply_to
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -36,12 +44,7 @@ serve(async (req) => {
         'Authorization': 'Bearer ' + RESEND_API_KEY,
         'Content-Type':  'application/json',
       },
-      body: JSON.stringify({
-        from:    fromAddress,
-        to:      [to],
-        subject,
-        html,
-      }),
+      body: JSON.stringify(payload),
     })
 
     const data = await res.json()
