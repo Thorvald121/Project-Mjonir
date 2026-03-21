@@ -257,8 +257,6 @@ export default function EmailAutomationsPage() {
     init()
   }, [])
 
-  useRealtimeRefresh(['email_automation_rules', 'email_automation_log'], loadAll)
-
   const loadAll = async () => {
     setLoading(true)
     const [r, l] = await Promise.all([
@@ -269,6 +267,10 @@ export default function EmailAutomationsPage() {
     setLog(l.data ?? [])
     setLoading(false)
   }
+
+  useRealtimeRefresh(['email_automation_rules', 'email_automation_log'], loadAll)
+
+
 
   const toggleActive = async (rule) => {
     await supabase.from('email_automation_rules').update({ is_active: !rule.is_active }).eq('id', rule.id)
