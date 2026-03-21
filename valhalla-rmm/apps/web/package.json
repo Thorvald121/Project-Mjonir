@@ -10,23 +10,23 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "^14.2.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "@supabase/supabase-js": "^2.45.0",
     "@supabase/ssr": "^0.5.0",
+    "@supabase/supabase-js": "^2.45.0",
     "@tanstack/react-query": "^5.51.0",
     "@tanstack/react-query-devtools": "^5.51.0",
     "@valhalla/db": "workspace:*",
     "@valhalla/hooks": "workspace:*",
     "@valhalla/types": "workspace:*",
     "@valhalla/utils": "workspace:*",
-    "date-fns": "^3.6.0",
-    "lucide-react": "^0.400.0",
-    "recharts": "^2.12.0",
-    "sonner": "^1.5.0",
+    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.400.0",
+    "next": "^14.2.35",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "sonner": "^1.5.0",
     "tailwind-merge": "^2.4.0",
     "tailwindcss-animate": "^1.0.7"
   },
@@ -34,11 +34,11 @@
     "@types/node": "^20.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
-    "typescript": "^5.5.0",
-    "tailwindcss": "^3.4.0",
-    "postcss": "^8.4.0",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.0.0",
-    "eslint-config-next": "^14.2.0"
+    "eslint-config-next": "^14.2.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0"
   }
 }
