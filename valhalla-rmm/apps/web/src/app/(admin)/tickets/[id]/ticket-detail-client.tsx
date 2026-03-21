@@ -265,6 +265,7 @@ export default function TicketDetailClient() {
 
       await supabase.functions.invoke('send-invoice-email', {
         body: {
+          from:    'Valhalla IT Support <support@valhalla-rmm.com>',
           to:      t.contact_email,
           subject,
           html,
