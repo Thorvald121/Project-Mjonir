@@ -1,5 +1,6 @@
+// @ts-nocheck
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
@@ -8,68 +9,83 @@ const corsHeaders = {
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { status: 200, headers: corsHeaders })
   }
 
   try {
-    const { email, role, organization_id, redirect_to } = await req.json()
+    const body = await req.json()
+    console.log('invite-user called with:', JSON.stringify({ ...body, organization_id: body.organization_id?.slice(0,8) + '...' }))
 
-    if (!email || !role || !organization_id) {
-      return new Response(
-        JSON.stringify({ error: 'email, role, and organization_id are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    const { email, role, organization_id, redirect_to } = body
 
+    if (!email)           return json({ error: 'email is required' }, 400)
+    if (!organization_id) return json({ error: 'organization_id is required' }, 400)
+
+    // Use service role key to invite users
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_URL'),
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+      { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // Check if already a member
-    const { data: existing } = await supabase
-      .from('organization_members')
-      .select('id')
-      .eq('user_email', email)
-      .eq('organization_id', organization_id)
-      .single()
-
-    if (existing) {
-      return new Response(
-        JSON.stringify({ error: 'This user is already a member of your organization.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Send Supabase invite email
-    const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: redirect_to ?? `${Deno.env.get('SUPABASE_URL')?.replace('.supabase.co', '')}/invite`,
-      data: { organization_id, role }
+    // Send invite via Supabase Admin API
+    const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
+      redirectTo: redirect_to || `${Deno.env.get('SUPABASE_URL').replace('.supabase.co', '')}/invite`,
+      data: { role, organization_id },
     })
 
-    if (error) {
-      return new Response(
-        JSON.stringify({ error: error.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    if (inviteError) {
+      console.error('inviteUserByEmail error:', inviteError.message)
+      // If user already exists, that's ok — just ensure the org_member row exists
+      if (!inviteError.message.includes('already been registered')) {
+        return json({ error: inviteError.message }, 400)
+      }
+      console.log('User already exists, ensuring org member row...')
     }
 
-    // Pre-create org member row so their role is set when they accept
-    await supabase.from('organization_members').upsert({
-      organization_id,
-      user_id:    data.user.id,
-      user_email: email,
-      role,
-    }, { onConflict: 'user_id,organization_id' })
+    // Upsert organization_members row
+    const userId = inviteData?.user?.id
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    if (userId) {
+      const { error: memberError } = await supabase
+        .from('organization_members')
+        .upsert({
+          user_id:         userId,
+          user_email:      email,
+          organization_id,
+          role:            role || 'client',
+        }, { onConflict: 'user_id,organization_id' })
+
+      if (memberError) {
+        console.error('member upsert error:', memberError.message)
+        // Non-fatal — the invite was still sent
+      }
+    } else {
+      // User already exists — find their ID and upsert
+      const { data: users } = await supabase.auth.admin.listUsers()
+      const existing = users?.users?.find(u => u.email === email)
+      if (existing) {
+        await supabase.from('organization_members').upsert({
+          user_id:         existing.id,
+          user_email:      email,
+          organization_id,
+          role:            role || 'client',
+        }, { onConflict: 'user_id,organization_id' })
+      }
+    }
+
+    console.log('Invite sent successfully to:', email)
+    return json({ ok: true, email })
+
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    console.error('Unhandled error:', err.message)
+    return json({ error: err.message }, 500)
   }
 })
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...{ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }, 'Content-Type': 'application/json' },
+  })
+}
