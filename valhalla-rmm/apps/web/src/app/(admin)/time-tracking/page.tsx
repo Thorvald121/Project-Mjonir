@@ -65,6 +65,13 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
     if (t?.customer_id)   s('customer_id', t.customer_id)
     if (t?.customer_name) s('customer_name', t.customer_name)
     if (t?.assigned_to)   s('technician', t.assigned_to)
+    // Auto-fill hourly rate from customer
+    if (t?.customer_id) {
+      const c = customers.find(x => x.id === t.customer_id)
+      if (c?.hourly_rate && (!form.hourly_rate || form.hourly_rate === '')) {
+        s('hourly_rate', String(c.hourly_rate))
+      }
+    }
   }
 
   const handleCustomerSelect = (customerId) => {
@@ -72,6 +79,10 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
     const c = customers.find(x => x.id === customerId)
     s('customer_id', customerId)
     s('customer_name', c?.name || '')
+    // Auto-fill hourly rate from customer if not already set
+    if (c?.hourly_rate && (!form.hourly_rate || form.hourly_rate === '')) {
+      s('hourly_rate', String(c.hourly_rate))
+    }
   }
 
   const handleSave = async () => {
@@ -195,7 +206,7 @@ export default function TimeTrackingPage() {
     const [ent, tick, cust] = await Promise.all([
       supabase.from('time_entries').select('*').order('date', { ascending: false }).limit(1000),
       supabase.from('tickets').select('id,title,customer_id,customer_name,assigned_to').not('status','in','("resolved","closed")').order('created_at', { ascending: false }).limit(200),
-      supabase.from('customers').select('id,name').eq('status','active').order('name').limit(200),
+      supabase.from('customers').select('id,name,hourly_rate').eq('status','active').order('name').limit(200),
     ])
     setEntries(ent.data ?? [])
     setTickets(tick.data ?? [])

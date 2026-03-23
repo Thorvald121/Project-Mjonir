@@ -247,7 +247,7 @@ function TeamSection({ orgId }) {
 
   const loadMembers = async () => {
     setLoading(true)
-    const { data } = await supabase.from('organization_members').select('*').eq('organization_id', orgId).order('created_at')
+    const { data } = await supabase.from('organization_members').select('id,user_email,role,display_name').eq('organization_id', orgId).order('created_at')
     setMembers(data ?? [])
     setLoading(false)
   }
@@ -317,10 +317,22 @@ function TeamSection({ orgId }) {
             {members.map(member => (
               <div key={member.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
-                  <span className="text-amber-600 font-semibold text-xs">{member.user_email?.[0]?.toUpperCase()}</span>
+                  <span className="text-amber-600 font-semibold text-xs">{(member.display_name || member.user_email)?.[0]?.toUpperCase()}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{member.user_email}</p>
+                  <input
+                    defaultValue={member.display_name || ''}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim()
+                      if (val !== (member.display_name || '')) {
+                        await supabase.from('organization_members').update({ display_name: val || null }).eq('id', member.id)
+                        loadMembers()
+                      }
+                    }}
+                    placeholder={member.user_email}
+                    className="w-full text-sm font-medium text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-amber-400 focus:outline-none pb-0.5 transition-colors"
+                  />
+                  <p className="text-xs text-slate-400 truncate">{member.user_email}</p>
                 </div>
                 <select value={member.role} onChange={e => updateRole(member.id, e.target.value)}
                   className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none">

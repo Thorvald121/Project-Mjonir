@@ -114,7 +114,7 @@ export default function TicketDetailClient() {
   }, [])
 
   const loadTechs = useCallback(async () => {
-    const { data } = await supabase.from('organization_members').select('id,user_email').in('role', ['owner','admin','technician'])
+    const { data } = await supabase.from('organization_members').select('id,user_email,display_name').in('role', ['owner','admin','technician'])
     setTechUsers(data ?? [])
   }, [])
 
@@ -302,7 +302,15 @@ export default function TicketDetailClient() {
   )
 
   const canEmailClient = !!ticket.contact_email
-  const filteredTechs  = techUsers.filter(t => !techSearch || t.user_email.toLowerCase().includes(techSearch.toLowerCase()))
+  const filteredTechs  = techUsers.filter(t => {
+    const name = t.display_name || t.user_email.split('@')[0]
+    return !techSearch || name.toLowerCase().includes(techSearch.toLowerCase()) || t.user_email.toLowerCase().includes(techSearch.toLowerCase())
+  })
+  // Helper to get display label for an email
+  const techLabel = (email) => {
+    const t = techUsers.find(t => t.user_email === email)
+    return t ? (t.display_name || t.user_email.split('@')[0]) : email
+  }
   const isTimerRunning = !!ticket.timer_started
   const inp = "w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 
@@ -482,22 +490,28 @@ export default function TicketDetailClient() {
                 <p className="text-xs text-slate-400 mb-1">Assigned To</p>
                 <div className="relative">
                   <input
-                    value={techOpen ? techSearch : (editFields.assigned_to || '')}
-                    onChange={e => { setTechSearch(e.target.value); setTechOpen(true); setEditFields(p => ({ ...p, assigned_to: e.target.value })) }}
-                    onFocus={() => { setTechSearch(editFields.assigned_to || ''); setTechOpen(true) }}
-                    onBlur={() => setTimeout(() => { setTechOpen(false); saveEditField('assigned_to') }, 150)}
+                    value={techOpen ? techSearch : (editFields.assigned_to ? techLabel(editFields.assigned_to) : '')}
+                    onChange={e => { setTechSearch(e.target.value); setTechOpen(true) }}
+                    onFocus={() => { setTechSearch(''); setTechOpen(true) }}
+                    onBlur={() => setTimeout(() => { setTechOpen(false) }, 150)}
                     placeholder="Unassigned"
                     className={`${inp} pr-6`}
                   />
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 </div>
-                {techOpen && filteredTechs.length > 0 && (
+                {techOpen && (
                   <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    <button type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 italic"
+                      onMouseDown={() => { setEditFields(p => ({ ...p, assigned_to: '' })); setTechOpen(false); updateField('assigned_to', null) }}>
+                      — Unassigned
+                    </button>
                     {filteredTechs.map(t => (
                       <button key={t.id} type="button"
                         className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                         onMouseDown={() => { setEditFields(p => ({ ...p, assigned_to: t.user_email })); setTechOpen(false); updateField('assigned_to', t.user_email) }}>
-                        {t.user_email}
+                        <span className="font-medium">{t.display_name || t.user_email.split('@')[0]}</span>
+                        <span className="text-slate-400 ml-1">{t.display_name ? `(${t.user_email})` : ''}</span>
                       </button>
                     ))}
                   </div>

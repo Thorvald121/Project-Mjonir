@@ -58,11 +58,36 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   const supabase = createSupabaseBrowserClient()
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState(null)
+  const [techs,  setTechs]  = useState([])
   const [form,   setForm]   = useState({
     title: '', description: '', priority: 'medium', category: 'other',
     customer_id: '', assigned_to: '', contact_name: '', contact_email: '', tags: '',
   })
   const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  useEffect(() => {
+    if (!open) return
+    setForm({ title: '', description: '', priority: 'medium', category: 'other', customer_id: '', assigned_to: '', contact_name: '', contact_email: '', tags: '' })
+    setErr(null)
+    supabase.from('organization_members')
+      .select('id,user_email,display_name')
+      .in('role', ['owner','admin','technician'])
+      .then(({ data }) => setTechs(data ?? []))
+  }, [open])
+
+  // Auto-fill contact info when customer is selected
+  const handleCustomerChange = (customerId) => {
+    const cust = customers.find(c => c.id === customerId)
+    setForm(p => ({
+      ...p,
+      customer_id:   customerId,
+      contact_name:  cust?.contact_name  || p.contact_name,
+      contact_email: cust?.contact_email || p.contact_email,
+    }))
+  }
+
+  const selectedCustomer = customers.find(c => c.id === form.customer_id)
+  const blockTotal    = selectedCustomer?.block_hours_total || 0
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -70,6 +95,8 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
     setSaving(true); setErr(null)
     const cust = customers.find(c => c.id === form.customer_id)
     const tags = form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+    // Store the email in assigned_to for backwards compat, but find the tech by display name or email
+    const tech = techs.find(t => t.user_email === form.assigned_to)
     const { error } = await supabase.from('tickets').insert({
       organization_id: orgId,
       title:         form.title.trim(),
@@ -102,7 +129,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Title *</label>
-            <input value={form.title} onChange={e => s('title',e.target.value)} required placeholder="Brief description of the issue" className={`mt-1 ${inp}`} />
+            <input value={form.title} onChange={e => s('title',e.target.value)} required placeholder="Brief description of the issue" className={`mt-1 ${inp}`} autoFocus />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -120,24 +147,36 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer</label>
-            <select value={form.customer_id} onChange={e => s('customer_id',e.target.value)} className={`mt-1 ${inp}`}>
+            <select value={form.customer_id} onChange={e => handleCustomerChange(e.target.value)} className={`mt-1 ${inp}`}>
               <option value="">No customer</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.contract_type === 'block_hours' && c.block_hours_total ? ` (Block hrs)` : ''}</option>)}
             </select>
+            {selectedCustomer?.contract_type === 'block_hours' && blockTotal > 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                ⏱ Block hours customer — {blockTotal}h purchased
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Name</label>
-              <input value={form.contact_name} onChange={e => s('contact_name',e.target.value)} placeholder="Jane Smith" className={`mt-1 ${inp}`} />
+              <input value={form.contact_name} onChange={e => s('contact_name',e.target.value)} placeholder="Auto-filled from customer" className={`mt-1 ${inp}`} />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Email</label>
-              <input type="email" value={form.contact_email} onChange={e => s('contact_email',e.target.value)} placeholder="jane@co.com" className={`mt-1 ${inp}`} />
+              <input type="email" value={form.contact_email} onChange={e => s('contact_email',e.target.value)} placeholder="Auto-filled from customer" className={`mt-1 ${inp}`} />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Assign To</label>
-            <input value={form.assigned_to} onChange={e => s('assigned_to',e.target.value)} placeholder="tech@company.com" className={`mt-1 ${inp}`} />
+            <select value={form.assigned_to} onChange={e => s('assigned_to',e.target.value)} className={`mt-1 ${inp}`}>
+              <option value="">Unassigned</option>
+              {techs.map(t => (
+                <option key={t.id} value={t.user_email}>
+                  {t.display_name || t.user_email.split('@')[0]}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</label>
@@ -196,8 +235,8 @@ export default function TicketsPage() {
   const loadAll = async () => {
     setLoading(true)
     const [t, c] = await Promise.all([
-      supabase.from('tickets').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('customers').select('id,name').eq('status','active').order('name').limit(200),
+      supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,created_at').order('created_at', { ascending: false }).limit(200),
+      supabase.from('customers').select('id,name,contact_name,contact_email,contract_type,block_hours_total,hourly_rate').eq('status','active').order('name').limit(200),
     ])
     setTickets(t.data ?? [])
     setCustomers(c.data ?? [])
