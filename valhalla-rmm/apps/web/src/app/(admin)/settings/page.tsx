@@ -259,8 +259,11 @@ function TeamSection({ orgId }) {
     if (!invEmail.trim()) return
     setInviting(true); setErr(null); setSuccess(null)
     try {
+      const redirectTo = invRole === 'client'
+        ? `${window.location.origin}/portal`
+        : `${window.location.origin}/invite`
       const { data, error } = await supabase.functions.invoke('invite-user', {
-        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: `${window.location.origin}/invite` }
+        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: redirectTo }
       })
       if (error) { setErr(error.message); return }
       if (data?.error) { setErr(data.error); return }
@@ -287,8 +290,8 @@ function TeamSection({ orgId }) {
   return (
     <Section title="Team Members" description="Manage who has access to your Valhalla RMM account.">
       <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
-        <p className="text-sm font-medium text-slate-900 dark:text-white">Invite Team Member</p>
-        <p className="text-xs text-slate-400">They will receive an email with a link to set their password and sign in.</p>
+        <p className="text-sm font-medium text-slate-900 dark:text-white">Invite Team Member or Client</p>
+        <p className="text-xs text-slate-400">They will receive an email with a link to set their password. <strong>Clients</strong> will be directed to the client portal at <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/portal</code> — they must use a separate browser or incognito window to log in there.</p>
         <div className="flex gap-2">
           <input value={invEmail} onChange={e => setInvEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && inviteMember()}
             placeholder="email@company.com" type="email"
@@ -334,17 +337,33 @@ function TeamSection({ orgId }) {
                   />
                   <p className="text-xs text-slate-400 truncate">{member.user_email}</p>
                 </div>
-                <select value={member.role} onChange={e => updateRole(member.id, e.target.value)}
-                  className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none">
-                  <option value="owner">Owner</option>
-                  <option value="admin">Admin</option>
-                  <option value="technician">Technician</option>
-                  <option value="client">Client</option>
-                </select>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full hidden sm:inline ${ROLE_CLS[member.role] ?? ''}`}>{member.role}</span>
-                {member.role !== 'owner' && (
-                  <button onClick={() => removeMember(member.id)} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">✕</button>
-                )}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    <select value={member.role} onChange={e => updateRole(member.id, e.target.value)}
+                      className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none">
+                      <option value="owner">Owner</option>
+                      <option value="admin">Admin</option>
+                      <option value="technician">Technician</option>
+                      <option value="client">Client</option>
+                    </select>
+                    <button
+                      title="Send password reset email"
+                      onClick={async () => {
+                        if (!confirm(`Send password reset email to ${member.user_email}?`)) return
+                        const { error } = await supabase.auth.resetPasswordForEmail(member.user_email, {
+                          redirectTo: member.role === 'client'
+                            ? `${window.location.origin}/portal`
+                            : `${window.location.origin}/invite`,
+                        })
+                        if (error) alert('Error: ' + error.message)
+                        else alert(`Password reset email sent to ${member.user_email}`)
+                      }}
+                      className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors text-xs"
+                    >✉</button>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full hidden sm:inline ${ROLE_CLS[member.role] ?? ''}`}>{member.role}</span>
+                  {member.role !== 'owner' && (
+                    <button onClick={() => removeMember(member.id)} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">✕</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

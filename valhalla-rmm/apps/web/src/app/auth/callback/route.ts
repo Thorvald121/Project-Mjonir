@@ -4,25 +4,33 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
-  const type = searchParams.get('type')
-  const next = searchParams.get('next') ?? '/dashboard'
+  const next = searchParams.get('next')
 
-  // Password recovery — redirect to reset page
-  if (type === 'recovery') {
-    return NextResponse.redirect(`${origin}/reset-password`)
-  }
-
-  // Email invite acceptance
-  if (type === 'invite') {
-    return NextResponse.redirect(`${origin}/invite`)
-  }
-
-  // Standard OAuth code exchange
   if (code) {
     const supabase = createSupabaseServerClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`)
+      // Check the user's role to decide where to send them
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (user) {
+        const { data: member } = await supabase
+          .from('organization_members')
+          .select('role')
+          .eq('user_id', user.id)
+          .single()
+
+        const role    = member?.role ?? 'client'
+        const isStaff = ['owner', 'admin', 'technician'].includes(role)
+
+        // If next is explicitly specified, honour it — otherwise route by role
+        if (next) {
+          return NextResponse.redirect(`${origin}${next}`)
+        }
+
+        return NextResponse.redirect(`${origin}${isStaff ? '/dashboard' : '/portal'}`)
+      }
     }
   }
 
