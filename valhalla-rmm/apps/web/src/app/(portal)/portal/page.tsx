@@ -198,6 +198,8 @@ export default function PortalPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
+  const userRef  = useRef(null)
+  const orgIdRef = useRef(null)
   const [user,          setUser]          = useState(null)
   const [org,           setOrg]           = useState(null)
   const [orgId,         setOrgId]         = useState(null)
@@ -222,6 +224,7 @@ export default function PortalPage() {
     const init = async () => {
       const { data: { user: u } } = await supabase.auth.getUser()
       if (!u) { router.push('/portal/login'); return }
+      userRef.current = u
       setUser(u)
 
       // Get org
@@ -229,6 +232,7 @@ export default function PortalPage() {
         .select('organization_id').eq('user_id', u.id).single()
       if (!member) { setLoading(false); return }
       const currentOrgId = member.organization_id
+      orgIdRef.current = currentOrgId
       setOrgId(currentOrgId)
 
       const { data: orgData } = await supabase.from('organizations')
@@ -277,9 +281,10 @@ export default function PortalPage() {
 
   const handleSubmitTicket = async () => {
     if (!form.title.trim()) { setSubmitErr('Title is required'); return }
-    // Read orgId from DOM state ref — orgId in state may not be set yet on first render
-    const currentOrgId = orgId
-    if (!currentOrgId) { setSubmitErr('Session not ready — please refresh'); return }
+    const currentUser  = userRef.current
+    const currentOrgId = orgIdRef.current
+    if (!currentUser)  { setSubmitErr('Session not ready — please refresh'); return }
+    if (!currentOrgId) { setSubmitErr('Organization not found — please refresh'); return }
     setSubmitting(true); setSubmitErr(null)
     const { data: newTicket, error } = await supabase.from('tickets').insert({
       organization_id: currentOrgId,
@@ -288,22 +293,36 @@ export default function PortalPage() {
       priority:        form.priority,
       category:        form.category,
       status:          'open',
-      contact_email:   user.email,
-      contact_name:    user.user_metadata?.full_name || user.email,
+      contact_email:   currentUser.email,
+      contact_name:    currentUser.user_metadata?.full_name || currentUser.email,
       customer_id:     customer?.id   || null,
       customer_name:   customer?.name || null,
       source:          'portal',
-    }).select().single()
-    if (error) { setSubmitErr(error.message); setSubmitting(false); return }
-    // Add the new ticket directly to state so it shows immediately
-    // then do a full reload for consistency
-    if (newTicket) setTickets(prev => [newTicket, ...prev])
-    const { data } = await supabase.from('tickets')
+    }).select('id,title,status,priority,category,description,created_at,assigned_to,resolution_notes,sla_due_date').single()
+
+    if (error) {
+      console.error('Ticket insert error:', error.message)
+      setSubmitErr(error.message)
+      setSubmitting(false)
+      return
+    }
+
+    // Add immediately to state and close form
+    if (newTicket) {
+      setTickets(prev => [newTicket, ...prev])
+    }
+
+    // Also do a background reload to sync anything else
+    supabase.from('tickets')
       .select('id,title,status,priority,category,description,created_at,assigned_to,resolution_notes,sla_due_date')
-      .eq('contact_email', user.email).order('created_at', { ascending: false }).limit(100)
-    setTickets(data ?? [])
+      .eq('contact_email', currentUser.email)
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data }) => { if (data) setTickets(data) })
+
     setForm({ title: '', description: '', category: 'other', priority: 'medium' })
-    setShowForm(false); setSubmitting(false)
+    setShowForm(false)
+    setSubmitting(false)
   }
 
   const handleSignOut = async () => {

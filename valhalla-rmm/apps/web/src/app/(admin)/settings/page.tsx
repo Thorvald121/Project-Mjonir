@@ -342,26 +342,27 @@ function TeamSection({ orgId }) {
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {members.map(member => (
-              <div key={member.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
-                  <span className="text-amber-600 font-semibold text-xs">{(member.display_name || member.user_email)?.[0]?.toUpperCase()}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <input
-                    defaultValue={member.display_name || ''}
-                    onBlur={async (e) => {
-                      const val = e.target.value.trim()
-                      if (val !== (member.display_name || '')) {
-                        await supabase.from('organization_members').update({ display_name: val || null }).eq('id', member.id)
-                        loadMembers()
-                      }
-                    }}
-                    placeholder={member.user_email}
-                    className="w-full text-sm font-medium text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-amber-400 focus:outline-none pb-0.5 transition-colors"
-                  />
-                  <p className="text-xs text-slate-400 truncate">{member.user_email}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+              <div key={member.id} className="px-4 py-3 space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-amber-600 font-semibold text-xs">{(member.display_name || member.user_email)?.[0]?.toUpperCase()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <input
+                      defaultValue={member.display_name || ''}
+                      onBlur={async (e) => {
+                        const val = e.target.value.trim()
+                        if (val !== (member.display_name || '')) {
+                          await supabase.from('organization_members').update({ display_name: val || null }).eq('id', member.id)
+                          loadMembers()
+                        }
+                      }}
+                      placeholder={member.user_email}
+                      className="w-full text-sm font-medium text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-amber-400 focus:outline-none pb-0.5 transition-colors"
+                    />
+                    <p className="text-xs text-slate-400 truncate">{member.user_email}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <select value={member.role} onChange={e => updateRole(member.id, e.target.value)}
                       className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none">
                       <option value="owner">Owner</option>
@@ -383,10 +384,31 @@ function TeamSection({ orgId }) {
                       }}
                       className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors text-xs"
                     >✉</button>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full hidden sm:inline ${ROLE_CLS[member.role] ?? ''}`}>{member.role}</span>
-                  {member.role !== 'owner' && (
-                    <button onClick={() => removeMember(member.id)} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">✕</button>
-                  )}
+                    {member.role !== 'owner' && (
+                      <button onClick={() => removeMember(member.id)} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">✕</button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pl-11">
+                  <span className="text-xs text-slate-400 flex-shrink-0">Customer:</span>
+                  <select
+                    value={customers.find(c => c.contact_email === member.user_email)?.id || ''}
+                    onChange={async (e) => {
+                      const customerId = e.target.value
+                      const prev = customers.find(c => c.contact_email === member.user_email)
+                      if (prev) await supabase.from('customers').update({ contact_email: null }).eq('id', prev.id)
+                      if (customerId) await supabase.from('customers').update({ contact_email: member.user_email }).eq('id', customerId)
+                      loadCustomers()
+                    }}
+                    className="flex-1 px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  >
+                    <option value="">— Not linked</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.contact_email && c.contact_email !== member.user_email ? ` (${c.contact_email})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             ))}
