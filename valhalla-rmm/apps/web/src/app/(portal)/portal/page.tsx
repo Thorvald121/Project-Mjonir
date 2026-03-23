@@ -228,19 +228,32 @@ export default function PortalPage() {
       const { data: member } = await supabase.from('organization_members')
         .select('organization_id').eq('user_id', u.id).single()
       if (!member) { setLoading(false); return }
-      setOrgId(member.organization_id)
+      const currentOrgId = member.organization_id
+      setOrgId(currentOrgId)
 
       const { data: orgData } = await supabase.from('organizations')
-        .select('id,name,company_email').eq('id', member.organization_id).single()
+        .select('id,name,company_email').eq('id', currentOrgId).single()
       setOrg(orgData)
 
-      // Get customer record linked to this email
-      const { data: custData } = await supabase.from('customers')
+      // Find customer — check primary contact email first, then customer_contacts table
+      let cust = null
+      const { data: byPrimary } = await supabase.from('customers')
         .select('*').eq('contact_email', u.email).limit(1)
-      const cust = custData?.[0] || null
+      if (byPrimary?.[0]) {
+        cust = byPrimary[0]
+      } else {
+        // Check customer_contacts table
+        const { data: byContact } = await supabase.from('customer_contacts')
+          .select('customer_id').eq('email', u.email).limit(1)
+        if (byContact?.[0]?.customer_id) {
+          const { data: custByContact } = await supabase.from('customers')
+            .select('*').eq('id', byContact[0].customer_id).single()
+          if (custByContact) cust = custByContact
+        }
+      }
       setCustomer(cust)
 
-      // Parallel data fetch
+      // Parallel data fetch — use local vars, not state (state updates are async)
       const [t, i, d, kb] = await Promise.all([
         supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,resolution_notes,sla_due_date')
           .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
@@ -264,9 +277,12 @@ export default function PortalPage() {
 
   const handleSubmitTicket = async () => {
     if (!form.title.trim()) { setSubmitErr('Title is required'); return }
+    // Read orgId from DOM state ref — orgId in state may not be set yet on first render
+    const currentOrgId = orgId
+    if (!currentOrgId) { setSubmitErr('Session not ready — please refresh'); return }
     setSubmitting(true); setSubmitErr(null)
-    const { error } = await supabase.from('tickets').insert({
-      organization_id: orgId,
+    const { data: newTicket, error } = await supabase.from('tickets').insert({
+      organization_id: currentOrgId,
       title:           form.title.trim(),
       description:     form.description || null,
       priority:        form.priority,
@@ -277,10 +293,13 @@ export default function PortalPage() {
       customer_id:     customer?.id   || null,
       customer_name:   customer?.name || null,
       source:          'portal',
-    })
+    }).select().single()
     if (error) { setSubmitErr(error.message); setSubmitting(false); return }
-    // Reload tickets
-    const { data } = await supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,resolution_notes,sla_due_date')
+    // Add the new ticket directly to state so it shows immediately
+    // then do a full reload for consistency
+    if (newTicket) setTickets(prev => [newTicket, ...prev])
+    const { data } = await supabase.from('tickets')
+      .select('id,title,status,priority,category,description,created_at,assigned_to,resolution_notes,sla_due_date')
       .eq('contact_email', user.email).order('created_at', { ascending: false }).limit(100)
     setTickets(data ?? [])
     setForm({ title: '', description: '', category: 'other', priority: 'medium' })
