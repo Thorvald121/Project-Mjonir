@@ -239,21 +239,19 @@ export default function PortalPage() {
         .select('id,name,company_email').eq('id', currentOrgId).single()
       setOrg(orgData)
 
-      // Find customer — check primary contact email first, then customer_contacts table
+      // Find customer via customer_contacts table (supports multiple users per customer)
       let cust = null
-      const { data: byPrimary } = await supabase.from('customers')
-        .select('*').eq('contact_email', u.email).limit(1)
-      if (byPrimary?.[0]) {
-        cust = byPrimary[0]
+      const { data: contactRows } = await supabase.from('customer_contacts')
+        .select('customer_id').eq('email', u.email).limit(1)
+      if (contactRows?.[0]?.customer_id) {
+        const { data: custData } = await supabase.from('customers')
+          .select('*').eq('id', contactRows[0].customer_id).single()
+        if (custData) cust = custData
       } else {
-        // Check customer_contacts table
-        const { data: byContact } = await supabase.from('customer_contacts')
-          .select('customer_id').eq('email', u.email).limit(1)
-        if (byContact?.[0]?.customer_id) {
-          const { data: custByContact } = await supabase.from('customers')
-            .select('*').eq('id', byContact[0].customer_id).single()
-          if (custByContact) cust = custByContact
-        }
+        // Fallback: check customers.contact_email directly
+        const { data: byPrimary } = await supabase.from('customers')
+          .select('*').eq('contact_email', u.email).limit(1)
+        if (byPrimary?.[0]) cust = byPrimary[0]
       }
       setCustomer(cust)
 

@@ -241,6 +241,7 @@ function TeamSection({ orgId }) {
   const [invRole,     setInvRole]     = useState('technician')
   const [invCustomer, setInvCustomer] = useState('')
   const [customers,   setCustomers]   = useState([])
+  const [contactLinks,setContactLinks]= useState({}) // email → [customer_id]
   const [inviting,    setInviting]    = useState(false)
   const [err,      setErr]      = useState(null)
   const [success,  setSuccess]  = useState(null)
@@ -255,8 +256,19 @@ function TeamSection({ orgId }) {
   }
 
   const loadCustomers = async () => {
-    const { data } = await supabase.from('customers').select('id,name,contact_email').eq('status','active').order('name').limit(200)
-    setCustomers(data ?? [])
+    const [custRes, contactRes] = await Promise.all([
+      supabase.from('customers').select('id,name').eq('status','active').order('name').limit(200),
+      supabase.from('customer_contacts').select('id,customer_id,email,name').not('email', 'is', null),
+    ])
+    setCustomers(custRes.data ?? [])
+    // Build a map of email → [customer_id, ...] from customer_contacts
+    const linkMap = {}
+    for (const c of (contactRes.data ?? [])) {
+      if (!c.email) continue
+      if (!linkMap[c.email]) linkMap[c.email] = []
+      linkMap[c.email].push(c.customer_id)
+    }
+    setContactLinks(linkMap)
   }
 
   useRealtimeRefresh(['organization_members'], loadMembers)
@@ -275,9 +287,16 @@ function TeamSection({ orgId }) {
       if (error) { setErr(error.message); return }
       if (data?.error) { setErr(data.error); return }
 
-      // If inviting a client and a customer is selected, update the customer's contact_email
+      // If inviting a client and a customer is selected, add to customer_contacts
       if (invRole === 'client' && invCustomer) {
-        await supabase.from('customers').update({ contact_email: invEmail.trim() }).eq('id', invCustomer)
+        const cust = customers.find(c => c.id === invCustomer)
+        await supabase.from('customer_contacts').upsert({
+          organization_id: orgId,
+          customer_id:     invCustomer,
+          email:           invEmail.trim(),
+          name:            invEmail.trim().split('@')[0],
+          role:            'contact',
+        }, { onConflict: 'customer_id,email', ignoreDuplicates: true })
       }
 
       setSuccess(`Invite sent to ${invEmail.trim()}`)
@@ -389,26 +408,49 @@ function TeamSection({ orgId }) {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 pl-11">
-                  <span className="text-xs text-slate-400 flex-shrink-0">Customer:</span>
-                  <select
-                    value={customers.find(c => c.contact_email === member.user_email)?.id || ''}
-                    onChange={async (e) => {
-                      const customerId = e.target.value
-                      const prev = customers.find(c => c.contact_email === member.user_email)
-                      if (prev) await supabase.from('customers').update({ contact_email: null }).eq('id', prev.id)
-                      if (customerId) await supabase.from('customers').update({ contact_email: member.user_email }).eq('id', customerId)
-                      loadCustomers()
-                    }}
-                    className="flex-1 px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  >
-                    <option value="">— Not linked</option>
-                    {customers.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}{c.contact_email && c.contact_email !== member.user_email ? ` (${c.contact_email})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex items-start gap-2 pl-11">
+                  <span className="text-xs text-slate-400 flex-shrink-0 pt-1.5">Customers:</span>
+                  <div className="flex-1 space-y-1">
+                    {/* Currently linked customers */}
+                    {(contactLinks[member.user_email] || []).map(custId => {
+                      const cust = customers.find(c => c.id === custId)
+                      if (!cust) return null
+                      return (
+                        <div key={custId} className="flex items-center gap-1.5">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">{cust.name}</span>
+                          <button
+                            onClick={async () => {
+                              await supabase.from('customer_contacts').delete().eq('customer_id', custId).eq('email', member.user_email)
+                              loadCustomers()
+                            }}
+                            className="text-slate-300 hover:text-rose-500 transition-colors text-xs leading-none">✕</button>
+                        </div>
+                      )
+                    })}
+                    {/* Add another customer */}
+                    <select
+                      value=""
+                      onChange={async (e) => {
+                        const custId = e.target.value
+                        if (!custId) return
+                        await supabase.from('customer_contacts').upsert({
+                          organization_id: orgId,
+                          customer_id:     custId,
+                          email:           member.user_email,
+                          name:            member.display_name || member.user_email.split('@')[0],
+                          role:            'contact',
+                        }, { onConflict: 'customer_id,email', ignoreDuplicates: true })
+                        loadCustomers()
+                      }}
+                      className="px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    >
+                      <option value="">+ Link a customer…</option>
+                      {customers
+                        .filter(c => !(contactLinks[member.user_email] || []).includes(c.id))
+                        .map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                      }
+                    </select>
+                  </div>
                 </div>
               </div>
             ))}
