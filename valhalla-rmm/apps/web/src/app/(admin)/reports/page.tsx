@@ -245,28 +245,36 @@ function RevenueForecast({ invoices }) {
 }
 
 // ── Resolution Time by Tech ───────────────────────────────────────────────────
-function ResolutionTimeByTech({ tickets, range }) {
+function ResolutionTimeByTech({ tickets, timeEntries, range }) {
   const data = useMemo(() => {
     const map = {}
+    // Use actual logged time per tech on resolved tickets — more accurate than wall-clock time
     tickets.forEach(t => {
       if (!['resolved','closed'].includes(t.status)) return
-      if (!t.assigned_to || !t.created_at || !t.updated_at) return
+      if (!t.assigned_to || !t.created_at) return
       const created = new Date(t.created_at)
       if (created < range.start || created > range.end) return
-      const mins = Math.round((new Date(t.updated_at) - created) / 60000)
-      if (mins <= 0) return
       const tech = t.assigned_to.split('@')[0]
       if (!map[tech]) map[tech] = { total: 0, count: 0 }
-      map[tech].total += mins
       map[tech].count++
     })
+    // Sum actual logged minutes per tech for resolved tickets in range
+    timeEntries.forEach(e => {
+      if (!e.technician || !e.ticket_id) return
+      const date = new Date(e.date)
+      if (date < range.start || date > range.end) return
+      const tech = e.technician.split('@')[0]
+      if (!map[tech]) return // only count techs with resolved tickets
+      map[tech].total += e.minutes || 0
+    })
     return Object.entries(map)
+      .filter(([, s]) => s.count > 0 && s.total > 0)
       .map(([name, s]) => ({ name, avgMinutes: Math.round(s.total / s.count), count: s.count, avgLabel: fmtMins(s.total / s.count) }))
       .sort((a, b) => a.avgMinutes - b.avgMinutes)
-  }, [tickets, range])
+  }, [tickets, timeEntries, range])
 
   return (
-    <Card title="Avg Resolution Time by Technician">
+    <Card title="Avg Time Logged per Tech (Resolved Tickets)">
       {data.length === 0 ? (
         <p className="text-center text-slate-400 text-sm py-10">No resolved tickets with assigned technicians in this range</p>
       ) : (
@@ -668,7 +676,7 @@ export default function ReportsPage() {
 
       {/* Resolution time + Priority */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ResolutionTimeByTech tickets={tickets} range={selectedRange} />
+        <ResolutionTimeByTech tickets={tickets} timeEntries={timeEntries} range={selectedRange} />
         <div className="space-y-4">
           <Card title="Ticket Priority Breakdown">
             {ticketsByPriority.length === 0 ? (

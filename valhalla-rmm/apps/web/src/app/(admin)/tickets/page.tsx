@@ -339,7 +339,11 @@ export default function TicketsPage() {
                       <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleSelect(t.id)} className="w-4 h-4 accent-amber-500" />
                     </td>
                     <td className="px-3 py-3 cursor-pointer max-w-xs" onClick={() => router.push(`/tickets/${t.id}`)}>
-                      <p className="font-medium text-slate-900 dark:text-white hover:text-amber-600 transition-colors truncate">{t.title}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-900 dark:text-white hover:text-amber-600 transition-colors truncate">{t.title}</p>
+                        {slaState === 'breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
+                        {slaState === 'warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
+                      </div>
                       <p className="text-xs text-slate-400 capitalize mt-0.5">{t.category}</p>
                     </td>
                     <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{t.customer_name || '—'}</td>

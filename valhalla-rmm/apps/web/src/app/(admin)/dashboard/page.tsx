@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { Ticket, DollarSign, Users, Clock, AlertTriangle } from 'lucide-react'
 
@@ -49,6 +50,7 @@ const STATUS_BADGE = {
 }
 
 export default function DashboardPage() {
+  const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
   const [tickets,     setTickets]     = useState([])
@@ -142,20 +144,26 @@ export default function DashboardPage() {
             ))
           ) : recentTickets.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-slate-400">No tickets yet</p>
-          ) : recentTickets.map(ticket => (
-            <div key={ticket.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{ticket.title}</p>
-                <p className="text-xs text-slate-400 truncate">{ticket.customer_name ?? '—'}</p>
+          ) : recentTickets.map(ticket => {
+            const sla = getSlaState(ticket.sla_due_date, ticket.status)
+            return (
+              <div key={ticket.id} onClick={() => router.push(`/tickets/${ticket.id}`)}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{ticket.title}</p>
+                  <p className="text-xs text-slate-400 truncate">{ticket.customer_name ?? '—'}</p>
+                </div>
+                {sla === 'breached' && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
+                {sla === 'warning'  && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${PRIORITY_BADGE[ticket.priority] ?? ''}`}>
+                  {ticket.priority}
+                </span>
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${STATUS_BADGE[ticket.status] ?? ''}`}>
+                  {ticket.status?.replace('_', ' ')}
+                </span>
               </div>
-              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${PRIORITY_BADGE[ticket.priority] ?? ''}`}>
-                {ticket.priority}
-              </span>
-              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${STATUS_BADGE[ticket.status] ?? ''}`}>
-                {ticket.status?.replace('_', ' ')}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
