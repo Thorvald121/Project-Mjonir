@@ -7,7 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Ticket, DollarSign, Users, Clock, AlertTriangle,
   Flame, TrendingUp, Plus, ChevronRight, CheckCircle2,
-  FileText, Timer,
+  FileText, Timer, Star,
 } from 'lucide-react'
 
 function getSlaState(sla_due_date, status) {
@@ -53,6 +53,56 @@ function KpiCard({ title, value, sub, icon: Icon, iconBg, iconColor, onClick, al
         </div>
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
           <Icon className={`w-5 h-5 ${iconColor}`} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── CSAT Widget ───────────────────────────────────────────────────────────────
+function CsatWidget() {
+  const supabase = createSupabaseBrowserClient()
+  const [responses, setResponses] = useState([])
+
+  useEffect(() => {
+    supabase.from('csat_responses').select('score,submitted_at').order('submitted_at', { ascending: false }).limit(200)
+      .then(({ data }) => setResponses(data ?? []))
+  }, [])
+
+  if (responses.length === 0) return null
+
+  const avg     = responses.reduce((s, r) => s + (r.score || 0), 0) / responses.length
+  const rounded = Math.round(avg * 10) / 10
+  const dist    = [5,4,3,2,1].map(n => ({ score: n, count: responses.filter(r => r.score === n).length }))
+  const maxCount = Math.max(...dist.map(d => d.count), 1)
+  const STAR_BAR = { 5: 'bg-emerald-500', 4: 'bg-emerald-400', 3: 'bg-yellow-400', 2: 'bg-orange-400', 1: 'bg-rose-500' }
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
+      <h2 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2 mb-3">
+        <Star className="w-4 h-4 text-amber-400 fill-amber-400" /> Customer Satisfaction
+      </h2>
+      <div className="flex items-start gap-4">
+        <div className="text-center flex-shrink-0">
+          <p className="text-3xl font-bold text-slate-900 dark:text-white">{rounded}</p>
+          <div className="flex gap-0.5 justify-center mt-1">
+            {[1,2,3,4,5].map(n => (
+              <Star key={n} className={`w-3 h-3 ${n <= Math.round(avg) ? 'fill-amber-400 text-amber-400' : 'text-slate-200 dark:text-slate-700'}`} />
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">{responses.length} reviews</p>
+        </div>
+        <div className="flex-1 space-y-1.5">
+          {dist.map(({ score, count }) => (
+            <div key={score} className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 w-3">{score}</span>
+              <Star className="w-3 h-3 fill-amber-400 text-amber-400 flex-shrink-0" />
+              <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div className={`${STAR_BAR[score]} h-2 rounded-full`} style={{ width: `${(count / maxCount) * 100}%` }} />
+              </div>
+              <span className="text-xs text-slate-400 w-4 text-right">{count}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -342,6 +392,9 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+
+          {/* CSAT widget */}
+          <CsatWidget />
         </div>
       </div>
     </div>
