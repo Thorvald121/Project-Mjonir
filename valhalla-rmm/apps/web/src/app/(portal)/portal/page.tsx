@@ -43,7 +43,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('ticket_comments')
-        .select('*').eq('ticket_id', ticket.id)
+        .select('*').eq('ticket_id', ticket.id).eq('is_staff', false)
         .order('created_at', { ascending: true })
       setComments(data ?? [])
     }
@@ -83,7 +83,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
     setComment(''); setAttachment(null)
     // Reload comments
     const { data } = await supabase.from('ticket_comments')
-      .select('*').eq('ticket_id', ticket.id).order('created_at', { ascending: true })
+      .select('*').eq('ticket_id', ticket.id).eq('is_staff', false).order('created_at', { ascending: true })
     setComments(data ?? [])
     setSending(false)
   }
