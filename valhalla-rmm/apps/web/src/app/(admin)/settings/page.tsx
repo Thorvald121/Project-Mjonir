@@ -58,7 +58,7 @@ function FieldRow({ label, hint, children }) {
 
 function OrgSection({ org, onSaved }) {
   const supabase = createSupabaseBrowserClient()
-  const [form,   setForm]   = useState({ name: '', company_email: '', app_url: '' })
+  const [form,   setForm]   = useState({ name: '', company_email: '', app_url: '', ai_provider: 'claude' })
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -68,6 +68,7 @@ function OrgSection({ org, onSaved }) {
       name:          org.name          || '',
       company_email: org.company_email || '',
       app_url:       org.app_url       || (typeof window !== 'undefined' ? window.location.origin : ''),
+      ai_provider:   org.ai_provider   || 'claude',
     })
   }, [org])
 
@@ -100,6 +101,12 @@ function OrgSection({ org, onSaved }) {
             Copy
           </button>
         </div>
+      </FieldRow>
+      <FieldRow label="AI Triage Provider" hint="Which AI model to use for ticket triage.">
+        <select value={form.ai_provider} onChange={e => sf('ai_provider', e.target.value)} className={inp}>
+          <option value="claude">Claude (Haiku) — Anthropic</option>
+          <option value="openai">GPT-4o Mini — OpenAI</option>
+        </select>
       </FieldRow>
       <div className="flex justify-end">
         <button onClick={save} disabled={saving}
