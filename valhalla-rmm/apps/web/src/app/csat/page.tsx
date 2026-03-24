@@ -54,22 +54,12 @@ function CsatForm() {
     if (!score) return
     setSubmitting(true); setError('')
     try {
-      // Check for duplicate
-      if (tokenData.ticketId) {
-        const { data: existing } = await supabase.from('csat_responses')
-          .select('id').eq('ticket_id', tokenData.ticketId).limit(1)
-        if (existing?.length > 0) { setDuplicate(true); setSubmitting(false); return }
-      }
-      const { error: insertError } = await supabase.from('csat_responses').insert({
-        organization_id: tokenData.orgId,
-        ticket_id:       tokenData.ticketId    || null,
-        ticket_title:    tokenData.ticketTitle || null,
-        customer_name:   tokenData.customerName || null,
-        contact_email:   tokenData.contactEmail || null,
-        score,
-        comment: comment.trim() || null,
+      const { data, error } = await supabase.functions.invoke('submit-csat', {
+        body: { token, score, comment: comment.trim() || null }
       })
-      if (insertError) { setError('Submission failed. Please try again.'); setSubmitting(false); return }
+      if (error) { setError('Submission failed. Please try again.'); setSubmitting(false); return }
+      if (data?.alreadySubmitted) { setDuplicate(true); setSubmitting(false); return }
+      if (data?.error) { setError(data.error); setSubmitting(false); return }
       setSubmitted(true)
     } catch { setError('Could not submit. Please try again.') }
     finally { setSubmitting(false) }
