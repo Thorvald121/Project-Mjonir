@@ -2,11 +2,42 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Plus, Search, Package, AlertTriangle,
-  Edit, Trash2, Loader2, Upload, Download, X,
+  Edit, Trash2, Loader2, Upload, Download, X, Ticket,
 } from 'lucide-react'
+
+function LinkedTicketsBadge({ assetId }) {
+  const supabase = createSupabaseBrowserClient()
+  const router   = useRouter()
+  const [tickets, setTickets] = useState(null)
+
+  useEffect(() => {
+    supabase.from('tickets').select('id,title,status').eq('linked_asset_id', assetId).limit(10)
+      .then(({ data }) => setTickets(data ?? []))
+  }, [assetId])
+
+  if (tickets === null) return null
+  if (tickets.length === 0) return <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+
+  const open = tickets.filter(t => !['resolved','closed'].includes(t.status))
+  return (
+    <div className="flex flex-col gap-1">
+      {tickets.slice(0, 2).map(t => (
+        <button key={t.id} onClick={() => router.push(`/tickets/${t.id}`)}
+          className="flex items-center gap-1.5 text-left hover:underline">
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${['resolved','closed'].includes(t.status) ? 'bg-slate-300' : 'bg-amber-500'}`} />
+          <span className="text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[120px]">{t.title}</span>
+        </button>
+      ))}
+      {tickets.length > 2 && (
+        <span className="text-[11px] text-slate-400">+{tickets.length - 2} more</span>
+      )}
+    </div>
+  )
+}
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -583,7 +614,7 @@ export default function InventoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                {['Name / Model','Category','Serial / Asset Tag','Customer','Qty','Status','Warranty',''].map(h => (
+                {['Name / Model','Category','Serial / Asset Tag','Customer','Qty','Status','Warranty','Tickets',''].map(h => (
                   <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -632,6 +663,9 @@ export default function InventoryPage() {
                           {w.expired ? 'Expired' : w.expiring ? `${w.days}d left` : fmtDate(item.warranty_expiry)}
                         </div>
                       ) : <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>}
+                    </td>
+                    <td className="px-3 py-3">
+                      <LinkedTicketsBadge assetId={item.id} />
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">

@@ -8,7 +8,7 @@ import {
   ArrowLeft, Clock, User, Building2, Loader2,
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
-  BookOpen, Search, X, Sparkles,
+  BookOpen, Search, X, Sparkles, HardDrive,
 } from 'lucide-react'
 
 const PRIORITY_CLS = {
@@ -47,6 +47,105 @@ function LiveTimer({ startedAt }) {
     <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
       {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
     </span>
+  )
+}
+
+// ── Asset Picker ──────────────────────────────────────────────────────────────
+function AssetPicker({ ticket, orgId, onLinked }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [assets,  setAssets]  = useState([])
+  const [search,  setSearch]  = useState('')
+  const [open,    setOpen]    = useState(false)
+  const [linked,  setLinked]  = useState(ticket?.linked_asset_id || null)
+  const [assetName, setAssetName] = useState(null)
+
+  useEffect(() => {
+    if (linked) {
+      supabase.from('inventory_items').select('name,model,vendor').eq('id', linked).single()
+        .then(({ data }) => { if (data) setAssetName([data.name, data.vendor, data.model].filter(Boolean).join(' · ')) })
+    }
+  }, [linked])
+
+  useEffect(() => {
+    if (!open) return
+    const q = search.trim()
+    const query = supabase.from('inventory_items').select('id,name,vendor,model,serial_number,asset_tag,status,category')
+      .order('name').limit(50)
+    if (ticket?.customer_id) query.eq('customer_id', ticket.customer_id)
+    if (q) query.ilike('name', `%${q}%`)
+    query.then(({ data }) => setAssets(data ?? []))
+  }, [open, search, ticket?.customer_id])
+
+  const link = async (assetId, name) => {
+    await supabase.from('tickets').update({ linked_asset_id: assetId }).eq('id', ticket.id)
+    setLinked(assetId)
+    setAssetName(name)
+    setOpen(false)
+    setSearch('')
+    onLinked?.()
+  }
+
+  const unlink = async () => {
+    await supabase.from('tickets').update({ linked_asset_id: null }).eq('id', ticket.id)
+    setLinked(null)
+    setAssetName(null)
+    onLinked?.()
+  }
+
+  if (linked && assetName) return (
+    <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+      <HardDrive className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+      <span className="text-xs text-slate-700 dark:text-slate-300 flex-1 truncate">{assetName}</span>
+      <button onClick={unlink} className="text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-400 hover:border-amber-400 hover:text-amber-500 transition-colors">
+        <HardDrive className="w-3.5 h-3.5" />
+        {linked ? 'Loading…' : 'Link an asset…'}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search assets…"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+            </div>
+            <div className="max-h-52 overflow-y-auto">
+              {assets.length === 0 ? (
+                <div className="px-4 py-5 text-center text-xs text-slate-400">
+                  {ticket?.customer_id ? 'No assets found for this customer.' : 'No assets found.'}
+                </div>
+              ) : assets.map(a => {
+                const label = [a.vendor, a.model].filter(Boolean).join(' ')
+                return (
+                  <button key={a.id} onClick={() => link(a.id, [a.name, label].filter(Boolean).join(' · '))}
+                    className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{a.name}</p>
+                        {label && <p className="text-[11px] text-slate-400 truncate">{label}{a.serial_number ? ` · S/N: ${a.serial_number}` : ''}</p>}
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 capitalize">{a.status?.replace('_',' ')}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -791,6 +890,14 @@ export default function TicketDetailClient() {
                   onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))}
                   onBlur={() => saveEditField('sla_due_date')}
                   className={inp} />
+              </div>
+            </div>
+            {/* Linked Asset */}
+            <div className="flex items-start gap-2.5">
+              <HardDrive className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Linked Asset</p>
+                <AssetPicker ticket={ticket} orgId={orgIdRef.current} onLinked={() => loadTicket()} />
               </div>
             </div>
           </div>
