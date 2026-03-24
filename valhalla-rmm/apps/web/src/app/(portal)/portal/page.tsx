@@ -8,7 +8,7 @@ import {
   Shield, Plus, Ticket, CheckCircle2, RefreshCw, ChevronRight,
   X, FileText, CreditCard, AlertCircle, ExternalLink, Monitor,
   AlertTriangle, HardDrive, BookOpen, LogOut, ArrowLeft,
-  Paperclip, Send, Loader2, MessageSquare, User, Search,
+  Paperclip, Send, Loader2, MessageSquare, User, Search, Package,
 } from 'lucide-react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -208,6 +208,7 @@ export default function PortalPage() {
   const [invoices,      setInvoices]      = useState([])
   const [devices,       setDevices]       = useState([])
   const [kbArticles,    setKbArticles]    = useState([])
+  const [plan,          setPlan]          = useState(null)
   const [loading,       setLoading]       = useState(true)
   const [activeTab,     setActiveTab]     = useState('tickets')
   const [statusFilter,  setStatusFilter]  = useState('all')
@@ -256,7 +257,7 @@ export default function PortalPage() {
       setCustomer(cust)
 
       // Parallel data fetch — use local vars, not state (state updates are async)
-      const [t, i, d, kb] = await Promise.all([
+      const [t, i, d, kb, cp] = await Promise.all([
         supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
           .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
         supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
@@ -266,12 +267,16 @@ export default function PortalPage() {
           : Promise.resolve({ data: [] }),
         supabase.from('knowledge_articles').select('id,title,content,category,helpful_count,view_count')
           .eq('is_published', true).order('helpful_count', { ascending: false }).limit(50),
+        cust?.id
+          ? supabase.from('customer_plans').select('*, msp_plans(*)').eq('customer_id', cust.id).eq('status', 'active').order('created_at', { ascending: false }).limit(1)
+          : Promise.resolve({ data: [] }),
       ])
 
       setTickets(t.data ?? [])
       setInvoices(i.data ?? [])
       setDevices(d.data ?? [])
       setKbArticles(kb.data ?? [])
+      setPlan(cp.data?.[0] ?? null)
       setLoading(false)
     }
     init()
@@ -409,6 +414,7 @@ export default function PortalPage() {
     { id: 'devices',  label: 'My Devices',      icon: Monitor,  badge: devices.filter(d => d.warranty_expiry && new Date(d.warranty_expiry) < new Date()).length > 0 ? '!' : null },
     { id: 'invoices', label: 'Invoices',        icon: FileText, badge: invoices.filter(i => i.status === 'overdue').length > 0 ? '!' : null },
     { id: 'kb',       label: 'Knowledge Base',  icon: BookOpen, badge: null },
+    ...(plan ? [{ id: 'plan', label: 'My Plan', icon: Package, badge: null }] : []),
   ]
 
   return (
@@ -730,6 +736,53 @@ export default function PortalPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── MY PLAN TAB ─────────────────────────────────────────────── */}
+        {activeTab === 'plan' && plan && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl border-2 border-amber-200 p-6">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">Your Current Plan</p>
+                  <h2 className="text-2xl font-bold text-slate-900">{plan.plan_name}</h2>
+                  {plan.msp_plans?.description && (
+                    <p className="text-sm text-slate-500 mt-1">{plan.msp_plans.description}</p>
+                  )}
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-3xl font-extrabold text-slate-900">
+                    ${Number(plan.plan_price || 0).toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {plan.msp_plans?.billing_cycle === 'monthly' ? 'per month' :
+                     plan.msp_plans?.billing_cycle === 'yearly'  ? 'per year'  :
+                     plan.msp_plans?.billing_cycle === 'weekly'  ? 'per week'  : 'one-time'}
+                  </p>
+                </div>
+              </div>
+              <div className="text-xs text-slate-400 mb-4">
+                Active since {plan.start_date ? new Date(plan.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                {plan.notes && <span className="ml-2">· {plan.notes}</span>}
+              </div>
+              {plan.msp_plans?.features?.length > 0 && (
+                <>
+                  <div className="border-t border-slate-100 pt-4">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">What's Included</p>
+                    <ul className="space-y-2">
+                      {plan.msp_plans.features.map((f, i) => (
+                        <li key={i} className="flex items-center gap-2.5 text-sm text-slate-700">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 text-center">Questions about your plan? <button onClick={() => { setShowForm(true); setActiveTab('tickets') }} className="text-amber-600 hover:underline">Submit a support ticket</button></p>
           </div>
         )}
       </div>
