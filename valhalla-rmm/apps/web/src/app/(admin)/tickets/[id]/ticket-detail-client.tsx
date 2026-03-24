@@ -8,7 +8,7 @@ import {
   ArrowLeft, Clock, User, Building2, Loader2,
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
-  BookOpen, Search, X,
+  BookOpen, Search, X, Sparkles,
 } from 'lucide-react'
 
 const PRIORITY_CLS = {
@@ -47,6 +47,117 @@ function LiveTimer({ startedAt }) {
     <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
       {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
     </span>
+  )
+}
+
+// ── AI Triage Panel ───────────────────────────────────────────────────────────
+function AiTriagePanel({ ticket, onTriageComplete }) {
+  const supabase = createSupabaseBrowserClient()
+  const [loading,    setLoading]    = useState(false)
+  const [triage,     setTriage]     = useState(() => {
+    if (ticket?.ai_triage) { try { return JSON.parse(ticket.ai_triage) } catch {} }
+    return null
+  })
+  const [expanded,   setExpanded]   = useState(false)
+  const [kbArticles, setKbArticles] = useState([])
+
+  const PRIORITY_CLS = {
+    critical: 'bg-rose-100 text-rose-700',
+    high:     'bg-orange-100 text-orange-700',
+    medium:   'bg-amber-100 text-amber-700',
+    low:      'bg-emerald-100 text-emerald-700',
+  }
+
+  const runTriage = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(
+        'https://yetrdrgagfovphrerpie.supabase.co/functions/v1/ai-triage-ticket',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey':        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}`,
+          },
+          body: JSON.stringify({
+            ticket_id:       ticket.id,
+            title:           ticket.title,
+            description:     ticket.description || '',
+            organization_id: ticket.organization_id,
+          }),
+        }
+      )
+      const data = await res.json()
+      if (data.triage) {
+        setTriage(data.triage)
+        setExpanded(true)
+        // Fetch suggested KB articles
+        if (data.triage.suggested_kb_ids?.length > 0) {
+          const { data: articles } = await supabase.from('knowledge_articles')
+            .select('id,title,content,category')
+            .in('id', data.triage.suggested_kb_ids)
+          setKbArticles(articles ?? [])
+        }
+        onTriageComplete?.(data.triage)
+      }
+    } catch (err) { console.error('Triage error:', err) }
+    setLoading(false)
+  }
+
+  if (!triage && !loading) return (
+    <button onClick={runTriage}
+      className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors font-medium">
+      <Sparkles className="w-3.5 h-3.5" /> Run AI Triage
+    </button>
+  )
+
+  if (loading) return (
+    <div className="flex items-center gap-2 px-3 py-2 text-xs text-violet-600 dark:text-violet-400">
+      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing ticket…
+    </div>
+  )
+
+  return (
+    <div className="rounded-xl border border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 overflow-hidden">
+      <button className="w-full flex items-center justify-between px-4 py-3 text-sm"
+        onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Sparkles className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+          <span className="font-medium text-violet-700 dark:text-violet-300">AI Triage</span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PRIORITY_CLS[triage?.priority] ?? ''}`}>{triage?.priority}</span>
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 capitalize">{triage?.category?.replace('_',' ')}</span>
+          <span className="text-[10px] text-violet-500">{triage?.confidence}% confidence</span>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-violet-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-violet-200 dark:border-violet-800/50 pt-3">
+          <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed">{triage?.reasoning}</p>
+          {kbArticles.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <BookOpen className="w-3 h-3" /> Suggested KB Articles
+              </p>
+              <div className="space-y-2">
+                {kbArticles.map(a => (
+                  <div key={a.id} className="flex items-start gap-2 text-xs">
+                    <BookOpen className="w-3 h-3 text-violet-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium text-slate-900 dark:text-white">{a.title}</p>
+                      <p className="text-slate-400 line-clamp-1">{a.content?.replace(/[#*`]/g,'').slice(0,80)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <button onClick={runTriage} className="text-[11px] text-violet-500 hover:text-violet-700 hover:underline">
+            Re-run triage
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -427,6 +538,13 @@ export default function TicketDetailClient() {
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-3">Description</h3>
               <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed">{ticket.description}</p>
             </div>
+          )}
+
+          {ticket && (
+            <AiTriagePanel key={ticket.id} ticket={ticket} onTriageComplete={async (result) => {
+              if (result.priority) await updateField('priority', result.priority)
+              if (result.category) await updateField('category', result.category)
+            }} />
           )}
 
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
