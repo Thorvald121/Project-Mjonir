@@ -68,20 +68,27 @@ function AssetPicker({ ticket, orgId, onLinked }) {
     }
   }, [linked])
 
+  // Load assets when dropdown opens — fetch all for the org, filter client-side
   useEffect(() => {
     if (!open) return
-    const q = search.trim()
-    let query = supabase.from('inventory_items').select('id,name,vendor,model,serial_number,asset_tag,status,category')
-      .order('name').limit(50)
-    if (ticket?.customer_id) query = query.eq('customer_id', ticket.customer_id)
-    if (q) query = query.ilike('name', `%${q}%`)
+    let query = supabase.from('inventory_items')
+      .select('id,name,vendor,model,serial_number,asset_tag,status,category,customer_id,customer_name')
+      .order('name').limit(200)
+    // If ticket has a customer, prefer their assets but don't exclude others
     query.then(({ data }) => setAssets(data ?? []))
-  }, [open, search, ticket?.customer_id])
+  }, [open])
 
   const openDropdown = () => {
     if (btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect()
-      setDropPos({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: rect.width })
+      const rect       = btnRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      const dropHeight = 280
+      const goUp       = spaceBelow < dropHeight && rect.top > dropHeight
+      setDropPos({
+        top:   goUp ? rect.top + window.scrollY - dropHeight - 4 : rect.bottom + window.scrollY + 4,
+        left:  rect.left + window.scrollX,
+        width: Math.max(rect.width, 300),
+      })
     }
     setOpen(true)
   }
@@ -133,25 +140,50 @@ function AssetPicker({ ticket, orgId, onLinked }) {
               </div>
             </div>
             <div className="max-h-56 overflow-y-auto">
-              {assets.length === 0 ? (
-                <div className="px-4 py-5 text-center text-xs text-slate-400">
-                  {ticket?.customer_id ? 'No assets found for this customer.' : 'No assets found. Search above to load all assets.'}
-                </div>
-              ) : assets.map(a => {
-                const label = [a.vendor, a.model].filter(Boolean).join(' ')
-                return (
-                  <button key={a.id} onClick={() => link(a.id, [a.name, label].filter(Boolean).join(' · '))}
-                    className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{a.name}</p>
-                        {label && <p className="text-[11px] text-slate-400 truncate">{label}{a.serial_number ? ` · S/N: ${a.serial_number}` : ''}</p>}
-                      </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 capitalize">{a.status?.replace('_',' ')}</span>
-                    </div>
-                  </button>
+              {(() => {
+                const q = search.trim().toLowerCase()
+                const filtered = assets.filter(a =>
+                  !q ||
+                  a.name?.toLowerCase().includes(q) ||
+                  a.vendor?.toLowerCase().includes(q) ||
+                  a.model?.toLowerCase().includes(q) ||
+                  a.serial_number?.toLowerCase().includes(q) ||
+                  a.asset_tag?.toLowerCase().includes(q)
                 )
-              })}
+                // Sort: customer's assets first
+                const sorted = [...filtered].sort((a, b) => {
+                  const aMatch = a.customer_id === ticket?.customer_id ? -1 : 0
+                  const bMatch = b.customer_id === ticket?.customer_id ? -1 : 0
+                  return aMatch - bMatch
+                })
+                if (sorted.length === 0) return (
+                  <div className="px-4 py-5 text-center text-xs text-slate-400">
+                    {assets.length === 0 ? 'No assets in inventory yet.' : 'No assets match your search.'}
+                  </div>
+                )
+                return sorted.map(a => {
+                  const label = [a.vendor, a.model].filter(Boolean).join(' ')
+                  const isCustomerAsset = a.customer_id === ticket?.customer_id
+                  return (
+                    <button key={a.id} onClick={() => link(a.id, [a.name, label].filter(Boolean).join(' · '))}
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{a.name}</p>
+                          <p className="text-[11px] text-slate-400 truncate">
+                            {label}{a.serial_number ? ` · S/N: ${a.serial_number}` : ''}
+                            {a.customer_name && !isCustomerAsset ? ` · ${a.customer_name}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isCustomerAsset && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">this customer</span>}
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 capitalize">{a.status?.replace('_',' ')}</span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })
+              })()}
             </div>
           </div>
         </>
