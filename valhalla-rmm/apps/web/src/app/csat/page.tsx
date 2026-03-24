@@ -22,7 +22,6 @@ function decodeToken(token) {
 function CsatForm() {
   const searchParams = useSearchParams()
   const token        = searchParams.get('token') || ''
-  const supabase     = createSupabaseBrowserClient()
 
   const tokenData = useMemo(() => decodeToken(token), [token])
 
@@ -54,12 +53,17 @@ function CsatForm() {
     if (!score) return
     setSubmitting(true); setError('')
     try {
-      const { data, error } = await supabase.functions.invoke('submit-csat', {
-        body: { token, score, comment: comment.trim() || null }
-      })
-      if (error) { setError('Submission failed. Please try again.'); setSubmitting(false); return }
+      const res = await fetch(
+        'https://yetrdrgagfovphrerpie.supabase.co/functions/v1/submit-csat',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, score, comment: comment.trim() || null }),
+        }
+      )
+      const data = await res.json()
       if (data?.alreadySubmitted) { setDuplicate(true); setSubmitting(false); return }
-      if (data?.error) { setError(data.error); setSubmitting(false); return }
+      if (data?.error || !res.ok)  { setError(data?.error || 'Submission failed.'); setSubmitting(false); return }
       setSubmitted(true)
     } catch { setError('Could not submit. Please try again.') }
     finally { setSubmitting(false) }
