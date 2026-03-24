@@ -26,6 +26,7 @@ const NAV_ITEMS = [
 
 const ADMIN_ITEMS = [
   { label: 'Knowledge Base',      icon: BookOpen,  href: '/knowledge-base' },
+  { label: 'Canned Replies',      icon: BookOpen,  href: '/canned-replies' },
   { label: 'Email Automations',   icon: Zap,       href: '/email-automations' },
   { label: 'Ticket Automations',  icon: Zap,       href: '/ticket-automations' },
   { label: 'Settings',            icon: Settings,  href: '/settings' },

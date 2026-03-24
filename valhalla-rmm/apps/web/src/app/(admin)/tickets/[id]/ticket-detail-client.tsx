@@ -8,6 +8,7 @@ import {
   ArrowLeft, Clock, User, Building2, Loader2,
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
+  BookOpen, Search, X,
 } from 'lucide-react'
 
 const PRIORITY_CLS = {
@@ -46,6 +47,85 @@ function LiveTimer({ startedAt }) {
     <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
       {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
     </span>
+  )
+}
+
+// ── Canned Replies Picker ─────────────────────────────────────────────────────
+function CannedRepliesPicker({ ticket, onSelect }) {
+  const supabase = createSupabaseBrowserClient()
+  const [open,    setOpen]    = useState(false)
+  const [search,  setSearch]  = useState('')
+  const [replies, setReplies] = useState([])
+
+  useEffect(() => {
+    supabase.from('canned_replies').select('*').eq('is_active', true).order('category').order('name')
+      .then(({ data }) => setReplies(data ?? []))
+  }, [])
+
+  const filtered = replies.filter(r =>
+    !search ||
+    r.name.toLowerCase().includes(search.toLowerCase()) ||
+    r.body.toLowerCase().includes(search.toLowerCase()) ||
+    (r.category || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  const categories = [...new Set(filtered.map(r => r.category || 'General'))].sort()
+
+  const apply = (reply) => {
+    let body = reply.body
+    if (ticket) {
+      body = body
+        .replace(/\{\{contact_name\}\}/g, ticket.contact_name || '')
+        .replace(/\{\{ticket_title\}\}/g, ticket.title || '')
+        .replace(/\{\{customer_name\}\}/g, ticket.customer_name || '')
+    }
+    onSelect(body)
+    setOpen(false)
+    setSearch('')
+  }
+
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 h-7 px-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors">
+        <BookOpen className="w-3.5 h-3.5" /> Templates
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute z-50 bottom-full mb-2 left-0 w-80 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-slate-200 dark:border-slate-700">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search templates…"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-slate-400">
+                  {replies.length === 0 ? 'No canned replies yet. Create some in Settings → Canned Replies.' : 'No matches found.'}
+                </div>
+              ) : categories.map(cat => (
+                <div key={cat}>
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
+                    {cat}
+                  </div>
+                  {filtered.filter(r => (r.category || 'General') === cat).map(reply => (
+                    <button key={reply.id} onClick={() => apply(reply)}
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
+                      <p className="text-xs font-medium text-slate-900 dark:text-white">{reply.name}</p>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{reply.body.slice(0, 80)}…</p>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -410,6 +490,7 @@ export default function TicketDetailClient() {
                         <Paperclip className="w-3.5 h-3.5" />{attachment ? attachment.name : 'Attach'}
                       </button>
                       {attachment && <button onClick={() => setAttachment(null)} className="text-[11px] text-rose-500 hover:underline">Remove</button>}
+                      <CannedRepliesPicker ticket={ticket} onSelect={(body) => setNoteText(body)} />
                     </div>
                     <button onClick={submitNote}
                       disabled={!noteText.trim() || submitting || (noteMode === 'reply' && !canEmailClient)}
