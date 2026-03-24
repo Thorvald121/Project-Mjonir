@@ -52,12 +52,14 @@ function LiveTimer({ startedAt }) {
 
 // ── Asset Picker ──────────────────────────────────────────────────────────────
 function AssetPicker({ ticket, orgId, onLinked }) {
-  const supabase  = createSupabaseBrowserClient()
-  const [assets,  setAssets]  = useState([])
-  const [search,  setSearch]  = useState('')
-  const [open,    setOpen]    = useState(false)
-  const [linked,  setLinked]  = useState(ticket?.linked_asset_id || null)
+  const supabase    = createSupabaseBrowserClient()
+  const btnRef      = useRef(null)
+  const [assets,    setAssets]    = useState([])
+  const [search,    setSearch]    = useState('')
+  const [open,      setOpen]      = useState(false)
+  const [linked,    setLinked]    = useState(ticket?.linked_asset_id || null)
   const [assetName, setAssetName] = useState(null)
+  const [dropPos,   setDropPos]   = useState({ top: 0, left: 0, width: 0 })
 
   useEffect(() => {
     if (linked) {
@@ -69,12 +71,20 @@ function AssetPicker({ ticket, orgId, onLinked }) {
   useEffect(() => {
     if (!open) return
     const q = search.trim()
-    const query = supabase.from('inventory_items').select('id,name,vendor,model,serial_number,asset_tag,status,category')
+    let query = supabase.from('inventory_items').select('id,name,vendor,model,serial_number,asset_tag,status,category')
       .order('name').limit(50)
-    if (ticket?.customer_id) query.eq('customer_id', ticket.customer_id)
-    if (q) query.ilike('name', `%${q}%`)
+    if (ticket?.customer_id) query = query.eq('customer_id', ticket.customer_id)
+    if (q) query = query.ilike('name', `%${q}%`)
     query.then(({ data }) => setAssets(data ?? []))
   }, [open, search, ticket?.customer_id])
+
+  const openDropdown = () => {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      setDropPos({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: rect.width })
+    }
+    setOpen(true)
+  }
 
   const link = async (assetId, name) => {
     await supabase.from('tickets').update({ linked_asset_id: assetId }).eq('id', ticket.id)
@@ -103,16 +113,17 @@ function AssetPicker({ ticket, orgId, onLinked }) {
   )
 
   return (
-    <div className="relative">
-      <button onClick={() => setOpen(o => !o)}
+    <>
+      <button ref={btnRef} onClick={openDropdown}
         className="w-full flex items-center gap-2 px-3 py-2 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-400 hover:border-amber-400 hover:text-amber-500 transition-colors">
         <HardDrive className="w-3.5 h-3.5" />
         {linked ? 'Loading…' : 'Link an asset…'}
       </button>
-      {open && (
+      {open && typeof window !== 'undefined' && window.document.body && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+          <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+          <div style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: Math.max(dropPos.width, 280), zIndex: 9999 }}
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden">
             <div className="p-2 border-b border-slate-100 dark:border-slate-700">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -121,10 +132,10 @@ function AssetPicker({ ticket, orgId, onLinked }) {
                   className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
               </div>
             </div>
-            <div className="max-h-52 overflow-y-auto">
+            <div className="max-h-56 overflow-y-auto">
               {assets.length === 0 ? (
                 <div className="px-4 py-5 text-center text-xs text-slate-400">
-                  {ticket?.customer_id ? 'No assets found for this customer.' : 'No assets found.'}
+                  {ticket?.customer_id ? 'No assets found for this customer.' : 'No assets found. Search above to load all assets.'}
                 </div>
               ) : assets.map(a => {
                 const label = [a.vendor, a.model].filter(Boolean).join(' ')
@@ -145,7 +156,7 @@ function AssetPicker({ ticket, orgId, onLinked }) {
           </div>
         </>
       )}
-    </div>
+    </>
   )
 }
 
