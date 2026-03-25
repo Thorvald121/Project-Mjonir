@@ -8,7 +8,153 @@ import {
   ArrowLeft, Building2, Phone, Mail, Edit, Plus, Clock,
   FileText, Package, Ticket, DollarSign, TrendingUp, X,
   CheckCircle2, AlertTriangle, Loader2, Save, Users,
+  Heart, TrendingDown, Minus, Star, RefreshCw,
 } from 'lucide-react'
+
+// ── Customer Health Score ─────────────────────────────────────────────────────
+function computeHealth({ tickets, invoices, csatResponses }) {
+  let score = 100
+  const factors = []
+  const open     = tickets.filter(t => !['resolved','closed'].includes(t.status))
+  const critical = open.filter(t => t.priority === 'critical')
+  const breached = open.filter(t => t.sla_due_date && new Date(t.sla_due_date) < new Date())
+  const overdue  = invoices.filter(i => i.status === 'overdue')
+
+  if (open.length)     { const p = Math.min(32, open.length * 8);     score -= p; factors.push({ label: `${open.length} open ticket${open.length > 1 ? 's' : ''}`,       impact: -p, icon: AlertTriangle }) }
+  if (critical.length) { const p = Math.min(30, critical.length * 15); score -= p; factors.push({ label: `${critical.length} critical ticket${critical.length > 1 ? 's' : ''}`, impact: -p, icon: AlertTriangle }) }
+  if (breached.length) { const p = Math.min(40, breached.length * 20); score -= p; factors.push({ label: `${breached.length} SLA breach${breached.length > 1 ? 'es' : ''}`,        impact: -p, icon: Clock }) }
+  if (overdue.length)  { const p = Math.min(30, overdue.length * 15);  score -= p; factors.push({ label: `${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`,    impact: -p, icon: DollarSign }) }
+
+  if (csatResponses.length >= 2) {
+    const avg = csatResponses.reduce((s, r) => s + (r.score || 0), 0) / csatResponses.length
+    if (avg >= 4.5)      { score += 10; factors.push({ label: `CSAT avg ${avg.toFixed(1)} ⭐`, impact: +10, icon: Star }) }
+    else if (avg < 3)    { score -= 15; factors.push({ label: `Low CSAT avg ${avg.toFixed(1)}`, impact: -15, icon: Star }) }
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)))
+  if (!factors.length) factors.push({ label: 'No open issues', impact: 0, icon: null })
+  return { score, factors }
+}
+
+function CustomerHealthScore({ tickets, invoices, csatResponses = [] }) {
+  const { score, factors } = computeHealth({ tickets, invoices, csatResponses })
+  const g = score >= 85
+    ? { label: 'Excellent', color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', border: 'border-emerald-200 dark:border-emerald-800' }
+    : score >= 65
+    ? { label: 'Good',      color: 'text-blue-600',    bg: 'bg-blue-50 dark:bg-blue-950/30',    border: 'border-blue-200 dark:border-blue-800'    }
+    : score >= 45
+    ? { label: 'Fair',      color: 'text-amber-600',   bg: 'bg-amber-50 dark:bg-amber-950/30',  border: 'border-amber-200 dark:border-amber-800'  }
+    : { label: 'At Risk',   color: 'text-rose-600',    bg: 'bg-rose-50 dark:bg-rose-950/30',    border: 'border-rose-200 dark:border-rose-800'    }
+
+  const circ = 2 * Math.PI * 32
+  return (
+    <div className={`rounded-xl border ${g.border} ${g.bg} p-4`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Heart className={`w-4 h-4 ${g.color}`} />
+        <span className="text-sm font-semibold text-slate-900 dark:text-white">Account Health</span>
+      </div>
+      <div className="flex items-center gap-5">
+        <div className="relative w-20 h-20 flex-shrink-0">
+          <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="32" fill="none" stroke="currentColor" strokeWidth="8" className="text-slate-200 dark:text-slate-700" />
+            <circle cx="40" cy="40" r="32" fill="none" strokeWidth="8" strokeLinecap="round"
+              stroke="currentColor" className={g.color}
+              strokeDasharray={circ} strokeDashoffset={circ * (1 - score / 100)} />
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={`text-xl font-bold ${g.color}`}>{score}</span>
+          </div>
+        </div>
+        <div className="flex-1">
+          <p className={`text-lg font-bold ${g.color} mb-2`}>{g.label}</p>
+          <div className="space-y-1.5">
+            {factors.map((f, i) => (
+              <div key={i} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {f.icon && <f.icon className={`w-3 h-3 flex-shrink-0 ${f.impact > 0 ? 'text-emerald-500' : f.impact === 0 ? 'text-slate-400' : 'text-rose-500'}`} />}
+                  <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{f.label}</span>
+                </div>
+                {f.impact !== 0 && (
+                  <span className={`text-xs font-semibold flex-shrink-0 flex items-center gap-0.5 ${f.impact > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {f.impact > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {f.impact > 0 ? `+${f.impact}` : f.impact}
+                  </span>
+                )}
+                {f.impact === 0 && <Minus className="w-3 h-3 text-slate-400 flex-shrink-0" />}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Block Hours Burndown ──────────────────────────────────────────────────────
+function BlockHoursBurnDown({ customer, timeEntries }) {
+  const purchased   = customer.block_hours_total || 0
+  const periodStart = customer.block_hours_period_start ? new Date(customer.block_hours_period_start) : null
+
+  const relevant = timeEntries.filter(e => {
+    if (!e.billable) return false
+    if (!periodStart) return true
+    return new Date(e.date) >= periodStart
+  })
+
+  const consumedHours  = relevant.reduce((s, e) => s + (e.minutes || 0), 0) / 60
+  const remainingHours = Math.max(0, purchased - consumedHours)
+  const pct            = purchased > 0 ? Math.min(100, (consumedHours / purchased) * 100) : 0
+  const isOver         = consumedHours > purchased
+  const isWarning      = !isOver && pct >= 75
+
+  const barColor   = isOver ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+  const statusCls  = isOver ? 'bg-rose-100 text-rose-700'    : isWarning ? 'bg-amber-100 text-amber-700'    : 'bg-emerald-100 text-emerald-700'
+  const statusLabel = isOver ? 'Over Budget' : isWarning ? 'Running Low' : 'On Track'
+
+  return (
+    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Clock className="w-4 h-4 text-violet-500" />
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">Block Hours</p>
+        </div>
+        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${statusCls}`}>
+          {isOver || isWarning ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
+          {statusLabel}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        {[
+          { label: 'Purchased', value: purchased, cls: 'text-slate-900 dark:text-white' },
+          { label: 'Consumed',  value: consumedHours.toFixed(1), cls: isOver ? 'text-rose-600' : 'text-slate-900 dark:text-white' },
+          { label: isOver ? 'Over' : 'Remaining', value: isOver ? `+${(consumedHours - purchased).toFixed(1)}` : remainingHours.toFixed(1), cls: isOver ? 'text-rose-600' : remainingHours < purchased * 0.25 ? 'text-amber-600' : 'text-emerald-600' },
+        ].map(({ label, value, cls }) => (
+          <div key={label} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-2.5">
+            <p className={`text-xl font-bold ${cls}`}>{value}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{label}</p>
+          </div>
+        ))}
+      </div>
+      {purchased > 0 && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-slate-400">
+            <span>{pct.toFixed(0)}% consumed</span>
+            <span>{relevant.length} entries</span>
+          </div>
+          <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(100, pct)}%` }} />
+          </div>
+        </div>
+      )}
+      {periodStart && (
+        <div className="flex items-center gap-1.5 text-xs text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
+          <RefreshCw className="w-3 h-3" />
+          Period started: <span className="font-medium text-slate-600 dark:text-slate-300">{periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -104,7 +250,8 @@ function EditDialog({ open, onClose, onSaved, customer, orgId }) {
       monthly_rate:     customer.monthly_rate     ?? '',
       hourly_rate:      customer.hourly_rate      ?? '',
       after_hours_rate: customer.after_hours_rate ?? '',
-      block_hours_total:customer.block_hours_total ?? '',
+      block_hours_total:        customer.block_hours_total        ?? '',
+      block_hours_period_start: customer.block_hours_period_start ?? '',
       address:          customer.address          ?? '',
       website:          customer.website          ?? '',
       notes:            customer.notes            ?? '',
@@ -126,7 +273,8 @@ function EditDialog({ open, onClose, onSaved, customer, orgId }) {
       monthly_rate:      form.monthly_rate      ? parseFloat(form.monthly_rate)      : null,
       hourly_rate:       form.hourly_rate       ? parseFloat(form.hourly_rate)       : null,
       after_hours_rate:  form.after_hours_rate  ? parseFloat(form.after_hours_rate)  : null,
-      block_hours_total: form.block_hours_total ? parseInt(form.block_hours_total)   : null,
+      block_hours_total:        form.block_hours_total ? parseInt(form.block_hours_total) : null,
+      block_hours_period_start: form.block_hours_period_start || null,
       address:           form.address           || null,
       website:           form.website           || null,
       notes:             form.notes             || null,
@@ -204,10 +352,16 @@ function EditDialog({ open, onClose, onSaved, customer, orgId }) {
               <input type="number" min={0} value={form.after_hours_rate || ''} onChange={e => s('after_hours_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
             </div>
             {form.contract_type === 'block_hours' && (
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Block Hours Total</label>
-                <input type="number" min={0} value={form.block_hours_total || ''} onChange={e => s('block_hours_total', e.target.value)} placeholder="40" className={`mt-1 ${inp}`} />
-              </div>
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Block Hours Total</label>
+                  <input type="number" min={0} value={form.block_hours_total || ''} onChange={e => s('block_hours_total', e.target.value)} placeholder="40" className={`mt-1 ${inp}`} />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Period Start Date</label>
+                  <input type="date" value={form.block_hours_period_start || ''} onChange={e => s('block_hours_period_start', e.target.value)} className={`mt-1 ${inp}`} />
+                </div>
+              </>
             )}
             <div className="col-span-2">
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
@@ -440,6 +594,7 @@ export default function CustomerDetailPage() {
   const [timeEntries, setTimeEntries] = useState([])
   const [inventory,   setInventory]   = useState([])
   const [contacts,    setContacts]    = useState([])
+  const [csatResponses, setCsatResponses] = useState([])
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
   const [orgId,       setOrgId]       = useState(null)
@@ -452,13 +607,14 @@ export default function CustomerDetailPage() {
   const loadAll = useCallback(async () => {
     const id = idRef.current
     if (!id) return
-    const [cust, t, inv, te, items, ctcts] = await Promise.all([
+    const [cust, t, inv, te, items, ctcts, csat] = await Promise.all([
       supabase.from('customers').select('*').eq('id', id).single(),
       supabase.from('tickets').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
       supabase.from('invoices').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
       supabase.from('time_entries').select('*').eq('customer_id', id).order('date', { ascending: false }).limit(200),
       supabase.from('inventory_items').select('*').eq('customer_id', id).order('name').limit(100),
       supabase.from('customer_contacts').select('*').eq('customer_id', id).order('is_primary', { ascending: false }).order('name'),
+      supabase.from('csat_responses').select('score,submitted_at').eq('customer_name', id).limit(50),
     ])
     if (cust.error) { setError('Customer not found'); setLoading(false); return }
     setCustomer(cust.data)
@@ -467,6 +623,12 @@ export default function CustomerDetailPage() {
     setTimeEntries(te.data ?? [])
     setInventory(items.data ?? [])
     setContacts(ctcts.data ?? [])
+    // Also fetch CSAT by ticket customer_name match and contact_email
+    const { data: csatData } = await supabase.from('csat_responses')
+      .select('score,submitted_at')
+      .eq('customer_name', cust.data?.name)
+      .limit(50)
+    setCsatResponses(csatData ?? [])
     setLoading(false)
   }, [])
 
@@ -577,19 +739,7 @@ export default function CustomerDetailPage() {
 
         {/* Block hours burndown */}
         {customer.contract_type === 'block_hours' && blockTotal > 0 && (
-          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-sm font-medium text-slate-900 dark:text-white">Block Hours</p>
-              <p className="text-sm font-semibold text-slate-900 dark:text-white">{blockUsed}h used / {blockTotal}h total — <span className={blockRemaining < blockTotal * 0.2 ? 'text-rose-500' : 'text-emerald-500'}>{blockRemaining}h remaining</span></p>
-            </div>
-            <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className={`h-3 rounded-full transition-all ${blockPct >= 90 ? 'bg-rose-500' : blockPct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                style={{ width: blockPct + '%' }}
-              />
-            </div>
-            <p className="text-xs text-slate-400 mt-1">{blockPct}% consumed</p>
-          </div>
+          <BlockHoursBurnDown customer={customer} timeEntries={timeEntries} />
         )}
 
         {/* Notes */}
@@ -600,6 +750,9 @@ export default function CustomerDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Account Health Score */}
+      <CustomerHealthScore tickets={tickets} invoices={invoices} csatResponses={csatResponses} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
