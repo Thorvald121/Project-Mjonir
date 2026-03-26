@@ -3,7 +3,67 @@
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Loader2 } from 'lucide-react'
+import { Loader2, CheckCircle2 } from 'lucide-react'
+
+function ForgotPassword() {
+  const supabase = createSupabaseBrowserClient()
+  const [open,    setOpen]    = useState(false)
+  const [email,   setEmail]   = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent,    setSent]    = useState(false)
+  const [err,     setErr]     = useState<string | null>(null)
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim()) return
+    setSending(true); setErr(null)
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/portal`,
+    })
+    setSending(false)
+    if (error) { setErr(error.message); return }
+    setSent(true)
+  }
+
+  if (!open) return (
+    <p className="text-center text-xs text-slate-400">
+      Forgot your password?{' '}
+      <button onClick={() => setOpen(true)} className="text-amber-500 hover:underline">
+        Reset it
+      </button>
+    </p>
+  )
+
+  if (sent) return (
+    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 text-sm text-emerald-700">
+      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+      Check your email for a password reset link.
+    </div>
+  )
+
+  return (
+    <form onSubmit={handleReset} className="space-y-3">
+      <p className="text-xs text-slate-500 text-center">Enter your email and we'll send a reset link.</p>
+      {err && <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{err}</p>}
+      <input
+        type="email" value={email} onChange={e => setEmail(e.target.value)}
+        required placeholder="you@company.com"
+        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+      />
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setOpen(false)}
+          className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+          Cancel
+        </button>
+        <button type="submit" disabled={!email.trim() || sending}
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
+          {sending && <Loader2 className="w-4 h-4 animate-spin" />}
+          Send Reset Link
+        </button>
+      </div>
+    </form>
+  )
+}
 
 export default function PortalLoginForm() {
   const router = useRouter()
@@ -78,12 +138,6 @@ export default function PortalLoginForm() {
             />
           </div>
 
-          <div className="flex justify-end">
-            <a href="/forgot-password" className="text-xs text-amber-500 hover:underline">
-              Forgot password?
-            </a>
-          </div>
-
           <button
             type="submit"
             disabled={loading}
@@ -94,12 +148,15 @@ export default function PortalLoginForm() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-slate-400">
-          Are you a technician?{' '}
-          <a href="/login" className="text-amber-500 hover:underline">
-            Staff login →
-          </a>
-        </p>
+        <div className="space-y-3">
+          <ForgotPassword />
+          <p className="text-center text-xs text-slate-400">
+            Are you a technician?{' '}
+            <a href="/login" className="text-amber-500 hover:underline">
+              Staff login →
+            </a>
+          </p>
+        </div>
       </div>
     </div>
   )

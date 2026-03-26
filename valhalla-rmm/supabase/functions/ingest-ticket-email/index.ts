@@ -158,7 +158,8 @@ serve(async (req) => {
     // Update ticket if needed
     const updates = {}
     if (!ticket.contact_email && senderEmail) updates.contact_email = senderEmail
-    if (ticket.status === 'waiting') updates.status = 'open'
+    // Re-open if client replies to a resolved/closed/waiting ticket
+    if (['waiting', 'resolved', 'closed'].includes(ticket.status)) updates.status = 'open'
     if (Object.keys(updates).length > 0) await supabase.from('tickets').update(updates).eq('id', ticketId)
 
     console.log('Added comment to ticket:', ticketId)

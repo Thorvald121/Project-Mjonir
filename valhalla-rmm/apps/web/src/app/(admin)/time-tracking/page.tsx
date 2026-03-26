@@ -1,8 +1,9 @@
 // @ts-nocheck
 'use client'
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X } from 'lucide-react'
+import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X, CheckCircle2 } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -176,6 +177,7 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
 }
 
 export default function TimeTrackingPage() {
+  const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
   const [entries,        setEntries]        = useState([])
@@ -345,6 +347,19 @@ export default function TimeTrackingPage() {
                           className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
                           <Edit className="w-3.5 h-3.5" />
                         </button>
+                        {entry.billable && !entry.invoice_id && (
+                          <button
+                            title="Add to new invoice"
+                            onClick={() => router.push(`/invoices?prefill_customer=${entry.customer_id}&prefill_entry=${entry.id}`)}
+                            className="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/20 text-slate-400 hover:text-amber-500 transition-colors">
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {entry.invoice_id && (
+                          <span title="Already invoiced" className="p-1.5 text-emerald-500">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </span>
+                        )}
                         <button onClick={() => handleDelete(entry.id)}
                           className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
                           <Trash2 className="w-3.5 h-3.5" />

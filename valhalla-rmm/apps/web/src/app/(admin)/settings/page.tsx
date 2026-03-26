@@ -58,7 +58,7 @@ function FieldRow({ label, hint, children }) {
 
 function OrgSection({ org, onSaved }) {
   const supabase = createSupabaseBrowserClient()
-  const [form,   setForm]   = useState({ name: '', company_email: '', app_url: '', ai_provider: 'claude' })
+  const [form,   setForm]   = useState({ name: '', company_email: '', app_url: '', ai_provider: 'claude', logo_url: '', brand_color: '#f59e0b' })
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -69,6 +69,8 @@ function OrgSection({ org, onSaved }) {
       company_email: org.company_email || '',
       app_url:       org.app_url       || (typeof window !== 'undefined' ? window.location.origin : ''),
       ai_provider:   org.ai_provider   || 'claude',
+      logo_url:      org.logo_url      || '',
+      brand_color:   org.brand_color   || '#f59e0b',
     })
   }, [org])
 
@@ -107,6 +109,25 @@ function OrgSection({ org, onSaved }) {
           <option value="claude">Claude (Haiku) — Anthropic</option>
           <option value="openai">GPT-4o Mini — OpenAI</option>
         </select>
+      </FieldRow>
+      <FieldRow label="Portal Logo URL" hint="Public image URL shown in the client portal header. Recommended: 64×64px PNG or SVG.">
+        <div className="space-y-2">
+          <input value={form.logo_url} onChange={e => sf('logo_url', e.target.value)} placeholder="https://..." className={inp} />
+          {form.logo_url && (
+            <div className="flex items-center gap-2">
+              <img src={form.logo_url} alt="Logo preview" className="w-8 h-8 rounded object-contain border border-slate-200 dark:border-slate-700 bg-white p-0.5" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <span className="text-xs text-slate-400">Preview</span>
+            </div>
+          )}
+        </div>
+      </FieldRow>
+      <FieldRow label="Portal Brand Color" hint="Accent color used in the client portal for buttons and highlights.">
+        <div className="flex items-center gap-3">
+          <input type="color" value={form.brand_color} onChange={e => sf('brand_color', e.target.value)}
+            className="w-10 h-10 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer bg-white p-0.5" />
+          <input value={form.brand_color} onChange={e => sf('brand_color', e.target.value)} placeholder="#f59e0b" className={`w-28 ${inp}`} />
+          <span className="text-xs text-slate-400">Default: amber #f59e0b</span>
+        </div>
       </FieldRow>
       <div className="flex justify-end">
         <button onClick={save} disabled={saving}

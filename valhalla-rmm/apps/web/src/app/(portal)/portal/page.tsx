@@ -15,6 +15,19 @@ import {
 const lbl   = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
 const fmtDate = (d) => { if (!d) return ''; try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '' } }
 const fmtDateTime = (d) => { if (!d) return ''; try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return '' } }
+function renderMarkdown(text) {
+  if (!text) return ''
+  return text
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:14px;font-weight:700;margin:16px 0 6px;">$1</h3>')
+    .replace(/^## (.+)$/gm,  '<h2 style="font-size:16px;font-weight:700;margin:20px 0 8px;">$1</h2>')
+    .replace(/^# (.+)$/gm,   '<h1 style="font-size:18px;font-weight:700;margin:20px 0 10px;">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    .replace(/`(.+?)`/g,       '<code style="background:#f1f5f9;padding:1px 6px;border-radius:4px;font-size:12px;font-family:monospace;">$1</code>')
+    .replace(/^- (.+)$/gm,     '<li style="margin-left:16px;list-style:disc;">$1</li>')
+    .replace(/\n\n/g, '</p><p style="margin-bottom:10px;">')
+    .replace(/\n/g, '<br/>')
+}
 
 const STATUS_CLS = {
   open:        'bg-blue-100 text-blue-800',
@@ -76,8 +89,8 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
       attachment_url,
       attachment_name,
     })
-    // Auto-set ticket to open if it was waiting on client
-    if (ticket.status === 'waiting') {
+    // Re-open if client replies to a resolved/closed/waiting ticket
+    if (['waiting', 'resolved', 'closed'].includes(ticket.status)) {
       await supabase.from('tickets').update({ status: 'open' }).eq('id', ticket.id)
     }
     setComment(''); setAttachment(null)
@@ -237,7 +250,7 @@ export default function PortalPage() {
       setOrgId(currentOrgId)
 
       const { data: orgData } = await supabase.from('organizations')
-        .select('id,name,company_email').eq('id', currentOrgId).single()
+        .select('id,name,company_email,logo_url,brand_color').eq('id', currentOrgId).single()
       setOrg(orgData)
 
       // Find customer via customer_contacts table (supports multiple users per customer)
@@ -403,7 +416,8 @@ export default function PortalPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 capitalize">{kbArticle.category}</span>
           <h1 className="text-xl font-bold text-slate-900 mt-3">{kbArticle.title}</h1>
-          <div className="mt-4 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{kbArticle.content}</div>
+          <div className="mt-4 text-sm text-slate-700 leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(kbArticle.content) }} />
         </div>
       </div>
     </div>
@@ -423,8 +437,12 @@ export default function PortalPage() {
       <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-10">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-bold text-sm">{org?.name?.[0] ?? 'V'}</span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
+              style={{ background: org?.brand_color || '#f59e0b' }}>
+              {org?.logo_url
+                ? <img src={org.logo_url} alt="logo" className="w-full h-full object-contain" />
+                : <span className="text-white font-bold text-sm">{org?.name?.[0] ?? 'V'}</span>
+              }
             </div>
             <div>
               <span className="font-bold text-slate-900 text-sm">{org?.name || 'Support Portal'}</span>
@@ -433,7 +451,8 @@ export default function PortalPage() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => { setShowForm(true); setActiveTab('tickets') }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+              style={{ background: org?.brand_color || '#f59e0b' }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-sm font-semibold transition-opacity hover:opacity-90">
               <Plus className="w-4 h-4" /> New Ticket
             </button>
             <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">

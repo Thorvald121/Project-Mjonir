@@ -6,8 +6,56 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
   CheckCircle2, Send, Trash2, Eye, X, Loader2,
-  RotateCcw, CreditCard, ExternalLink, Link, Mail,
+  RotateCcw, CreditCard, ExternalLink, Link, Mail, Download,
 } from 'lucide-react'
+
+function buildInvoiceHtml(inv) {
+  const items = Array.isArray(inv.line_items) ? inv.line_items : []
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+  const rows = items.map(i => `
+    <tr>
+      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;">${i.description || ''}</td>
+      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:center;font-size:13px;">${i.quantity || 1}</td>
+      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;font-size:13px;">$${Number(i.unit_price || 0).toFixed(2)}</td>
+      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;font-size:13px;font-weight:600;">$${(Number(i.quantity || 0) * Number(i.unit_price || 0)).toFixed(2)}</td>
+    </tr>`).join('')
+  const balance = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
+  return `<!DOCTYPE html><html><head><title>Invoice ${inv.invoice_number || ''}</title>
+  <style>body{font-family:system-ui,sans-serif;margin:0;padding:40px;color:#1e293b;} @media print{body{padding:20px;}}</style>
+  </head><body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;">
+    <div><h1 style="font-size:28px;font-weight:700;margin:0;">Invoice</h1><p style="color:#64748b;margin:4px 0 0;">${inv.invoice_number || ''}</p></div>
+    <div style="text-align:right;">
+      <p style="font-size:13px;margin:0;color:#64748b;">Issued: ${fmt(inv.issue_date)}</p>
+      <p style="font-size:13px;margin:4px 0 0;color:#64748b;">Due: ${fmt(inv.due_date)}</p>
+    </div>
+  </div>
+  <div style="margin-bottom:32px;">
+    <p style="font-size:11px;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;margin:0 0 4px;">Bill To</p>
+    <p style="font-size:16px;font-weight:600;margin:0;">${inv.customer_name || ''}</p>
+    ${inv.contact_email ? `<p style="font-size:13px;color:#64748b;margin:2px 0 0;">${inv.contact_email}</p>` : ''}
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+    <thead><tr style="border-bottom:2px solid #1e293b;">
+      <th style="padding:8px 0;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.05em;">Description</th>
+      <th style="padding:8px 0;text-align:center;font-size:11px;text-transform:uppercase;color:#64748b;">Qty</th>
+      <th style="padding:8px 0;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b;">Rate</th>
+      <th style="padding:8px 0;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b;">Total</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div style="margin-left:auto;max-width:240px;">
+    ${(inv.discount_amount || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:4px;"><span>Discount</span><span>-$${Number(inv.discount_amount).toFixed(2)}</span></div>` : ''}
+    ${(inv.tax_rate || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:4px;"><span>Tax (${inv.tax_rate}%)</span><span>$${Number(inv.tax_amount || 0).toFixed(2)}</span></div>` : ''}
+    ${(inv.amount_paid || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#10b981;margin-bottom:4px;"><span>Paid</span><span>-$${Number(inv.amount_paid).toFixed(2)}</span></div>` : ''}
+    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;border-top:2px solid #1e293b;padding-top:8px;margin-top:8px;">
+      <span>${inv.amount_paid > 0 && balance < inv.total ? 'Balance Due' : 'Total'}</span>
+      <span style="color:#f59e0b;">$${balance.toFixed(2)}</span>
+    </div>
+  </div>
+  ${inv.notes ? `<div style="margin-top:32px;padding:16px;background:#f8fafc;border-radius:8px;font-size:13px;color:#64748b;">${inv.notes}</div>` : ''}
+  </body></html>`
+}
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -77,7 +125,21 @@ function ViewDialog({ inv, onClose }) {
             <h2 className="font-semibold text-slate-900 dark:text-white">{inv.invoice_number}</h2>
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const printWindow = window.open('', '_blank')
+                const html = buildInvoiceHtml(inv)
+                printWindow.document.write(html)
+                printWindow.document.close()
+                printWindow.focus()
+                setTimeout(() => { printWindow.print() }, 500)
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              <Download className="w-3.5 h-3.5" /> Download PDF
+            </button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+          </div>
         </div>
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-4 text-sm">

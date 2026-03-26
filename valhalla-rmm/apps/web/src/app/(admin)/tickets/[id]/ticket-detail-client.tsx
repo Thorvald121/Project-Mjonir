@@ -8,7 +8,7 @@ import {
   ArrowLeft, Clock, User, Building2, Loader2,
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
-  BookOpen, Search, X, Sparkles, HardDrive,
+  BookOpen, Search, X, Sparkles, HardDrive, GitMerge,
 } from 'lucide-react'
 
 const PRIORITY_CLS = {
@@ -47,6 +47,153 @@ function LiveTimer({ startedAt }) {
     <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
       {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
     </span>
+  )
+}
+
+// ── Watchers / CC Field ───────────────────────────────────────────────────────
+function WatchersField({ ticket, onUpdate }) {
+  const supabase = createSupabaseBrowserClient()
+  const [input,  setInput]  = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const watchers: string[] = Array.isArray(ticket?.watchers) ? ticket.watchers : []
+
+  const add = async () => {
+    const email = input.trim().toLowerCase()
+    if (!email || !email.includes('@')) return
+    if (watchers.includes(email)) { setInput(''); return }
+    setSaving(true)
+    await supabase.from('tickets').update({ watchers: [...watchers, email] }).eq('id', ticket.id)
+    setSaving(false); setInput(''); onUpdate()
+  }
+
+  const remove = async (email: string) => {
+    await supabase.from('tickets').update({ watchers: watchers.filter(w => w !== email) }).eq('id', ticket.id)
+    onUpdate()
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {watchers.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {watchers.map(w => (
+            <div key={w} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span className="text-[11px] text-slate-600 dark:text-slate-300 max-w-[120px] truncate">{w}</span>
+              <button onClick={() => remove(w)} className="text-slate-300 hover:text-rose-500 transition-colors"><X className="w-3 h-3" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1">
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          placeholder="Add email & press Enter"
+          className="flex-1 px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-600 dark:text-slate-300 bg-transparent placeholder:text-slate-300 focus:outline-none focus:border-amber-400" />
+        {input && (
+          <button onClick={add} disabled={saving}
+            className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs transition-colors">
+            {saving ? '…' : '+'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Merge Ticket Dialog ───────────────────────────────────────────────────────
+function MergeTicketDialog({ ticket, open, onClose, onMerged }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [tickets, setTickets] = useState([])
+  const [search,  setSearch]  = useState('')
+  const [target,  setTarget]  = useState(null)
+  const [merging, setMerging] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setTarget(null); setSearch('')
+    supabase.from('tickets')
+      .select('id,title,status,priority,customer_name,created_at')
+      .not('id', 'eq', ticket.id)
+      .not('status', 'in', '("closed")')
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data }) => setTickets(data ?? []))
+  }, [open])
+
+  const filtered = tickets.filter(t =>
+    !search ||
+    t.title.toLowerCase().includes(search.toLowerCase()) ||
+    (t.customer_name || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  const handleMerge = async () => {
+    if (!target) return
+    setMerging(true)
+    // Move all comments from this ticket to the target
+    await supabase.from('ticket_comments').update({ ticket_id: target.id }).eq('ticket_id', ticket.id)
+    // Move time entries
+    await supabase.from('time_entries').update({ ticket_id: target.id }).eq('ticket_id', ticket.id)
+    // Add a merge note to target
+    await supabase.from('ticket_comments').insert({
+      ticket_id:       target.id,
+      organization_id: ticket.organization_id,
+      author_name:     'System',
+      content:         `Merged ticket: "${ticket.title}" (#${ticket.id.slice(-6).toUpperCase()})`,
+      is_staff:        true,
+      source:          'admin',
+    })
+    // Close this ticket
+    await supabase.from('tickets').update({ status: 'closed' }).eq('id', ticket.id)
+    setMerging(false)
+    onMerged(target.id)
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <GitMerge className="w-4 h-4 text-violet-500" />
+            <h2 className="font-semibold text-slate-900 dark:text-white">Merge Ticket</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-slate-500">Select the ticket to merge <strong className="text-slate-700 dark:text-slate-300">into</strong>. All comments and time entries from <em>{ticket.title}</em> will be moved there, then this ticket will be closed.</p>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search tickets…"
+              className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
+          </div>
+          <div className="max-h-64 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-700 rounded-xl p-1">
+            {filtered.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-6">No tickets found</p>
+            ) : filtered.map(t => (
+              <button key={t.id} onClick={() => setTarget(t)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors ${target?.id === t.id ? 'bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{t.title}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{t.customer_name || 'No customer'} · {t.status}</p>
+              </button>
+            ))}
+          </div>
+          {target && (
+            <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg px-3 py-2 text-sm text-violet-700 dark:text-violet-300">
+              Will merge into: <strong>{target.title}</strong>
+            </div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+            <button onClick={handleMerge} disabled={!target || merging}
+              className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors">
+              {merging ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitMerge className="w-4 h-4" />}
+              {merging ? 'Merging…' : 'Merge Ticket'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -406,6 +553,7 @@ export default function TicketDetailClient() {
   const [techSearch,  setTechSearch]  = useState('')
   const [techOpen,    setTechOpen]    = useState(false)
   const [timerSaving, setTimerSaving] = useState(false)
+  const [mergeOpen,   setMergeOpen]   = useState(false)
 
   // Refs — immune to TDZ and component teardown
   const idRef          = useRef(null)
@@ -662,15 +810,35 @@ export default function TicketDetailClient() {
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CLS[ticket.status] ?? ''}`}>{lbl(ticket.status)}</span>
             <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 capitalize">{ticket.category}</span>
             {ticket.customer_name && <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">{ticket.customer_name}</span>}
+            {ticket.source && ticket.source !== 'admin' && (
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                ticket.source === 'portal' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' :
+                ticket.source === 'email'  ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' :
+                'bg-slate-100 text-slate-600'
+              }`}>via {ticket.source}</span>
+            )}
             {ticket.tags?.map(tag => (
               <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border border-violet-200">#{tag}</span>
             ))}
           </div>
         </div>
-        <select value={ticket.status} onChange={e => updateField('status', e.target.value)} disabled={updating}
-          className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-44 flex-shrink-0">
-          {['open','in_progress','waiting','resolved','closed'].map(s => <option key={s} value={s}>{lbl(s)}</option>)}
-        </select>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={() => setMergeOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 hover:text-violet-600 hover:border-violet-300 transition-colors">
+            <GitMerge className="w-3.5 h-3.5" /> Merge
+          </button>
+          <select value={ticket.status} onChange={e => updateField('status', e.target.value)} disabled={updating}
+            className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-44">
+            {['open','in_progress','waiting','resolved','closed'].map(s => <option key={s} value={s}>{lbl(s)}</option>)}
+          </select>
+        </div>
+
+        <MergeTicketDialog
+          ticket={ticket}
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          onMerged={(targetId) => { setMergeOpen(false); router.push(`/tickets/${targetId}`) }}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -941,6 +1109,14 @@ export default function TicketDetailClient() {
               <div className="flex-1">
                 <p className="text-xs text-slate-400 mb-1">Linked Asset</p>
                 <AssetPicker ticket={ticket} orgId={orgIdRef.current} onLinked={() => loadTicket()} />
+              </div>
+            </div>
+            {/* CC / Watchers */}
+            <div className="flex items-start gap-2.5">
+              <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">CC / Watchers</p>
+                <WatchersField ticket={ticket} onUpdate={() => loadTicket()} />
               </div>
             </div>
           </div>

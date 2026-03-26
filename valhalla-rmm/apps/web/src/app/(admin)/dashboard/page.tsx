@@ -189,7 +189,7 @@ export default function DashboardPage() {
         if (slaScore[slaA] !== slaScore[slaB]) return slaScore[slaA] - slaScore[slaB]
         return (priScore[a.priority] ?? 2) - (priScore[b.priority] ?? 2)
       })
-      .slice(0, 10)
+      .slice(0, 15)
   }, [tickets])
 
   const skel = 'h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse'
@@ -282,9 +282,17 @@ export default function DashboardPage() {
         <div className="xl:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
             <h2 className="font-semibold text-slate-900 dark:text-white text-sm">Tickets Needing Attention</h2>
-            <button onClick={() => router.push('/tickets')} className="text-xs text-amber-500 hover:text-amber-600 font-medium flex items-center gap-1">
-              View all <ChevronRight className="w-3 h-3" />
-            </button>
+            <div className="flex items-center gap-2">
+              {stats.unassigned?.length > 0 && (
+                <button onClick={() => router.push('/tickets?assignee=unassigned')}
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors">
+                  {stats.unassigned.length} unassigned
+                </button>
+              )}
+              <button onClick={() => router.push('/tickets')} className="text-xs text-amber-500 hover:text-amber-600 font-medium flex items-center gap-1">
+                View all <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {loading ? (

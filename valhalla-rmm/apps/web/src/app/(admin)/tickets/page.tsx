@@ -205,19 +205,23 @@ export default function TicketsPage() {
   const [tickets,        setTickets]        = useState([])
   const [customers,      setCustomers]      = useState([])
   const [loading,        setLoading]        = useState(true)
+  const [loadingMore,    setLoadingMore]    = useState(false)
+  const [hasMore,        setHasMore]        = useState(false)
   const [search,         setSearch]         = useState('')
   const [statusFilter,   setStatusFilter]   = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [customerFilter, setCustomerFilter] = useState('all')
-  const [dialogOpen,     setDialogOpen]     = useState(false)
   const [selected,       setSelected]       = useState(new Set())
   const [bulkStatus,     setBulkStatus]     = useState('')
-  const [confirmDelete,  setConfirmDelete]  = useState(false)
-  const [myEmail,        setMyEmail]        = useState(null)
   const [bulkLoading,    setBulkLoading]    = useState(false)
+  const [confirmDelete,  setConfirmDelete]  = useState(false)
   const [deleteLoading,  setDeleteLoading]  = useState(false)
+  const [dialogOpen,     setDialogOpen]     = useState(false)
+  const [myEmail,        setMyEmail]        = useState(null)
   const [orgId,          setOrgId]          = useState(null)
+
+  const PAGE = 100
 
   useEffect(() => {
     const init = async () => {
@@ -235,12 +239,26 @@ export default function TicketsPage() {
   const loadAll = async () => {
     setLoading(true)
     const [t, c] = await Promise.all([
-      supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,created_at').order('created_at', { ascending: false }).limit(200),
+      supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at').order('created_at', { ascending: false }).limit(PAGE + 1),
       supabase.from('customers').select('id,name,contact_name,contact_email,contract_type,block_hours_total,hourly_rate').eq('status','active').order('name').limit(200),
     ])
-    setTickets(t.data ?? [])
+    const rows = t.data ?? []
+    setHasMore(rows.length > PAGE)
+    setTickets(rows.slice(0, PAGE))
     setCustomers(c.data ?? [])
     setLoading(false)
+  }
+
+  const loadMore = async () => {
+    setLoadingMore(true)
+    const { data } = await supabase.from('tickets')
+      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at')
+      .order('created_at', { ascending: false })
+      .range(tickets.length, tickets.length + PAGE)
+    const rows = data ?? []
+    setHasMore(rows.length > PAGE)
+    setTickets(prev => [...prev, ...rows.slice(0, PAGE)])
+    setLoadingMore(false)
   }
 
   useRealtimeRefresh(['tickets'], loadAll)
@@ -383,7 +401,16 @@ export default function TicketsPage() {
                         {slaState === 'breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
                         {slaState === 'warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
                       </div>
-                      <p className="text-xs text-slate-400 capitalize mt-0.5">{t.category}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <p className="text-xs text-slate-400 capitalize">{t.category}</p>
+                        {t.source && t.source !== 'admin' && (
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                            t.source === 'portal' ? 'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400' :
+                            t.source === 'email'  ? 'bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400' :
+                            'bg-slate-100 text-slate-500'
+                          }`}>via {t.source}</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{t.customer_name || '—'}</td>
                     <td className="px-3 py-3">
@@ -417,6 +444,17 @@ export default function TicketsPage() {
               })}
             </tbody>
           </table>
+        </div>
+        {/* Footer: count + load more */}
+        <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <span>Showing {filtered.length} of {tickets.length} loaded{hasMore ? '+' : ''}</span>
+          {hasMore && !search && statusFilter === 'all' && priorityFilter === 'all' && assigneeFilter === 'all' && customerFilter === 'all' && (
+            <button onClick={loadMore} disabled={loadingMore}
+              className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-400 transition-colors disabled:opacity-60">
+              {loadingMore ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          )}
         </div>
       </div>
 
