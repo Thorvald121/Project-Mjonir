@@ -110,10 +110,10 @@ function AssetPicker({ ticket, orgId, onLinked }) {
   }
 
   if (linked && assetName) return (
-    <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+    <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 min-w-0 overflow-hidden">
       <HardDrive className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-      <span className="text-xs text-slate-700 dark:text-slate-300 flex-1 truncate">{assetName}</span>
-      <button onClick={unlink} className="text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0">
+      <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1 min-w-0">{assetName}</span>
+      <button onClick={unlink} className="text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0 ml-auto">
         <X className="w-3.5 h-3.5" />
       </button>
     </div>

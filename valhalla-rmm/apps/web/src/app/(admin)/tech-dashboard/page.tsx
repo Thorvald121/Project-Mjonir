@@ -54,14 +54,13 @@ function SlaChip({ sla_due_date }) {
   )
 }
 
-function TechCard({ tech, tickets, onTicketClick }) {
+function TechCard({ tech, displayName, tickets, onTicketClick }) {
   const breached  = tickets.filter(t => slaState(t.sla_due_date) === 'breached')
   const warning   = tickets.filter(t => slaState(t.sla_due_date) === 'warning')
   const critical  = tickets.filter(t => t.priority === 'critical')
   const riskLevel = breached.length > 0 ? 'high' : warning.length > 0 ? 'medium' : 'ok'
 
-  const initials = tech === 'Unassigned' ? '?' : tech.split('@')[0].slice(0, 2).toUpperCase()
-  const displayName = tech === 'Unassigned' ? 'Unassigned' : tech.split('@')[0]
+  const initials = tech === 'Unassigned' ? '?' : (displayName || tech).slice(0, 2).toUpperCase()
 
   const borderCls = riskLevel === 'high'
     ? 'border-rose-400 dark:border-rose-700'
@@ -167,17 +166,26 @@ export default function TechDashboardPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
   const [tickets,  setTickets]  = useState([])
+  const [nameMap,  setNameMap]  = useState({})
   const [loading,  setLoading]  = useState(true)
 
   const loadAll = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('tickets')
-      .select('id,title,status,priority,assigned_to,customer_name,sla_due_date,created_at')
-      .not('status', 'in', '("resolved","closed")')
-      .order('created_at', { ascending: false })
-      .limit(500)
-    setTickets(data ?? [])
+    const [{ data: ticketData }, { data: members }] = await Promise.all([
+      supabase
+        .from('tickets')
+        .select('id,title,status,priority,assigned_to,customer_name,sla_due_date,created_at')
+        .not('status', 'in', '("resolved","closed")')
+        .order('created_at', { ascending: false })
+        .limit(500),
+      supabase.from('organization_members').select('user_email,display_name'),
+    ])
+    setTickets(ticketData ?? [])
+    const map = {}
+    for (const m of (members ?? [])) {
+      if (m.user_email) map[m.user_email] = m.display_name || m.user_email.split('@')[0]
+    }
+    setNameMap(map)
     setLoading(false)
   }
 
@@ -247,6 +255,7 @@ export default function TechDashboardPage() {
             <TechCard
               key={tech}
               tech={tech}
+              displayName={tech === 'Unassigned' ? 'Unassigned' : (nameMap[tech] || tech.split('@')[0])}
               tickets={techTickets}
               onTicketClick={(id) => router.push(`/tickets/${id}`)}
             />
