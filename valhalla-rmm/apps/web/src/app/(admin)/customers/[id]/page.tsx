@@ -8,7 +8,7 @@ import {
   ArrowLeft, Building2, Phone, Mail, Edit, Plus, Clock,
   FileText, Package, Ticket, DollarSign, TrendingUp, X,
   CheckCircle2, AlertTriangle, Loader2, Save, Users,
-  Heart, TrendingDown, Minus, Star, RefreshCw,
+  Heart, TrendingDown, Minus, Star, RefreshCw, Terminal,
 } from 'lucide-react'
 
 // ── Customer Health Score ─────────────────────────────────────────────────────
@@ -715,7 +715,16 @@ export default function CustomerDetailPage() {
               {customer.address && <p className="text-xs text-slate-400 mt-1">{customer.address}</p>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => {
+              const url = `${window.location.origin}/agent?org=${orgId}&customer=${customer.id}&name=${encodeURIComponent(customer.name)}`
+              navigator.clipboard.writeText(url)
+                .then(() => alert('Agent link copied! Send this URL to the client so they can register their devices.'))
+                .catch(() => window.prompt('Copy this agent link:', url))
+            }}
+              className="flex items-center gap-2 px-3 py-2 border border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400 rounded-lg text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-colors">
+              <Terminal className="w-4 h-4" /> Agent Link
+            </button>
             <button onClick={() => setTicketOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
               <Plus className="w-4 h-4" /> New Ticket
