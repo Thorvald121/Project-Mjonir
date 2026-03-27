@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight,
-  Zap, UsersRound, Moon, Sun, Menu, X
+  Zap, UsersRound, Moon, Sun, Menu, X, Activity
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { label: 'Quotes',          icon: ClipboardList,    href: '/quotes' },
   { label: 'Pipeline',        icon: TrendingUp,       href: '/pipeline' },
   { label: 'Inventory',       icon: Package,          href: '/inventory' },
+  { label: 'Monitoring',      icon: Activity,         href: '/monitoring' },
   { label: 'Reports',         icon: BarChart2,        href: '/reports' },
   { label: 'Tech Dashboard',  icon: UsersRound,       href: '/tech-dashboard' },
 ]

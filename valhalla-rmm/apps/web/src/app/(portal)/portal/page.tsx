@@ -9,6 +9,7 @@ import {
   X, FileText, CreditCard, AlertCircle, ExternalLink, Monitor,
   AlertTriangle, HardDrive, BookOpen, LogOut, ArrowLeft,
   Paperclip, Send, Loader2, MessageSquare, User, Search, Package,
+  Activity, Globe,
 } from 'lucide-react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -222,6 +223,7 @@ export default function PortalPage() {
   const [devices,       setDevices]       = useState([])
   const [kbArticles,    setKbArticles]    = useState([])
   const [plan,          setPlan]          = useState(null)
+  const [portalMonitors,setPortalMonitors]= useState([])
   const [loading,       setLoading]       = useState(true)
   const [activeTab,     setActiveTab]     = useState('tickets')
   const [statusFilter,  setStatusFilter]  = useState('all')
@@ -270,7 +272,7 @@ export default function PortalPage() {
       setCustomer(cust)
 
       // Parallel data fetch — use local vars, not state (state updates are async)
-      const [t, i, d, kb, cp] = await Promise.all([
+      const [t, i, d, kb, cp, mon] = await Promise.all([
         supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
           .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
         supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
@@ -283,6 +285,9 @@ export default function PortalPage() {
         cust?.id
           ? supabase.from('customer_plans').select('*, msp_plans(*)').eq('customer_id', cust.id).eq('status', 'active').order('created_at', { ascending: false }).limit(1)
           : Promise.resolve({ data: [] }),
+        cust?.id
+          ? supabase.from('monitors').select('id,name,url,last_status,last_checked_at,last_response_ms,ssl_expiry_date').eq('customer_id', cust.id).order('name')
+          : Promise.resolve({ data: [] }),
       ])
 
       setTickets(t.data ?? [])
@@ -290,6 +295,7 @@ export default function PortalPage() {
       setDevices(d.data ?? [])
       setKbArticles(kb.data ?? [])
       setPlan(cp.data?.[0] ?? null)
+      setPortalMonitors(mon.data ?? [])
       setLoading(false)
     }
     init()
@@ -424,11 +430,12 @@ export default function PortalPage() {
   )
 
   const TABS = [
-    { id: 'tickets',  label: 'Tickets',        icon: Ticket,   badge: null },
-    { id: 'devices',  label: 'My Devices',      icon: Monitor,  badge: devices.filter(d => d.warranty_expiry && new Date(d.warranty_expiry) < new Date()).length > 0 ? '!' : null },
-    { id: 'invoices', label: 'Invoices',        icon: FileText, badge: invoices.filter(i => i.status === 'overdue').length > 0 ? '!' : null },
-    { id: 'kb',       label: 'Knowledge Base',  icon: BookOpen, badge: null },
-    ...(plan ? [{ id: 'plan', label: 'My Plan', icon: Package, badge: null }] : []),
+    { id: 'tickets',    label: 'Tickets',        icon: Ticket,   badge: null },
+    { id: 'devices',    label: 'My Devices',      icon: Monitor,  badge: devices.filter(d => d.warranty_expiry && new Date(d.warranty_expiry) < new Date()).length > 0 ? '!' : null },
+    { id: 'invoices',   label: 'Invoices',        icon: FileText, badge: invoices.filter(i => i.status === 'overdue').length > 0 ? '!' : null },
+    { id: 'kb',         label: 'Knowledge Base',  icon: BookOpen, badge: null },
+    ...(plan      ? [{ id: 'plan',       label: 'My Plan',   icon: Package,   badge: null }] : []),
+    ...(portalMonitors.length > 0 ? [{ id: 'monitoring', label: 'Status',    icon: Activity,  badge: portalMonitors.some(m => m.last_status === 'down') ? '!' : null }] : []),
   ]
 
   return (
@@ -802,6 +809,41 @@ export default function PortalPage() {
               )}
             </div>
             <p className="text-xs text-slate-400 text-center">Questions about your plan? <button onClick={() => { setShowForm(true); setActiveTab('tickets') }} className="text-amber-600 hover:underline">Submit a support ticket</button></p>
+          </div>
+        )}
+
+        {/* ── STATUS TAB ──────────────────────────────────────────────── */}
+        {activeTab === 'monitoring' && (
+          <div className="space-y-3">
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Service Status</h2>
+            {portalMonitors.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+                <Activity className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-600 font-medium">No monitors configured</p>
+              </div>
+            ) : portalMonitors.map(m => (
+              <div key={m.id} className={`bg-white rounded-xl border shadow-sm p-4 flex items-center gap-4 ${m.last_status === 'down' ? 'border-rose-300' : 'border-slate-200'}`}>
+                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${m.last_status === 'up' ? 'bg-emerald-500' : m.last_status === 'down' ? 'bg-rose-500' : 'bg-slate-300'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 text-sm">{m.name}</p>
+                  <a href={m.url} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-amber-500 flex items-center gap-1 truncate">
+                    <Globe className="w-3 h-3 flex-shrink-0" />{m.url}
+                  </a>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                    m.last_status === 'up'   ? 'bg-emerald-100 text-emerald-700' :
+                    m.last_status === 'down' ? 'bg-rose-100 text-rose-700' :
+                    'bg-slate-100 text-slate-500'}`}>
+                    {m.last_status ? m.last_status.toUpperCase() : 'Pending'}
+                  </span>
+                  {m.last_response_ms && <p className="text-[11px] text-slate-400 mt-1">{m.last_response_ms}ms</p>}
+                </div>
+              </div>
+            ))}
+            {portalMonitors.some(m => m.last_status === 'down') && (
+              <p className="text-xs text-slate-400 text-center">An issue detected? <button onClick={() => { setShowForm(true); setActiveTab('tickets') }} className="text-amber-600 hover:underline">Submit a support ticket</button></p>
+            )}
           </div>
         )}
       </div>
