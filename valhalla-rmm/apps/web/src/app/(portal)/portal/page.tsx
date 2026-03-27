@@ -224,6 +224,7 @@ export default function PortalPage() {
   const [kbArticles,    setKbArticles]    = useState([])
   const [plan,          setPlan]          = useState(null)
   const [portalMonitors,setPortalMonitors]= useState([])
+  const [portalTemplates,setPortalTemplates]=useState([])
   const [loading,       setLoading]       = useState(true)
   const [activeTab,     setActiveTab]     = useState('tickets')
   const [statusFilter,  setStatusFilter]  = useState('all')
@@ -272,7 +273,7 @@ export default function PortalPage() {
       setCustomer(cust)
 
       // Parallel data fetch — use local vars, not state (state updates are async)
-      const [t, i, d, kb, cp, mon] = await Promise.all([
+      const [t, i, d, kb, cp, mon, tpl] = await Promise.all([
         supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
           .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
         supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
@@ -288,6 +289,7 @@ export default function PortalPage() {
         cust?.id
           ? supabase.from('monitors').select('id,name,url,last_status,last_checked_at,last_response_ms,ssl_expiry_date').eq('customer_id', cust.id).order('name')
           : Promise.resolve({ data: [] }),
+        supabase.from('ticket_templates').select('id,name,category,priority,description').order('name').limit(20),
       ])
 
       setTickets(t.data ?? [])
@@ -296,6 +298,7 @@ export default function PortalPage() {
       setKbArticles(kb.data ?? [])
       setPlan(cp.data?.[0] ?? null)
       setPortalMonitors(mon.data ?? [])
+      setPortalTemplates(tpl.data ?? [])
       setLoading(false)
     }
     init()
@@ -518,6 +521,19 @@ export default function PortalPage() {
                   <button onClick={() => setShowForm(false)} className="p-1 rounded hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
                 </div>
                 {submitErr && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{submitErr}</p>}
+                {portalTemplates.length > 0 && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Quick Templates</label>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {portalTemplates.map(t => (
+                        <button key={t.id} onClick={() => setForm(p => ({ ...p, title: t.name, description: t.description || '', category: t.category || p.category, priority: t.priority || p.priority }))}
+                          className="text-xs px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-amber-400 hover:text-amber-700 transition-colors bg-white">
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject *</label>
                   <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))}

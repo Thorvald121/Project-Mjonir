@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight,
-  Zap, UsersRound, Moon, Sun, Menu, X, Activity
+  Zap, UsersRound, Moon, Sun, Menu, X, Activity, FileCode2
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -28,6 +28,7 @@ const NAV_ITEMS = [
 const ADMIN_ITEMS = [
   { label: 'Knowledge Base',      icon: BookOpen,  href: '/knowledge-base' },
   { label: 'Canned Replies',      icon: BookOpen,  href: '/canned-replies' },
+  { label: 'Ticket Templates',    icon: FileCode2, href: '/ticket-templates' },
   { label: 'MSP Plans',           icon: Package,   href: '/msp-plans' },
   { label: 'Email Automations',   icon: Zap,       href: '/email-automations' },
   { label: 'Ticket Automations',  icon: Zap,       href: '/ticket-automations' },

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2 } from 'lucide-react'
+import { Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2, FileCode2, Loader2 } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -56,9 +56,11 @@ function getSlaLabel(slaDue, status) {
 
 function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   const supabase = createSupabaseBrowserClient()
-  const [saving, setSaving] = useState(false)
-  const [err,    setErr]    = useState(null)
-  const [techs,  setTechs]  = useState([])
+  const [saving,    setSaving]    = useState(false)
+  const [err,       setErr]       = useState(null)
+  const [techs,     setTechs]     = useState([])
+  const [templates, setTemplates] = useState([])
+  const [showTpl,   setShowTpl]   = useState(false)
   const [form,   setForm]   = useState({
     title: '', description: '', priority: 'medium', category: 'other',
     customer_id: '', assigned_to: '', contact_name: '', contact_email: '', tags: '',
@@ -68,12 +70,28 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   useEffect(() => {
     if (!open) return
     setForm({ title: '', description: '', priority: 'medium', category: 'other', customer_id: '', assigned_to: '', contact_name: '', contact_email: '', tags: '' })
-    setErr(null)
+    setErr(null); setShowTpl(false)
     supabase.from('organization_members')
       .select('id,user_email,display_name')
       .in('role', ['owner','admin','technician'])
       .then(({ data }) => setTechs(data ?? []))
+    supabase.from('ticket_templates')
+      .select('id,name,category,priority,description,tags')
+      .order('name')
+      .then(({ data }) => setTemplates(data ?? []))
   }, [open])
+
+  const applyTemplate = (t) => {
+    setForm(p => ({
+      ...p,
+      title:       t.name,
+      description: t.description || '',
+      priority:    t.priority    || p.priority,
+      category:    t.category    || p.category,
+      tags:        Array.isArray(t.tags) ? t.tags.join(', ') : (t.tags || ''),
+    }))
+    setShowTpl(false)
+  }
 
   // Auto-fill contact info when customer is selected
   const handleCustomerChange = (customerId) => {
@@ -123,7 +141,28 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
           <h2 className="font-semibold text-slate-900 dark:text-white">New Ticket</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-2">
+            {templates.length > 0 && (
+              <div className="relative">
+                <button onClick={() => setShowTpl(p => !p)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 hover:text-amber-600 hover:border-amber-300 transition-colors">
+                  <FileCode2 className="w-3.5 h-3.5" /> Use Template
+                </button>
+                {showTpl && (
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-50 max-h-64 overflow-y-auto">
+                    {templates.map(t => (
+                      <button key={t.id} onClick={() => applyTemplate(t)}
+                        className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{t.name}</p>
+                        <p className="text-xs text-slate-400 capitalize">{t.category} · {t.priority}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+          </div>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
