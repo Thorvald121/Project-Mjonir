@@ -19,17 +19,23 @@ serve(async (req) => {
     console.log('Received payload keys:', Object.keys(payload).join(', '))
 
     // Parse from raw email if provided, otherwise use direct fields
-    let subject   = subjectDirect || ''
-    let textBody  = bodyDirect    || ''
-    let htmlBody  = ''
+    let subject     = subjectDirect || ''
+    let textBody    = bodyDirect    || ''
+    let htmlBody    = ''
+    let replyTo     = null
+    let originalFrom = null
 
     if (raw_email) {
       console.log('Parsing raw email, length:', raw_email.length)
       const parsed = parseRawEmail(raw_email)
-      subject  = parsed.subject  || subjectDirect || ''
-      textBody = parsed.textBody || bodyDirect    || ''
-      htmlBody = parsed.htmlBody || ''
+      subject      = parsed.subject      || subjectDirect || ''
+      textBody     = parsed.textBody     || bodyDirect    || ''
+      htmlBody     = parsed.htmlBody     || ''
+      replyTo      = parsed.replyTo      || null
+      originalFrom = parsed.originalFrom || null
       console.log('Parsed subject:', subject)
+      console.log('Parsed replyTo:', replyTo)
+      console.log('Parsed originalFrom:', originalFrom)
       console.log('Parsed textBody length:', textBody.length)
       console.log('Parsed textBody preview:', textBody.slice(0, 200))
     } else {
@@ -41,10 +47,14 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     )
 
-    const senderEmail = extractEmail(from)
-    const senderName  = extractName(from)
+    // Prefer Reply-To > X-Original-From > From
+    // This handles emails forwarded via Atlassian, SendGrid, Mailchimp etc.
+    // where From becomes a bounce/envelope address
+    const effectiveFrom = replyTo || originalFrom || from || ''
+    const senderEmail   = extractEmail(effectiveFrom) || extractEmail(from || '')
+    const senderName    = extractName(effectiveFrom)  || extractName(from || '')
 
-    console.log('From:', from, '→ email:', senderEmail, 'name:', senderName)
+    console.log('From:', from, '→ effective:', effectiveFrom, '→ email:', senderEmail, 'name:', senderName)
     console.log('To:', to)
     console.log('Subject:', subject)
 
@@ -200,7 +210,13 @@ function parseRawEmail(raw) {
     i++
   }
 
-  const subject   = decodeHeader(headers['subject'] || '')
+  const subject    = decodeHeader(headers['subject']         || '')
+  const replyTo    = headers['reply-to']                     || null
+  const originalFrom = headers['x-original-from']
+    || headers['x-forwarded-from']
+    || headers['x-original-sender']
+    || null
+
   const ct        = headers['content-type'] || ''
   const bodyLines = lines.slice(i)
   const bodyRaw   = bodyLines.join('\n')
@@ -241,7 +257,7 @@ function parseRawEmail(raw) {
     console.log('Single part, textBody length:', textBody.length, 'htmlBody length:', htmlBody.length)
   }
 
-  return { subject, textBody, htmlBody }
+  return { subject, replyTo, originalFrom, textBody, htmlBody }
 }
 
 function extractBoundary(ct) {
@@ -296,7 +312,14 @@ function decodeHeader(value) {
 function extractEmail(from) {
   if (!from) return null
   const m = from.match(/<([^>]+)>/) || from.match(/([^\s]+@[^\s]+)/)
-  return m ? m[1].toLowerCase().trim() : null
+  const email = m ? m[1].toLowerCase().trim() : null
+  if (!email) return null
+  // Reject obvious bounce/forwarding addresses
+  const bounceDomains = ['atlassian-bounces', 'bounces.', 'bounce.', 'mailer-daemon', 'noreply', 'no-reply', 'amazonses.com', 'sendgrid.net']
+  if (bounceDomains.some(b => email.includes(b))) return null
+  // Reject addresses that look like bounce IDs (long hex strings before @)
+  if (/^[a-f0-9]{16,}-[a-f0-9-]+-[0-9]+@/.test(email)) return null
+  return email
 }
 
 function extractName(from) {
