@@ -233,37 +233,50 @@ export default function PipelinePage() {
     loadAll()
   }
 
+  // Use a ref for dragging so it's always current in async handlers
+  const draggingRef = useRef(null)
+
   const handleDragStart = (e, lead) => {
+    draggingRef.current = lead
     setDragging(lead)
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', lead.id)
   }
 
-  const handleDragOver = (e, stageKey) => {
-    e.preventDefault()
-    e.stopPropagation()
-    e.dataTransfer.dropEffect = 'move'
-    setDragOver(stageKey)
-  }
-
-  const handleDragLeave = (e) => {
-    // Only clear if truly leaving the column (not crossing to a child)
-    if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget)) {
-      setDragOver(null)
-    }
-  }
-
-  const handleDrop = (e, stageKey) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const leadId = e.dataTransfer.getData('text/plain')
-    const lead   = leads.find(l => l.id === leadId) || dragging
-    if (lead) moveStage(lead, stageKey)
+  const handleDragEnd = () => {
+    draggingRef.current = null
     setDragging(null)
     setDragOver(null)
   }
 
-  const handleDragEnd = () => {
+  // Use a per-column enter counter to reliably track whether cursor is inside
+  // (avoids dragLeave false-firing when crossing child elements)
+  const dragCounters = useRef({})
+
+  const handleColumnDragEnter = (e, stageKey) => {
+    e.preventDefault()
+    dragCounters.current[stageKey] = (dragCounters.current[stageKey] || 0) + 1
+    setDragOver(stageKey)
+  }
+
+  const handleColumnDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleColumnDragLeave = (e, stageKey) => {
+    dragCounters.current[stageKey] = (dragCounters.current[stageKey] || 1) - 1
+    if (dragCounters.current[stageKey] <= 0) {
+      dragCounters.current[stageKey] = 0
+      setDragOver(prev => prev === stageKey ? null : prev)
+    }
+  }
+
+  const handleColumnDrop = (e, stageKey) => {
+    e.preventDefault()
+    dragCounters.current[stageKey] = 0
+    const lead = draggingRef.current
+    if (lead) moveStage(lead, stageKey)
     setDragging(null)
     setDragOver(null)
   }
@@ -315,9 +328,10 @@ export default function PipelinePage() {
               <div
                 key={stage.key}
                 className={`w-64 flex-shrink-0 rounded-xl border-t-4 border border-slate-200 dark:border-slate-700 flex flex-col transition-all ${stage.top} ${stage.bg} ${isOver ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
-                onDragOver={e => handleDragOver(e, stage.key)}
-                onDragLeave={handleDragLeave}
-                onDrop={e => handleDrop(e, stage.key)}
+                onDragEnter={e => handleColumnDragEnter(e, stage.key)}
+                onDragOver={handleColumnDragOver}
+                onDragLeave={e => handleColumnDragLeave(e, stage.key)}
+                onDrop={e => handleColumnDrop(e, stage.key)}
               >
                 {/* Column header */}
                 <div className="px-3 py-2.5 border-b border-slate-200/50 dark:border-slate-700/50">
@@ -351,7 +365,6 @@ export default function PipelinePage() {
                         draggable
                         onDragStart={e => handleDragStart(e, lead)}
                         onDragEnd={handleDragEnd}
-                        onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
                         className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing group ${isDraggingThis ? 'opacity-40' : ''}`}
                       >
                         <div className="flex items-start justify-between gap-1">
