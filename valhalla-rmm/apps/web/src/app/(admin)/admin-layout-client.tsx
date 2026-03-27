@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { label: 'Monitoring',      icon: Activity,         href: '/monitoring' },
   { label: 'Reports',             icon: BarChart2,    href: '/reports' },
   { label: 'Scheduled Reports',   icon: FileBarChart, href: '/scheduled-reports' },
-  { label: 'CSAT',                icon: Star,         href: '/csat' },
+  { label: 'CSAT',                icon: Star,         href: '/csat-analytics' },
   { label: 'Tech Dashboard',  icon: UsersRound,       href: '/tech-dashboard' },
 ]
 
