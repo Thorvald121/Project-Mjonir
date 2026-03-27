@@ -145,8 +145,8 @@ function QuoteApprovalContent() {
           {items.length === 0 ? (
             <div className="px-4 py-6 text-center text-slate-500 text-sm">No line items</div>
           ) : items.map((item, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 px-4 py-3 border-t border-slate-800 text-sm">
-              <span className="col-span-6 text-slate-200">{item.description}</span>
+            <div key={i} className="grid grid-cols-12 gap-2 px-4 py-3 border-t border-slate-800 text-sm min-w-0">
+              <span className="col-span-6 text-slate-200 break-words overflow-hidden">{item.description}</span>
               <span className="col-span-2 text-center text-slate-400">{item.quantity}</span>
               <span className="col-span-2 text-right text-slate-400">${Number(item.unit_price || 0).toFixed(2)}</span>
               <span className="col-span-2 text-right font-semibold text-slate-100">

@@ -163,8 +163,8 @@ function ViewDialog({ inv, onClose }) {
               <span className="col-span-2 text-right">Total</span>
             </div>
             {items.map((item, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 text-sm py-1.5 border-b border-slate-100 dark:border-slate-800">
-                <span className="col-span-6 text-slate-900 dark:text-white">{item.description}</span>
+              <div key={i} className="grid grid-cols-12 gap-2 text-sm py-1.5 border-b border-slate-100 dark:border-slate-800 min-w-0">
+                <span className="col-span-6 text-slate-900 dark:text-white break-words overflow-hidden">{item.description}</span>
                 <span className="col-span-2 text-slate-500">{item.quantity}</span>
                 <span className="col-span-2 text-slate-500">${Number(item.unit_price || 0).toFixed(2)}</span>
                 <span className="col-span-2 text-right font-medium text-slate-900 dark:text-white">${(Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2)}</span>
@@ -350,16 +350,16 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
                 <span className="col-span-6">Description</span><span className="col-span-2">Qty</span><span className="col-span-2">Unit $</span><span className="col-span-2">Total</span>
               </div>
               {form.line_items.map((item, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                <div key={i} className="grid grid-cols-12 gap-1.5 items-center min-w-0">
                   <input value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} placeholder="Service description"
-                    className="col-span-6 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    className="col-span-6 min-w-0 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <input type="number" min={0} step="any" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} placeholder="1"
-                    className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    className="col-span-2 min-w-0 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
                   <input type="number" min={0} step="any" value={item.unit_price} onChange={e => updateItem(i, 'unit_price', e.target.value)} placeholder="0.00"
-                    className="col-span-2 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
-                  <div className="col-span-2 flex items-center gap-1">
-                    <span className="text-sm font-medium text-slate-900 dark:text-white flex-1">${(Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2)}</span>
-                    <button onClick={() => setForm(f => ({ ...f, line_items: f.line_items.filter((_, j) => j !== i) }))} className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors"><X className="w-3 h-3" /></button>
+                    className="col-span-2 min-w-0 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                  <div className="col-span-2 flex items-center gap-1 min-w-0">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white flex-1 truncate">${(Number(item.quantity || 0) * Number(item.unit_price || 0)).toFixed(2)}</span>
+                    <button onClick={() => setForm(f => ({ ...f, line_items: f.line_items.filter((_, j) => j !== i) }))} className="p-1 rounded hover:bg-rose-50 text-rose-400 transition-colors flex-shrink-0"><X className="w-3 h-3" /></button>
                   </div>
                 </div>
               ))}

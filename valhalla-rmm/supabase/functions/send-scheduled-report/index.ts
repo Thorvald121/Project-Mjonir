@@ -105,7 +105,7 @@ async function sendReport(report, supabase, resendKey) {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
   const fmtMins = (m) => m < 60 ? `${m}m` : `${Math.round(m/60)}h ${m%60 > 0 ? m%60+'m' : ''}`.trim()
   const label   = report.frequency === 'weekly' ? 'Weekly' : 'Monthly'
-  const period  = `${fmtDate(startIso)} – ${fmtDate(now.toISOString())}`
+  const period  = `${fmtDate(startIso)} - ${fmtDate(now.toISOString())}`
 
   // Build ticket rows (top 10 open by priority)
   const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
@@ -249,7 +249,7 @@ async function sendReport(report, supabase, resendKey) {
     body:    JSON.stringify({
       from:    `${orgName} <support@valhalla-rmm.com>`,
       to:      recipients,
-      subject: `${orgName} — ${label} Report (${fmtDate(startIso)} – ${fmtDate(now.toISOString())})`,
+      subject: `${orgName} - ${label} Report (${fmtDate(startIso)} - ${fmtDate(now.toISOString())})`,
       html,
     }),
   })

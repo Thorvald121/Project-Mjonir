@@ -51,8 +51,8 @@ serve(async (req) => {
       return new Response(JSON.stringify({ skipped: 'no admin email configured' }), { status: 200 })
     }
 
-    const isApproved = newStatus === 'approved'
-    const statusLabel = isApproved ? 'Approved ✓' : 'Declined ✗'
+    const isApproved  = newStatus === 'approved'
+    const statusLabel = isApproved ? 'Approved' : 'Declined'
     const statusColor = isApproved ? '#10b981' : '#ef4444'
     const appUrl      = 'https://project-mjonir.vercel.app'
 
@@ -87,7 +87,7 @@ serve(async (req) => {
 
     <div style="text-align:center;">
       <a href="${appUrl}/quotes" style="display:inline-block;background:#f59e0b;color:#000000;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">
-        View Quote in Valhalla RMM →
+        View Quote in Valhalla RMM
       </a>
     </div>
   </div>
@@ -108,7 +108,7 @@ serve(async (req) => {
       body: JSON.stringify({
         from:    'Valhalla RMM <notifications@valhalla-rmm.com>',
         to:      [adminEmail],
-        subject: `Quote ${newRecord.quote_number} ${isApproved ? 'Approved ✓' : 'Declined ✗'} — ${newRecord.customer_name}`,
+        subject: `Quote ${newRecord.quote_number} ${isApproved ? 'Approved' : 'Declined'} - ${newRecord.customer_name}`,
         html,
       }),
     })
