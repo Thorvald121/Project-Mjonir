@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Plus, Search, LayoutGrid, List, Building2, Phone, Mail, Edit, X } from 'lucide-react'
+import OnboardingWizard from '@/components/OnboardingWizard'
+import { Plus, Search, LayoutGrid, List, Building2, Phone, Mail, Edit, X, Sparkles } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -182,6 +183,7 @@ export default function CustomersPage() {
   const [contractFilter, setContractFilter] = useState('all')
   const [view,           setView]           = useState('table')
   const [dialogOpen,     setDialogOpen]     = useState(false)
+  const [wizardOpen,     setWizardOpen]     = useState(false)
   const [editing,        setEditing]        = useState(null)
   const [orgId,          setOrgId]          = useState(null)
 
@@ -265,10 +267,16 @@ export default function CustomersPage() {
             </button>
           </div>
         </div>
-        <button onClick={() => { setEditing(null); setDialogOpen(true) }}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors flex-shrink-0">
-          <Plus className="w-4 h-4" /> Add Organization
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={() => { setEditing(null); setDialogOpen(true) }}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <Plus className="w-4 h-4" /> Quick Add
+          </button>
+          <button onClick={() => setWizardOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+            <Sparkles className="w-4 h-4" /> Onboard Client
+          </button>
+        </div>
       </div>
 
       {view === 'table' && (
@@ -353,6 +361,13 @@ export default function CustomersPage() {
         customer={editing}
         orgId={orgId}
       />
+
+      {wizardOpen && (
+        <OnboardingWizard
+          onClose={() => setWizardOpen(false)}
+          onComplete={() => { setWizardOpen(false); loadCustomers() }}
+        />
+      )}
     </div>
   )
 }
