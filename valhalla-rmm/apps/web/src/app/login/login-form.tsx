@@ -30,6 +30,14 @@ export default function LoginForm() {
       return
     }
 
+    // Check if user has TOTP enrolled — if so, redirect to verify screen
+    const { data: factors } = await supabase.auth.mfa.listFactors()
+    const hasTotp = factors?.totp && factors.totp.length > 0
+    if (hasTotp) {
+      router.push(`/verify-2fa?redirectTo=${encodeURIComponent(redirectTo)}`)
+      return
+    }
+
     router.push(redirectTo)
     router.refresh()
   }
@@ -83,12 +91,6 @@ export default function LoginForm() {
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
               placeholder="••••••••"
             />
-          </div>
-
-          <div className="flex justify-end">
-            <a href="/forgot-password" className="text-xs text-amber-500 hover:underline">
-              Forgot password?
-            </a>
           </div>
 
           <button

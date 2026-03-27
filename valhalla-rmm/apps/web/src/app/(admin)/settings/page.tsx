@@ -491,11 +491,74 @@ function TeamSection({ orgId }) {
 
 function AccountSection({ user }) {
   const supabase = createSupabaseBrowserClient()
-  const router = useRouter()
+  const router   = useRouter()
+
+  const [mfaStatus,  setMfaStatus]  = useState<'loading'|'enrolled'|'none'>('loading')
+  const [enrolling,  setEnrolling]  = useState(false)
+  const [qrCode,     setQrCode]     = useState<string|null>(null)
+  const [secret,     setSecret]     = useState<string|null>(null)
+  const [factorId,   setFactorId]   = useState<string|null>(null)
+  const [verifyCode, setVerifyCode] = useState('')
+  const [verifyErr,  setVerifyErr]  = useState<string|null>(null)
+  const [removing,   setRemoving]   = useState(false)
+  const [confirmed,  setConfirmed]  = useState(false)
+
+  useEffect(() => {
+    supabase.auth.mfa.listFactors().then(({ data }) => {
+      const has = data?.totp && data.totp.length > 0
+      setMfaStatus(has ? 'enrolled' : 'none')
+    })
+  }, [])
+
+  const startEnroll = async () => {
+    setEnrolling(true); setVerifyErr(null)
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Valhalla RMM' })
+    if (error) { setVerifyErr(error.message); setEnrolling(false); return }
+    setQrCode(data.totp.qr_code)
+    setSecret(data.totp.secret)
+    setFactorId(data.id)
+  }
+
+  const confirmEnroll = async () => {
+    if (!factorId || verifyCode.length !== 6) return
+    setVerifyErr(null)
+    const { data: challenge, error: cErr } = await supabase.auth.mfa.challenge({ factorId })
+    if (cErr) { setVerifyErr(cErr.message); return }
+    const { error: vErr } = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.id, code: verifyCode })
+    if (vErr) { setVerifyErr('Invalid code — try again'); return }
+    setConfirmed(true)
+    setMfaStatus('enrolled')
+    setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode('')
+    setEnrolling(false)
+  }
+
+  const cancelEnroll = async () => {
+    if (factorId) await supabase.auth.mfa.unenroll({ factorId })
+    setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode('')
+    setEnrolling(false); setVerifyErr(null)
+  }
+
+  const removeMfa = async () => {
+    if (!confirm('Remove 2FA from your account? You will only need your password to log in.')) return
+    setRemoving(true)
+    const { data } = await supabase.auth.mfa.listFactors()
+    for (const f of (data?.totp ?? [])) {
+      await supabase.auth.mfa.unenroll({ factorId: f.id })
+    }
+    setMfaStatus('none'); setRemoving(false)
+  }
+
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login') }
-  const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
+
+  const ROLE_CLS = {
+    owner: 'bg-amber-100 text-amber-700',
+    admin: 'bg-violet-100 text-violet-700',
+    technician: 'bg-blue-100 text-blue-700',
+    client: 'bg-slate-100 text-slate-600'
+  }
+
   return (
-    <Section title="My Account" description="Your personal account details.">
+    <Section title="My Account" description="Your personal account details and security settings.">
       <FieldRow label="Email" hint="Email cannot be changed here.">
         <input value={user?.email || ''} disabled className={`${inp} opacity-60`} />
       </FieldRow>
@@ -507,6 +570,80 @@ function AccountSection({ user }) {
           </span>
         </div>
       </FieldRow>
+
+      {/* 2FA Section */}
+      <div className="border-t border-slate-200 dark:border-slate-700 pt-5 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <Shield className="w-4 h-4 text-violet-500" /> Two-Factor Authentication
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {mfaStatus === 'enrolled'
+                ? 'Your account is protected with TOTP 2FA.'
+                : 'Add an extra layer of security with an authenticator app.'}
+            </p>
+          </div>
+          {mfaStatus === 'loading' && <div className="w-16 h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />}
+          {mfaStatus === 'enrolled' && !removing && (
+            <button onClick={removeMfa} disabled={removing}
+              className="flex-shrink-0 px-3 py-1.5 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors">
+              Remove 2FA
+            </button>
+          )}
+          {mfaStatus === 'none' && !enrolling && (
+            <button onClick={startEnroll}
+              className="flex-shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors">
+              Enable 2FA
+            </button>
+          )}
+        </div>
+
+        {/* Confirmed banner */}
+        {confirmed && (
+          <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400">
+            <Shield className="w-4 h-4 flex-shrink-0" />
+            2FA enabled successfully. You'll need your authenticator on next login.
+          </div>
+        )}
+
+        {/* Enrollment flow */}
+        {enrolling && qrCode && (
+          <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-4">
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Scan with your authenticator app</p>
+            <p className="text-xs text-slate-500">Use Google Authenticator, Authy, 1Password, or any TOTP app.</p>
+            {/* QR code as image */}
+            <div className="flex justify-center">
+              <img src={qrCode} alt="2FA QR Code" className="w-48 h-48 border-4 border-white rounded-lg shadow" />
+            </div>
+            {/* Manual entry secret */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+              <p className="text-xs text-slate-400 mb-1">Or enter manually:</p>
+              <p className="text-sm font-mono text-slate-700 dark:text-slate-300 break-all select-all">{secret}</p>
+            </div>
+            {/* Verify code */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Enter the 6-digit code to confirm</p>
+              <input
+                type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+                value={verifyCode} onChange={e => { setVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6)); setVerifyErr(null) }}
+                placeholder="000000"
+                className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-center text-xl font-mono tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white dark:bg-slate-800 dark:text-white"
+                autoFocus
+              />
+              {verifyErr && <p className="text-xs text-rose-600">{verifyErr}</p>}
+              <div className="flex gap-2 pt-1">
+                <button onClick={cancelEnroll} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                <button onClick={confirmEnroll} disabled={verifyCode.length !== 6}
+                  className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
+                  Confirm & Enable
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
         <button onClick={handleSignOut} className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
           Sign Out
