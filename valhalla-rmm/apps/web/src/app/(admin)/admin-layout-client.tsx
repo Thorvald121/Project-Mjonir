@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight,
-  Zap, UsersRound, Moon, Sun, Menu, X, Activity, FileCode2, FileBarChart
+  Zap, UsersRound, Moon, Sun, Menu, X, Activity, FileCode2, FileBarChart, FileSignature
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { label: 'Customers',       icon: Users,            href: '/customers' },
   { label: 'Time Tracking',   icon: Clock,            href: '/time-tracking' },
   { label: 'Invoices',        icon: FileText,         href: '/invoices' },
+  { label: 'Contracts',       icon: FileSignature,    href: '/contracts' },
   { label: 'Quotes',          icon: ClipboardList,    href: '/quotes' },
   { label: 'Pipeline',        icon: TrendingUp,       href: '/pipeline' },
   { label: 'Inventory',       icon: Package,          href: '/inventory' },
