@@ -705,8 +705,11 @@ export default function TicketDetailClient() {
     if (attachment) {
       const ext  = attachment.name.split('.').pop()
       const path = `ticket-attachments/${currentId}/${Date.now()}.${ext}`
-      const { data: up } = await supabase.storage.from('attachments').upload(path, attachment)
-      if (up) {
+      const { data: up, error: upErr } = await supabase.storage.from('attachments').upload(path, attachment)
+      if (upErr) {
+        console.error('Attachment upload failed:', upErr.message)
+        // Continue without attachment rather than blocking the reply
+      } else if (up) {
         const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(path)
         attachment_url = publicUrl
         attachment_name = attachment.name

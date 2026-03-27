@@ -73,8 +73,10 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
     if (attachment) {
       const ext  = attachment.name.split('.').pop()
       const path = `ticket-attachments/${ticket.id}/${Date.now()}.${ext}`
-      const { data: up } = await supabase.storage.from('attachments').upload(path, attachment)
-      if (up) {
+      const { data: up, error: upErr } = await supabase.storage.from('attachments').upload(path, attachment)
+      if (upErr) {
+        console.error('Attachment upload failed:', upErr.message)
+      } else if (up) {
         const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(path)
         attachment_url = publicUrl; attachment_name = attachment.name
       }

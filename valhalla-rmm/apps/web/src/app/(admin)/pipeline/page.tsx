@@ -216,8 +216,15 @@ export default function PipelinePage() {
 
 
   const moveStage = async (lead, newStage) => {
-    await supabase.from('leads').update({ stage: newStage }).eq('id', lead.id)
-    loadAll()
+    if (lead.stage === newStage) return
+    // Optimistic update — move card immediately in UI
+    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, stage: newStage } : l))
+    const { error } = await supabase.from('leads').update({ stage: newStage }).eq('id', lead.id)
+    if (error) {
+      console.error('Move stage failed:', error.message)
+      // Revert on failure
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, stage: lead.stage } : l))
+    }
   }
 
   const deleteLead = async (id) => {
@@ -229,7 +236,6 @@ export default function PipelinePage() {
   const handleDragStart = (e, lead) => {
     setDragging(lead)
     e.dataTransfer.effectAllowed = 'move'
-    // Needed for Firefox
     e.dataTransfer.setData('text/plain', lead.id)
   }
 
@@ -237,12 +243,12 @@ export default function PipelinePage() {
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
-    if (dragOver !== stageKey) setDragOver(stageKey)
+    setDragOver(stageKey)
   }
 
   const handleDragLeave = (e) => {
-    // Only clear if we've actually left the column — not just moved over a child element
-    if (!e.currentTarget.contains(e.relatedTarget)) {
+    // Only clear if truly leaving the column (not crossing to a child)
+    if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget)) {
       setDragOver(null)
     }
   }
@@ -250,7 +256,14 @@ export default function PipelinePage() {
   const handleDrop = (e, stageKey) => {
     e.preventDefault()
     e.stopPropagation()
-    if (dragging) moveStage(dragging, stageKey)
+    const leadId = e.dataTransfer.getData('text/plain')
+    const lead   = leads.find(l => l.id === leadId) || dragging
+    if (lead) moveStage(lead, stageKey)
+    setDragging(null)
+    setDragOver(null)
+  }
+
+  const handleDragEnd = () => {
     setDragging(null)
     setDragOver(null)
   }
@@ -337,7 +350,7 @@ export default function PipelinePage() {
                         key={lead.id}
                         draggable
                         onDragStart={e => handleDragStart(e, lead)}
-                        onDragEnd={() => { setDragging(null); setDragOver(null) }}
+                        onDragEnd={handleDragEnd}
                         onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
                         className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing group ${isDraggingThis ? 'opacity-40' : ''}`}
                       >
