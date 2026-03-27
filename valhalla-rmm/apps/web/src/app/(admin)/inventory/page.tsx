@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Plus, Search, Package, AlertTriangle,
-  Edit, Trash2, Loader2, Upload, Download, X, Ticket,
+  Edit, Trash2, Loader2, Upload, Download, X, Ticket, Terminal,
 } from 'lucide-react'
 
 function LinkedTicketsBadge({ assetId }) {
@@ -486,6 +486,24 @@ function ItemDialog({ open, onClose, onSaved, editing, orgId, customers }) {
               <textarea value={form.notes} onChange={e => s('notes', e.target.value)} rows={2} placeholder="Any additional notes..." className={`mt-1 ${inp} resize-none`} />
             </div>
           </div>
+
+          {/* Agent-collected data — read only */}
+          {editing && (editing.last_seen_at || editing.ip_address || editing.os || editing.cpu) && (
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Agent Data <span className="font-normal text-slate-400 normal-case">(auto-collected, read-only)</span></p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+                {editing.last_seen_at && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">Last seen</span><span className="text-slate-700 dark:text-slate-300">{new Date(editing.last_seen_at).toLocaleString()}</span></div>}
+                {editing.ip_address   && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">IP address</span><span className="text-slate-700 dark:text-slate-300 font-mono">{editing.ip_address}</span></div>}
+                {editing.mac_address  && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">MAC address</span><span className="text-slate-700 dark:text-slate-300 font-mono">{editing.mac_address}</span></div>}
+                {editing.os           && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">OS</span><span className="text-slate-700 dark:text-slate-300">{editing.os}</span></div>}
+                {editing.cpu          && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">CPU</span><span className="text-slate-700 dark:text-slate-300">{editing.cpu}</span></div>}
+                {editing.ram_gb       && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">RAM</span><span className="text-slate-700 dark:text-slate-300">{editing.ram_gb} GB</span></div>}
+                {editing.disk_gb      && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">Disk</span><span className="text-slate-700 dark:text-slate-300">{editing.disk_gb} GB total{editing.disk_free_gb ? `, ${editing.disk_free_gb} GB free` : ''}</span></div>}
+                {editing.hostname     && <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">Hostname</span><span className="text-slate-700 dark:text-slate-300 font-mono">{editing.hostname}</span></div>}
+                {editing.agent_version&& <div className="flex gap-2"><span className="text-slate-400 w-24 flex-shrink-0">Agent</span><span className="text-slate-700 dark:text-slate-300">{editing.agent_version}</span></div>}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 pt-2">
             <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
             <button onClick={handleSave} disabled={!form.name.trim() || saving}
@@ -512,6 +530,7 @@ export default function InventoryPage() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [statusFilter,   setStatusFilter]   = useState('all')
   const [dialogOpen,     setDialogOpen]     = useState(false)
+  const [agentOpen,      setAgentOpen]      = useState(false)
   const [importOpen,     setImportOpen]     = useState(false)
   const [editing,        setEditing]        = useState(null)
 
@@ -601,12 +620,44 @@ export default function InventoryPage() {
             className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <Upload className="w-4 h-4" /> Import CSV
           </button>
+          <button onClick={() => setAgentOpen(p => !p)}
+            className="flex items-center gap-1.5 px-3 py-2 border border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400 rounded-lg text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-colors">
+            <Terminal className="w-4 h-4" /> Agent Setup
+          </button>
         </div>
         <button onClick={() => { setEditing(null); setDialogOpen(true) }}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors flex-shrink-0">
           <Plus className="w-4 h-4" /> Add Item
         </button>
       </div>
+
+      {/* Agent Setup Panel */}
+      {agentOpen && orgId && (
+        <div className="bg-slate-900 rounded-xl border border-slate-700 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white flex items-center gap-2"><Terminal className="w-4 h-4 text-violet-400" /> Asset Agent Setup</p>
+              <p className="text-xs text-slate-400 mt-0.5">Run this script on any client machine to auto-register it as an inventory item. Runs in seconds — no software installed.</p>
+            </div>
+            <button onClick={() => setAgentOpen(false)} className="text-slate-500 hover:text-slate-300"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-violet-400 mb-1.5">Windows (PowerShell — run as Administrator)</p>
+              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 break-all">
+                {`.\register-windows.ps1 -OrgId "${orgId}" -ApiKey "YOUR_ANON_KEY"`}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-violet-400 mb-1.5">macOS / Linux (Terminal)</p>
+              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 break-all">
+                {`./register-macos-linux.sh --org-id "${orgId}" --api-key "YOUR_ANON_KEY"`}
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">Replace <span className="text-slate-400 font-mono">YOUR_ANON_KEY</span> with your Supabase anon key. Optionally add <span className="text-slate-400 font-mono">--customer-id</span> to link to a specific customer. Download scripts from the repo: <span className="text-slate-400">/agent/</span></p>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -639,8 +690,15 @@ export default function InventoryPage() {
                   <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                     <td className="px-3 py-3">
                       <p className="font-medium text-slate-900 dark:text-white">{item.name}</p>
-                      {(item.vendor || item.model) && (
-                        <p className="text-xs text-slate-400">{[item.vendor, item.model].filter(Boolean).join(' ')}</p>
+                      {(item.vendor || item.manufacturer || item.model) && (
+                        <p className="text-xs text-slate-400">{[item.vendor || item.manufacturer, item.model].filter(Boolean).join(' ')}</p>
+                      )}
+                      {item.os && <p className="text-xs text-slate-400">{item.os}</p>}
+                      {item.last_seen_at && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                          Last seen {(() => { const s = Math.round((Date.now() - new Date(item.last_seen_at)) / 1000); if (s < 3600) return `${Math.floor(s/60)}m ago`; if (s < 86400) return `${Math.floor(s/3600)}h ago`; return `${Math.floor(s/86400)}d ago` })()}
+                        </p>
                       )}
                     </td>
                     <td className="px-3 py-3">
