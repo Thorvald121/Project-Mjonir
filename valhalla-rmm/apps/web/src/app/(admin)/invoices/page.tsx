@@ -624,6 +624,23 @@ export default function InvoicesPage() {
     loadAll()
   }
 
+  const generateNow = async (inv) => {
+    if (!confirm(`Generate a new draft invoice now from recurring invoice ${inv.invoice_number}?`)) return
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    const res = await fetch('https://yetrdrgagfovphrerpie.supabase.co/functions/v1/run-recurring-invoices', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+        'Authorization': `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({ invoice_id: inv.id }),
+    })
+    const data = await res.json()
+    if (data.ok) { loadAll(); alert('New draft invoice created successfully.') }
+    else alert('Error: ' + (data.error || 'Unknown error'))
+  }
+
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.total) || 0), 0)
   const outstanding  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + Math.max(0, Number(i.total || 0) - Number(i.amount_paid || 0)), 0)
   const overdueCount = invoices.filter(i => i.status === 'overdue').length
@@ -693,11 +710,14 @@ export default function InvoicesPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-slate-900 dark:text-white">{inv.invoice_number}</p>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
-                      {inv.is_recurring && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 flex items-center gap-1"><RotateCcw className="w-2.5 h-2.5" />Recurring</span>}
+                      {inv.is_recurring && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 flex items-center gap-1"><RotateCcw className="w-2.5 h-2.5" />Recurring · {inv.recurrence_interval}</span>}
                       {inv.stripe_payment_url && !isPaid && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Pay link ready</span>}
                     </div>
                     <p className="text-sm text-slate-500 dark:text-slate-400">{inv.customer_name}</p>
                     <p className="text-xs text-slate-400">Issued {fmt(inv.issue_date)} · Due {fmt(inv.due_date)}{inv.payment_terms && ` · ${TERMS_LABELS[inv.payment_terms] || ''}`}</p>
+                    {inv.is_recurring && inv.last_recurring_at && (
+                      <p className="text-xs text-blue-400">Last generated {fmt(inv.last_recurring_at)}</p>
+                    )}
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-lg font-bold text-slate-900 dark:text-white">${(inv.total || 0).toFixed(2)}</p>
@@ -712,6 +732,7 @@ export default function InvoicesPage() {
                     {!isPaid && <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid" color="text-emerald-500" spinning={statusLoading === inv.id} />}
                     {!isPaid && <Btn icon={isCopied ? CheckCircle2 : Link} onClick={() => generateStripeLink(inv)} title={isCopied ? 'Link copied!' : 'Generate Stripe payment link'} color={isCopied ? 'text-emerald-500' : 'text-amber-500'} spinning={stripeLoading === inv.id} disabled={stripeLoading === inv.id} />}
                     {inv.stripe_payment_url && !isPaid && <Btn icon={isCopied ? CheckCircle2 : ExternalLink} onClick={() => copyLink(inv)} title={isCopied ? 'Copied!' : 'Copy existing payment link'} color={isCopied ? 'text-emerald-500' : 'text-blue-400'} />}
+                    {inv.is_recurring && <Btn icon={RotateCcw} onClick={() => generateNow(inv)} title="Generate new invoice now" color="text-blue-500" />}
                     <Btn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete invoice" color="text-rose-400" />
                   </div>
                 </div>
