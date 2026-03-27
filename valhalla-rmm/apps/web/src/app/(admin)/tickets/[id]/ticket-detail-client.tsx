@@ -846,7 +846,7 @@ export default function TicketDetailClient() {
           {ticket.description && (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-3">Description</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed">{ticket.description}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words leading-relaxed">{ticket.description}</p>
             </div>
           )}
 
@@ -876,7 +876,7 @@ export default function TicketDetailClient() {
                         </span>
                         <span className="text-xs text-slate-400 ml-auto">{fmtDate(comment.created_at)}</span>
                       </div>
-                      <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap text-xs leading-relaxed">{comment.content}</p>
+                      <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words text-xs leading-relaxed">{comment.content}</p>
                       {comment.attachment_url && (
                         <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
                           <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
