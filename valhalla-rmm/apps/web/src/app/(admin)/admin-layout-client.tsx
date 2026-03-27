@@ -8,7 +8,8 @@ import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight,
-  Zap, UsersRound, Moon, Sun, Menu, X, Activity, FileCode2, FileBarChart, FileSignature
+  Zap, UsersRound, Moon, Sun, Menu, X, Activity,
+  FileCode2, FileBarChart, FileSignature, Shield
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -34,7 +35,8 @@ const ADMIN_ITEMS = [
   { label: 'MSP Plans',           icon: Package,   href: '/msp-plans' },
   { label: 'Email Automations',   icon: Zap,       href: '/email-automations' },
   { label: 'Ticket Automations',  icon: Zap,       href: '/ticket-automations' },
-  { label: 'Settings',            icon: Settings,  href: '/settings' },
+  { label: 'Audit Log',           icon: Shield,        href: '/audit-log' },
+  { label: 'Settings',            icon: Settings,      href: '/settings' },
 ]
 
 // Tables to watch for real-time changes
