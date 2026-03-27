@@ -10,7 +10,7 @@ import {
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight,
   Zap, UsersRound, Moon, Sun, Menu, X, Activity,
-  FileCode2, FileBarChart, FileSignature, Shield
+  FileCode2, FileBarChart, FileSignature, Shield, Star
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { label: 'Monitoring',      icon: Activity,         href: '/monitoring' },
   { label: 'Reports',             icon: BarChart2,    href: '/reports' },
   { label: 'Scheduled Reports',   icon: FileBarChart, href: '/scheduled-reports' },
+  { label: 'CSAT',                icon: Star,         href: '/csat' },
   { label: 'Tech Dashboard',  icon: UsersRound,       href: '/tech-dashboard' },
 ]
 
