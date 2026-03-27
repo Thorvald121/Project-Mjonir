@@ -42,7 +42,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
   const supabase = createSupabaseBrowserClient()
   const [form,   setForm]   = useState({
     customer_id: '', title: '', value: '', billing_cycle: 'monthly',
-    start_date: '', end_date: '', auto_renew: false,
+    start_date: '', end_date: '', auto_renew: false, auto_invoice: false,
     notes: '', document_url: '', status: 'active',
   })
   const [saving, setSaving] = useState(false)
@@ -61,6 +61,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
         start_date:    editing.start_date    || '',
         end_date:      editing.end_date      || '',
         auto_renew:    editing.auto_renew    ?? false,
+        auto_invoice:  editing.auto_invoice  ?? false,
         notes:         editing.notes         || '',
         document_url:  editing.document_url  || '',
         status:        editing.status        || 'active',
@@ -70,7 +71,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
       const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)
       setForm({
         customer_id: '', title: '', value: '', billing_cycle: 'monthly',
-        start_date: today, end_date: nextYear, auto_renew: false,
+        start_date: today, end_date: nextYear, auto_renew: false, auto_invoice: false,
         notes: '', document_url: '', status: 'active',
       })
     }
@@ -91,6 +92,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
           start_date:    form.start_date || null,
           end_date:      form.end_date   || null,
           auto_renew:    form.auto_renew,
+          auto_invoice:  form.auto_invoice,
           notes:         form.notes || null,
           document_url:  form.document_url || null,
           status:        form.status,
@@ -105,6 +107,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
           start_date:      form.start_date || null,
           end_date:        form.end_date   || null,
           auto_renew:      form.auto_renew,
+          auto_invoice:    form.auto_invoice,
           notes:           form.notes || null,
           document_url:    form.document_url || null,
           status:          'active',
@@ -177,6 +180,18 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
               <p className="text-xs text-slate-400">Alert when approaching end date</p>
             </div>
           </div>
+          {form.value && form.billing_cycle !== 'one_time' && (
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => s('auto_invoice', !form.auto_invoice)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${form.auto_invoice ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${form.auto_invoice ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+              <div>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Auto-invoice</p>
+                <p className="text-xs text-slate-400">Automatically create a draft invoice each {form.billing_cycle} period</p>
+              </div>
+            </div>
+          )}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Document URL <span className="font-normal text-slate-400">(optional)</span></label>
             <input value={form.document_url} onChange={e => s('document_url', e.target.value)} placeholder="https://drive.google.com/…" className={`mt-1 ${inp}`} />
@@ -243,30 +258,21 @@ export default function ContractsPage() {
 
   const generateInvoice = async (contract) => {
     setInvoicing(contract.id)
-    // Build invoice from contract
-    const today    = new Date().toISOString().slice(0, 10)
-    const dueDate  = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
-    const { data: inv, error } = await supabase.from('invoices').insert({
-      organization_id: orgId,
-      customer_id:     contract.customer_id,
-      customer_name:   contract.customer_name,
-      status:          'draft',
-      issue_date:      today,
-      due_date:        dueDate,
-      payment_terms:   'net_30',
-      line_items:      [{
-        description: `${contract.title} — ${lbl(contract.billing_cycle)} retainer`,
-        quantity:    1,
-        unit_price:  contract.value || 0,
-      }],
-      subtotal:        contract.value || 0,
-      total:           contract.value || 0,
-      notes:           `Contract: ${contract.title}`,
-    }).select('id').single()
-    setInvoicing(null)
-    if (!error && inv?.id) {
+    try {
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+      await fetch('https://yetrdrgagfovphrerpie.supabase.co/functions/v1/auto-invoice-contracts', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':        anonKey,
+          'Authorization': `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({ contract_id: contract.id }),
+      })
+      loadAll()
       router.push('/invoices')
-    }
+    } catch {}
+    setInvoicing(null)
   }
 
   // Stats
@@ -393,6 +399,7 @@ export default function ContractsPage() {
                     <p className="font-semibold text-slate-900 dark:text-white text-sm truncate">{c.title}</p>
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${badge.cls}`}>{badge.label}</span>
                     {c.auto_renew && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 flex-shrink-0">Auto-renew</span>}
+                    {c.auto_invoice && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 flex-shrink-0">Auto-invoice</span>}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     <span className="flex items-center gap-1 text-xs text-slate-400">
@@ -405,6 +412,17 @@ export default function ContractsPage() {
                       </span>
                     )}
                     {c.billing_cycle && <span className="text-xs text-slate-400 capitalize">{lbl(c.billing_cycle)}</span>}
+                    {c.next_invoice_date && c.auto_invoice && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        Next: {fmtDate(c.next_invoice_date)}
+                      </span>
+                    )}
+                    {c.last_invoiced_at && (
+                      <span className="text-xs text-slate-400">
+                        Last invoiced {fmtDate(c.last_invoiced_at)}
+                      </span>
+                    )}
                   </div>
                   {c.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{c.notes}</p>}
                 </div>
