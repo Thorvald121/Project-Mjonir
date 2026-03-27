@@ -229,11 +229,28 @@ export default function PipelinePage() {
   const handleDragStart = (e, lead) => {
     setDragging(lead)
     e.dataTransfer.effectAllowed = 'move'
+    // Needed for Firefox
+    e.dataTransfer.setData('text/plain', lead.id)
+  }
+
+  const handleDragOver = (e, stageKey) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOver !== stageKey) setDragOver(stageKey)
+  }
+
+  const handleDragLeave = (e) => {
+    // Only clear if we've actually left the column — not just moved over a child element
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOver(null)
+    }
   }
 
   const handleDrop = (e, stageKey) => {
     e.preventDefault()
-    if (dragging && dragging.stage !== stageKey) moveStage(dragging, stageKey)
+    e.stopPropagation()
+    if (dragging) moveStage(dragging, stageKey)
     setDragging(null)
     setDragOver(null)
   }
@@ -285,8 +302,8 @@ export default function PipelinePage() {
               <div
                 key={stage.key}
                 className={`w-64 flex-shrink-0 rounded-xl border-t-4 border border-slate-200 dark:border-slate-700 flex flex-col transition-all ${stage.top} ${stage.bg} ${isOver ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
-                onDragOver={e => { e.preventDefault(); setDragOver(stage.key) }}
-                onDragLeave={() => setDragOver(null)}
+                onDragOver={e => handleDragOver(e, stage.key)}
+                onDragLeave={handleDragLeave}
                 onDrop={e => handleDrop(e, stage.key)}
               >
                 {/* Column header */}
@@ -321,6 +338,7 @@ export default function PipelinePage() {
                         draggable
                         onDragStart={e => handleDragStart(e, lead)}
                         onDragEnd={() => { setDragging(null); setDragOver(null) }}
+                        onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
                         className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing group ${isDraggingThis ? 'opacity-40' : ''}`}
                       >
                         <div className="flex items-start justify-between gap-1">

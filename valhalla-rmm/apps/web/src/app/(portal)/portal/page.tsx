@@ -150,16 +150,16 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
         )}
         {comments.map(c => (
           <div key={c.id} className={`flex gap-3 ${c.is_staff ? '' : 'flex-row-reverse'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${c.is_staff ? 'bg-amber-100' : 'bg-blue-100'}`}>
-              {c.is_staff ? <Shield className="w-4 h-4 text-amber-600" /> : <User className="w-4 h-4 text-blue-600" />}
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${c.is_staff ? 'bg-amber-100' : 'bg-slate-700'}`}>
+              {c.is_staff ? <Shield className="w-4 h-4 text-amber-600" /> : <User className="w-4 h-4 text-slate-200" />}
             </div>
             <div className={`max-w-[80%] flex flex-col gap-1 ${c.is_staff ? '' : 'items-end'}`}>
-              <div className={`rounded-xl px-4 py-3 text-sm shadow-sm ${c.is_staff ? 'bg-white border border-slate-200 text-slate-900' : 'bg-blue-600 text-white'}`}>
-                <p className="font-medium text-xs mb-1 opacity-70">{c.is_staff ? `${c.author_name || c.author_email} · Support Team` : (c.author_name || c.author_email)}</p>
+              <div className={`rounded-xl px-4 py-3 text-sm shadow-sm ${c.is_staff ? 'bg-white border border-slate-200 text-slate-900' : 'bg-slate-700 text-slate-100'}`}>
+                <p className={`font-medium text-xs mb-1 ${c.is_staff ? 'text-slate-500' : 'text-slate-400'}`}>{c.is_staff ? `${c.author_name || c.author_email} · Support Team` : (c.author_name || c.author_email)}</p>
                 <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{c.content}</p>
                 {c.attachment_url && (
                   <a href={c.attachment_url} target="_blank" rel="noreferrer"
-                    className={`flex items-center gap-1.5 mt-2 text-xs underline ${c.is_staff ? 'text-amber-600' : 'text-blue-100'}`}>
+                    className={`flex items-center gap-1.5 mt-2 text-xs underline ${c.is_staff ? 'text-amber-600' : 'text-slate-300'}`}>
                     <Paperclip className="w-3 h-3" /> {c.attachment_name || 'Attachment'}
                   </a>
                 )}
@@ -372,22 +372,22 @@ export default function PortalPage() {
   , [kbArticles, kbSearch])
 
   if (loading) return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center">
       <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
     </div>
   )
 
   if (selectedTicket) return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="bg-white border-b border-slate-200 px-4 py-3">
+    <div className="min-h-screen bg-slate-100">
+      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center">
               <span className="text-white font-bold text-xs">{org?.name?.[0] ?? 'V'}</span>
             </div>
-            <span className="font-bold text-slate-900 text-sm">{org?.name || 'Support Portal'}</span>
+            <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
           </div>
-          <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600">
+          <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white">
             <LogOut className="w-4 h-4" /> Sign out
           </button>
         </div>
@@ -404,16 +404,16 @@ export default function PortalPage() {
   )
 
   if (kbArticle) return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="bg-white border-b border-slate-200 px-4 py-3">
+    <div className="min-h-screen bg-slate-100">
+      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center">
               <span className="text-white font-bold text-xs">{org?.name?.[0] ?? 'V'}</span>
             </div>
-            <span className="font-bold text-slate-900 text-sm">{org?.name || 'Support Portal'}</span>
+            <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
           </div>
-          <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600">
+          <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white">
             <LogOut className="w-4 h-4" /> Sign out
           </button>
         </div>
@@ -442,9 +442,9 @@ export default function PortalPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-100">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-10">
+      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-10 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
@@ -455,7 +455,7 @@ export default function PortalPage() {
               }
             </div>
             <div>
-              <span className="font-bold text-slate-900 text-sm">{org?.name || 'Support Portal'}</span>
+              <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
               {user && <p className="text-xs text-slate-400">{user.email}</p>}
             </div>
           </div>
@@ -465,7 +465,7 @@ export default function PortalPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-sm font-semibold transition-opacity hover:opacity-90">
               <Plus className="w-4 h-4" /> New Ticket
             </button>
-            <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+            <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
               <LogOut className="w-4 h-4" />
             </button>
           </div>
@@ -475,17 +475,17 @@ export default function PortalPage() {
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
         {/* Welcome */}
         <div>
-          <h1 className="text-xl font-bold text-slate-900">
+          <h1 className="text-xl font-bold text-slate-800">
             Welcome back, {user?.user_metadata?.full_name || user?.email?.split('@')[0]}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">Submit and track your support requests below.</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-slate-200">
+        <div className="flex gap-1 border-b border-slate-300 bg-slate-100">
           {TABS.map(({ id, label, icon: Icon, badge }) => (
             <button key={id} onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === id ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-900'}`}>
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === id ? 'border-amber-500 text-amber-600 bg-white rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-t-lg'}`}>
               <Icon className="w-4 h-4" />
               {label}
               {badge && <span className="w-2 h-2 rounded-full bg-rose-500 flex-shrink-0" />}
