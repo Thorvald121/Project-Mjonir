@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import GlobalSearch from '@/components/GlobalSearch'
 import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
@@ -211,6 +212,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Menu className="w-5 h-5" />
           </button>
           <span className="font-bold text-slate-900 dark:text-white text-sm">Valhalla RMM</span>
+          <div className="ml-auto">
+            <GlobalSearch />
+          </div>
+        </div>
+
+        {/* Desktop top bar */}
+        <div className="hidden lg:flex items-center justify-between px-6 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <GlobalSearch />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const next = !dark
+                setDark(next)
+                document.documentElement.classList.toggle('dark', next)
+                localStorage.setItem('theme', next ? 'dark' : 'light')
+              }}
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            {userEmail && (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-700">
+                <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center">
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                    {userEmail[0].toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-xs text-slate-500 dark:text-slate-400 max-w-[140px] truncate">{userEmail}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Page content */}

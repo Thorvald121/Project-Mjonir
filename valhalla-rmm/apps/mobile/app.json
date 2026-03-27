@@ -12,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0F172A"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.valhallarmm.app",
@@ -20,7 +22,9 @@
         "NSCameraUsageDescription": "Used to attach photos to support tickets.",
         "NSPhotoLibraryUsageDescription": "Used to attach photos to support tickets.",
         "NSFaceIDUsageDescription": "Used to securely unlock the app.",
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -58,6 +62,14 @@
         "expo-camera",
         {
           "cameraPermission": "Used to attach photos to support tickets."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.0"
+          }
         }
       ]
     ],

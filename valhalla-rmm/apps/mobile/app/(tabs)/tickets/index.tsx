@@ -8,8 +8,38 @@ import { useQuery } from '@tanstack/react-query'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Search, AlertTriangle, Clock } from 'lucide-react-native'
 import { supabase } from '../../../lib/supabase'
-import { getSlaState, getSlaLabel, TICKET_STATUS_LABELS } from '@valhalla/utils'
-import type { Ticket } from '@valhalla/types'
+
+const PRIORITY_COLORS: Record<string, string> = {
+  critical: '#F43F5E', high: '#F97316', medium: '#F59E0B', low: '#10B981',
+}
+const STATUS_BG: Record<string, string> = {
+  open: '#1E3A5F', in_progress: '#2E1B69', waiting: '#451A03',
+  resolved: '#052E16', closed: '#1E293B',
+}
+const STATUS_LABELS: Record<string, string> = {
+  open: 'Open', in_progress: 'In Progress', waiting: 'Waiting',
+  resolved: 'Resolved', closed: 'Closed',
+}
+
+function getSlaState(slaDueDate: string | null, status: string) {
+  if (!slaDueDate || ['resolved', 'closed'].includes(status)) return 'ok'
+  const due  = new Date(slaDueDate).getTime()
+  const now  = Date.now()
+  const diff = due - now
+  if (diff < 0) return 'breached'
+  if (diff < 2 * 3600 * 1000) return 'warning'
+  return 'ok'
+}
+
+function getSlaLabel(slaDueDate: string | null, status: string) {
+  if (!slaDueDate || ['resolved', 'closed'].includes(status)) return 'No SLA'
+  const state = getSlaState(slaDueDate, status)
+  if (state === 'breached') return 'SLA Breached'
+  const mins = Math.round((new Date(slaDueDate).getTime() - Date.now()) / 60000)
+  if (mins < 60) return `${mins}m left`
+  if (mins < 1440) return `${Math.floor(mins / 60)}h left`
+  return `${Math.floor(mins / 1440)}d left`
+}
 
 const PRIORITY_COLORS: Record<string, string> = {
   critical: '#F43F5E',
@@ -40,7 +70,7 @@ export default function TicketsScreen() {
     staleTime: Infinity,
   })
 
-  const { data: tickets = [], isLoading, refetch, isError } = useQuery<Ticket[]>({
+  const { data: tickets = [], isLoading, refetch, isError } = useQuery({
     queryKey: ['tickets', myTickets ? 'mine' : 'all'],
     queryFn: async () => {
       let query = supabase
@@ -74,7 +104,7 @@ export default function TicketsScreen() {
     setRefreshing(false)
   }, [refetch])
 
-  const renderTicket = ({ item: ticket }: { item: Ticket }) => {
+  const renderTicket = ({ item: ticket }: { item: any }) => {
     const slaState = getSlaState(ticket.sla_due_date, ticket.status)
     const slaLabel = getSlaLabel(ticket.sla_due_date, ticket.status)
 
@@ -100,7 +130,7 @@ export default function TicketsScreen() {
               style={{ backgroundColor: STATUS_BG[ticket.status] }}
             >
               <Text className="text-xs font-medium text-slate-300">
-                {TICKET_STATUS_LABELS[ticket.status]}
+                {STATUS_LABELS[ticket.status] ?? ticket.status}
               </Text>
             </View>
           </View>

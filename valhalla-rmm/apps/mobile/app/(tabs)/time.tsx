@@ -6,8 +6,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../../lib/supabase'
-import { formatDate } from '@valhalla/utils'
-import type { Customer, Ticket } from '@valhalla/types'
 
 export default function TimeScreen() {
   const qc = useQueryClient()
@@ -22,7 +20,7 @@ export default function TimeScreen() {
   const [ticketId,    setTicketId]    = useState<string | null>(null)
   const [saved,       setSaved]       = useState(false)
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  const { data: customers = [] } = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
       const { data } = await supabase
@@ -31,7 +29,7 @@ export default function TimeScreen() {
     },
   })
 
-  const { data: tickets = [] } = useQuery<Ticket[]>({
+  const { data: tickets = [] } = useQuery({
     queryKey: ['tickets', 'open-mine'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser()
