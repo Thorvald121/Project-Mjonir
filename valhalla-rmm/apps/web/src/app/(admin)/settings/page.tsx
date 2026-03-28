@@ -493,6 +493,10 @@ function AccountSection({ user }) {
   const supabase = createSupabaseBrowserClient()
   const router   = useRouter()
 
+  const [signature,     setSignature]     = useState('')
+  const [sigSaving,     setSigSaving]     = useState(false)
+  const [sigSaved,      setSigSaved]      = useState(false)
+
   const [mfaStatus,  setMfaStatus]  = useState<'loading'|'enrolled'|'none'>('loading')
   const [enrolling,  setEnrolling]  = useState(false)
   const [qrCode,     setQrCode]     = useState<string|null>(null)
@@ -508,7 +512,13 @@ function AccountSection({ user }) {
       const has = data?.totp && data.totp.length > 0
       setMfaStatus(has ? 'enrolled' : 'none')
     })
-  }, [])
+    // Load saved signature
+    if (user?.id) {
+      supabase.from('organization_members').select('signature')
+        .eq('user_id', user.id).single()
+        .then(({ data }) => { if (data?.signature) setSignature(data.signature) })
+    }
+  }, [user?.id])
 
   const startEnroll = async () => {
     setEnrolling(true); setVerifyErr(null)
@@ -546,6 +556,17 @@ function AccountSection({ user }) {
       await supabase.auth.mfa.unenroll({ factorId: f.id })
     }
     setMfaStatus('none'); setRemoving(false)
+  }
+
+  const saveSignature = async () => {
+    if (!user?.id) return
+    setSigSaving(true)
+    await supabase.from('organization_members')
+      .update({ signature: signature.trim() || null })
+      .eq('user_id', user.id)
+    setSigSaving(false)
+    setSigSaved(true)
+    setTimeout(() => setSigSaved(false), 2500)
   }
 
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login') }
@@ -640,6 +661,40 @@ function AccountSection({ user }) {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-slate-200 dark:border-slate-700 pt-5 space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            Email Signature
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">Automatically appended to every client reply you send. Plain text only.</p>
+        </div>
+        <textarea
+          value={signature}
+          onChange={e => { setSignature(e.target.value); setSigSaved(false) }}
+          rows={4}
+          placeholder={`e.g.\n\nBest regards,\nJohn Smith\nValhalla IT | +1 (555) 123-4567`}
+          className={`w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none font-mono`}
+        />
+        <div className="flex items-center gap-3">
+          <button onClick={saveSignature} disabled={sigSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
+            {sigSaving ? 'Saving…' : sigSaved ? '✓ Saved' : 'Save Signature'}
+          </button>
+          {signature && (
+            <button onClick={() => { setSignature(''); setSigSaved(false) }}
+              className="text-xs text-slate-400 hover:text-rose-500 transition-colors">
+              Clear
+            </button>
+          )}
+        </div>
+        {signature && (
+          <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+            <p className="text-xs text-slate-400 mb-1.5 font-medium">Preview</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap font-mono">{signature}</p>
           </div>
         )}
       </div>

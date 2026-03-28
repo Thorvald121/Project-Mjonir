@@ -549,6 +549,17 @@ export default function TicketDetailClient() {
   const [noteText,    setNoteText]    = useState('')
   const [submitting,  setSubmitting]  = useState(false)
   const [attachment,  setAttachment]  = useState(null)
+  const [signature,   setSignature]   = useState('')
+
+  // Load tech signature once
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from('organization_members').select('signature')
+        .eq('user_id', user.id).single()
+        .then(({ data }) => { if (data?.signature) setSignature(data.signature) })
+    })
+  }, [])
   const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
   const [techSearch,  setTechSearch]  = useState('')
   const [techOpen,    setTechOpen]    = useState(false)
@@ -730,6 +741,10 @@ export default function TicketDetailClient() {
     if (noteMode === 'reply' && t.contact_email) {
       const subject  = `Re: ${t.title} [#${currentId}]`
       const bodyText = noteText.trim()
+      const signatureHtml = signature
+        ? `<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
+    <p style="color:#64748b;font-size:13px;white-space:pre-wrap;line-height:1.6;">${signature.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`
+        : ''
       const html = `
 <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;">
   <div style="background:#0f172a;padding:20px 24px;border-radius:10px 10px 0 0;">
@@ -739,6 +754,7 @@ export default function TicketDetailClient() {
   <div style="background:#ffffff;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e2e8f0;border-top:none;">
     <p style="color:#1e293b;font-size:14px;line-height:1.6;white-space:pre-wrap;">${bodyText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
     ${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}" style="color:#f59e0b;">${attachment_name || 'Attachment'}</a></p>` : ''}
+    ${signatureHtml}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
     <p style="color:#94a3b8;font-size:12px;margin:0;">
       Reply to this email to respond. Your message will be added to your support ticket automatically.
@@ -913,6 +929,12 @@ export default function TicketDetailClient() {
                     placeholder={noteMode === 'internal' ? 'Add an internal note...' : 'Type your reply to the client...'}
                     onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitNote() }}
                     className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none" />
+                  {noteMode === 'reply' && signature && (
+                    <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 border-t-0 rounded-b-lg -mt-1">
+                      <p className="text-[10px] text-slate-400 mb-0.5">— Signature</p>
+                      <p className="text-xs text-slate-400 whitespace-pre-wrap font-mono">{signature}</p>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <input type="file" ref={fileInputRef} className="hidden" onChange={e => setAttachment(e.target.files?.[0] ?? null)} />
