@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import GlobalSearch from '@/components/GlobalSearch'
+import { useKeyboardShortcuts, ShortcutsModal } from '@/components/KeyboardShortcuts'
 import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight,
   Zap, UsersRound, Moon, Sun, Menu, X, Activity,
-  FileCode2, FileBarChart, FileSignature, Shield, Star
+  FileCode2, FileBarChart, FileSignature, Shield, Star, Keyboard
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -63,6 +64,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [mobileOpen, setMobileOpen] = useState(false)
   const [dark,       setDark]       = useState(false)
   const [userEmail,  setUserEmail]  = useState<string | null>(null)
+  const { showModal: showShortcuts, setShowModal: setShowShortcuts } = useKeyboardShortcuts()
 
   useEffect(() => {
     // Load theme preference
@@ -223,6 +225,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <GlobalSearch />
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowShortcuts(true)}
+              title="Keyboard shortcuts (?)"
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+              <Keyboard className="w-4 h-4" />
+            </button>
+            <button
               onClick={() => {
                 const next = !dark
                 setDark(next)
@@ -250,6 +258,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {children}
         </main>
       </div>
+
+      {/* Shortcuts modal */}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   )
 }

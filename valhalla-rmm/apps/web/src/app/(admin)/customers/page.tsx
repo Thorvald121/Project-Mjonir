@@ -184,6 +184,15 @@ export default function CustomersPage() {
   const [view,           setView]           = useState('table')
   const [dialogOpen,     setDialogOpen]     = useState(false)
   const [wizardOpen,     setWizardOpen]     = useState(false)
+
+  // Listen for C shortcut
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      if (e.detail?.target === 'new-customer') setWizardOpen(true)
+    }
+    window.addEventListener('valhalla:shortcut', handler as EventListener)
+    return () => window.removeEventListener('valhalla:shortcut', handler as EventListener)
+  }, [])
   const [editing,        setEditing]        = useState(null)
   const [orgId,          setOrgId]          = useState(null)
 

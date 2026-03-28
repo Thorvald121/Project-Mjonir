@@ -262,6 +262,15 @@ export default function TicketsPage() {
 
   const PAGE = 100
 
+  // Listen for N shortcut from global handler
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      if (e.detail?.target === 'new-ticket') setDialogOpen(true)
+    }
+    window.addEventListener('valhalla:shortcut', handler as EventListener)
+    return () => window.removeEventListener('valhalla:shortcut', handler as EventListener)
+  }, [])
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
