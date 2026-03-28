@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { SlaPredictionWidget } from '@/components/SlaPrediction'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Ticket, DollarSign, Users, Clock, AlertTriangle,
@@ -401,8 +402,13 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* CSAT widget */}
-          <CsatWidget />
+          {/* Bottom widgets row */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {/* SLA Prediction */}
+            <SlaPredictionWidget tickets={tickets} />
+            {/* CSAT widget */}
+            <CsatWidget />
+          </div>
         </div>
       </div>
     </div>

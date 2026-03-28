@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2, FileCode2, Loader2 } from 'lucide-react'
+import { SlaPredictionBadge } from '@/components/SlaPrediction'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -287,7 +288,7 @@ export default function TicketsPage() {
   const loadAll = async () => {
     setLoading(true)
     const [t, c] = await Promise.all([
-      supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at').order('created_at', { ascending: false }).limit(PAGE + 1),
+      supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at').order('created_at', { ascending: false }).limit(PAGE + 1),
       supabase.from('customers').select('id,name,contact_name,contact_email,contract_type,block_hours_total,hourly_rate').eq('status','active').order('name').limit(200),
     ])
     const rows = t.data ?? []
@@ -300,7 +301,7 @@ export default function TicketsPage() {
   const loadMore = async () => {
     setLoadingMore(true)
     const { data } = await supabase.from('tickets')
-      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at')
+      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at')
       .order('created_at', { ascending: false })
       .range(tickets.length, tickets.length + PAGE)
     const rows = data ?? []
@@ -448,6 +449,7 @@ export default function TicketsPage() {
                         <p className="font-medium text-slate-900 dark:text-white hover:text-amber-600 transition-colors truncate">{t.title}</p>
                         {slaState === 'breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
                         {slaState === 'warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
+                        <SlaPredictionBadge ticket={t} compact />
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <p className="text-xs text-slate-400 capitalize">{t.category}</p>
