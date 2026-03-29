@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import OnboardingWizard from '@/components/OnboardingWizard'
-import { Plus, Search, LayoutGrid, List, Building2, Phone, Mail, Edit, X, Sparkles } from 'lucide-react'
+import { Plus, Search, LayoutGrid, List, Building2, Phone, Mail, Edit, X, Sparkles, Heart, RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -17,6 +17,15 @@ function useRealtimeRefresh(tables, onRefresh) {
     return () => window.removeEventListener("supabase:change", h)
   }, [tables.join(",")]) // eslint-disable-line
 }
+
+function healthCfg(score) {
+  if (score === null || score === undefined) return { label: '—', cls: 'text-slate-400', bg: 'bg-slate-100 dark:bg-slate-800', bar: 'bg-slate-300' }
+  if (score >= 85) return { label: `${score}`, cls: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30', bar: 'bg-emerald-500' }
+  if (score >= 65) return { label: `${score}`, cls: 'text-amber-700 dark:text-amber-400',   bg: 'bg-amber-50 dark:bg-amber-950/30',   bar: 'bg-amber-500'  }
+  if (score >= 45) return { label: `${score}`, cls: 'text-orange-700 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950/30', bar: 'bg-orange-500' }
+  return               { label: `${score}`, cls: 'text-rose-700 dark:text-rose-400',     bg: 'bg-rose-50 dark:bg-rose-950/30',     bar: 'bg-rose-500'   }
+}
+
 
 const STATUS_CLS = {
   active:   'bg-emerald-100 text-emerald-700',
@@ -182,6 +191,8 @@ export default function CustomersPage() {
   const [statusFilter,   setStatusFilter]   = useState('all')
   const [contractFilter, setContractFilter] = useState('all')
   const [view,           setView]           = useState('table')
+  const [sortBy,         setSortBy]         = useState('name')
+  const [refreshing,     setRefreshing]     = useState(false)
   const [dialogOpen,     setDialogOpen]     = useState(false)
   const [wizardOpen,     setWizardOpen]     = useState(false)
 
@@ -217,14 +228,31 @@ export default function CustomersPage() {
 
   useRealtimeRefresh(['customers'], loadCustomers)
 
+  const refreshScores = async () => {
+    setRefreshing(true)
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    await fetch('https://yetrdrgagfovphrerpie.supabase.co/functions/v1/update-health-scores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': anonKey, 'Authorization': `Bearer ${anonKey}` },
+      body: JSON.stringify({}),
+    })
+    await loadCustomers()
+    setRefreshing(false)
+  }
 
-  const filtered = useMemo(() => customers.filter(c => {
-    const q = search.toLowerCase()
-    if (q && !c.name?.toLowerCase().includes(q) && !c.contact_name?.toLowerCase().includes(q)) return false
-    if (statusFilter   !== 'all' && c.status        !== statusFilter)   return false
-    if (contractFilter !== 'all' && c.contract_type !== contractFilter) return false
-    return true
-  }), [customers, search, statusFilter, contractFilter])
+  const filtered = useMemo(() => {
+    const list = customers.filter(c => {
+      const q = search.toLowerCase()
+      if (q && !c.name?.toLowerCase().includes(q) && !c.contact_name?.toLowerCase().includes(q)) return false
+      if (statusFilter   !== 'all' && c.status        !== statusFilter)   return false
+      if (contractFilter !== 'all' && c.contract_type !== contractFilter) return false
+      return true
+    })
+    if (sortBy === 'health_asc') list.sort((a, b) => (a.health_score ?? 101) - (b.health_score ?? 101))
+    if (sortBy === 'health_desc') list.sort((a, b) => (b.health_score ?? -1) - (a.health_score ?? -1))
+    if (sortBy === 'name') list.sort((a, b) => a.name.localeCompare(b.name))
+    return list
+  }, [customers, search, statusFilter, contractFilter, sortBy])
 
   const totalMRR    = customers.filter(c => c.status === 'active').reduce((s, c) => s + (c.monthly_rate || 0), 0)
   const activeCount = customers.filter(c => c.status === 'active').length
@@ -267,6 +295,15 @@ export default function CustomersPage() {
             <option value="block_hours">Block Hours</option>
             <option value="project">Project</option>
           </select>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} className={sel}>
+            <option value="name">Sort: Name</option>
+            <option value="health_desc">Sort: Health ↑ Best first</option>
+            <option value="health_asc">Sort: Health ↓ Worst first</option>
+          </select>
+          <button onClick={refreshScores} disabled={refreshing} title="Recalculate health scores"
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
           <div className="flex border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
             <button onClick={() => setView('table')} className={`px-3 py-2 transition-colors ${view === 'table' ? 'bg-amber-500 text-white' : 'bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
               <List className="w-4 h-4" />
@@ -294,7 +331,7 @@ export default function CustomersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                  {['Company','Contact','Contract','Monthly Rate','Hourly Rate','Status',''].map(h => (
+                  {['Company','Contact','Contract','Monthly Rate','Hourly Rate','Health','Status',''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -312,6 +349,19 @@ export default function CustomersPage() {
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{CONTRACT_LABELS[c.contract_type] || c.contract_type || '—'}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.monthly_rate ? `$${c.monthly_rate.toLocaleString()}/mo` : '—'}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.hourly_rate ? `$${c.hourly_rate}/hr` : '—'}</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const h = healthCfg(c.health_score)
+                        return c.health_score !== null && c.health_score !== undefined ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-12 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${h.bar}`} style={{ width: `${c.health_score}%` }} />
+                            </div>
+                            <span className={`text-xs font-bold ${h.cls}`}>{c.health_score}</span>
+                          </div>
+                        ) : <span className="text-xs text-slate-300">—</span>
+                      })()}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${STATUS_CLS[c.status] ?? ''}`}>{c.status}</span>
                     </td>
@@ -357,6 +407,17 @@ export default function CustomersPage() {
                   <p className="text-xs text-slate-400">Hourly</p>
                   <p className="font-semibold text-sm text-slate-900 dark:text-white">{c.hourly_rate ? `$${c.hourly_rate}/hr` : '—'}</p>
                 </div>
+                {c.health_score !== null && c.health_score !== undefined && (
+                  <div className="ml-auto text-right">
+                    <p className="text-xs text-slate-400">Health</p>
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <div className="w-10 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${healthCfg(c.health_score).bar}`} style={{ width: `${c.health_score}%` }} />
+                      </div>
+                      <span className={`text-xs font-bold ${healthCfg(c.health_score).cls}`}>{c.health_score}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}
