@@ -9,7 +9,7 @@ import {
   X, FileText, CreditCard, AlertCircle, ExternalLink, Monitor,
   AlertTriangle, HardDrive, BookOpen, LogOut, ArrowLeft,
   Paperclip, Send, Loader2, MessageSquare, User, Search, Package,
-  Activity, Globe,
+  Activity, Globe, Moon, Sun,
 } from 'lucide-react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ const PRIORITY_DOT = {
   medium:   'bg-amber-400',
   low:      'bg-slate-300',
 }
-const inp = "w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-slate-400 dark:placeholder:text-slate-500"
 
 // ── Ticket Detail ─────────────────────────────────────────────────────────────
 function PortalTicketDetail({ ticket, user, orgId, onBack }) {
@@ -113,14 +113,14 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
       </button>
 
       {/* Header */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">{ticket.title}</h2>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{ticket.title}</h2>
             <div className="flex flex-wrap gap-2 mt-2">
               <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_CLS[ticket.status] ?? ''}`}>{lbl(ticket.status)}</span>
-              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 capitalize">{ticket.priority}</span>
-              {ticket.category && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 capitalize">{ticket.category}</span>}
+              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize">{ticket.priority}</span>
+              {ticket.category && <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize">{ticket.category}</span>}
             </div>
           </div>
           <div className="text-right text-xs text-slate-400">
@@ -129,7 +129,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
           </div>
         </div>
         {ticket.description && (
-          <p className="mt-4 text-sm text-slate-600 whitespace-pre-wrap break-words bg-slate-50 rounded-lg p-4 border border-slate-200">
+          <p className="mt-4 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
             {ticket.description}
           </p>
         )}
@@ -146,7 +146,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
           <MessageSquare className="w-4 h-4" /> Conversation ({comments.length})
         </h3>
         {comments.length === 0 && (
-          <div className="text-center py-8 text-slate-400 text-sm bg-white rounded-xl border border-slate-200">
+          <div className="text-center py-8 text-slate-400 text-sm bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
             No messages yet. Add a comment below to get started.
           </div>
         )}
@@ -156,7 +156,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
               {c.is_staff ? <Shield className="w-4 h-4 text-amber-600" /> : <User className="w-4 h-4 text-slate-200" />}
             </div>
             <div className={`max-w-[80%] flex flex-col gap-1 ${c.is_staff ? '' : 'items-end'}`}>
-              <div className={`rounded-xl px-4 py-3 text-sm shadow-sm ${c.is_staff ? 'bg-white border border-slate-200 text-slate-900' : 'bg-slate-700 text-slate-100'}`}>
+              <div className={`rounded-xl px-4 py-3 text-sm shadow-sm ${c.is_staff ? 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white' : 'bg-slate-700 text-slate-100'}`}>
                 <p className={`font-medium text-xs mb-1 ${c.is_staff ? 'text-slate-500' : 'text-slate-400'}`}>{c.is_staff ? `${c.author_name || c.author_email} · Support Team` : (c.author_name || c.author_email)}</p>
                 <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{c.content}</p>
                 {c.attachment_url && (
@@ -174,8 +174,8 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
 
       {/* Reply box */}
       {!isClosed && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-slate-900">Reply</h3>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Reply</h3>
           <textarea rows={3} value={comment} onChange={e => setComment(e.target.value)}
             placeholder="Type your message..."
             className={`${inp} resize-none`}
@@ -184,7 +184,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
             <div>
               <input type="file" ref={fileRef} className="hidden" onChange={e => setAttachment(e.target.files[0])} />
               <button onClick={() => fileRef.current.click()}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 <Paperclip className="w-3.5 h-3.5" />
                 {attachment ? attachment.name : 'Attach File'}
               </button>
@@ -229,6 +229,23 @@ export default function PortalPage() {
   const [portalTemplates,setPortalTemplates]=useState([])
   const [loading,       setLoading]       = useState(true)
   const [activeTab,     setActiveTab]     = useState('tickets')
+  const [dark,          setDark]          = useState(false)
+
+  // Init dark mode from localStorage or system preference
+  useEffect(() => {
+    const saved = localStorage.getItem('theme')
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const isDark = saved === 'dark' || (!saved && prefersDark)
+    setDark(isDark)
+    document.documentElement.classList.toggle('dark', isDark)
+  }, [])
+
+  const toggleDark = () => {
+    const next = !dark
+    setDark(next)
+    document.documentElement.classList.toggle('dark', next)
+    localStorage.setItem('theme', next ? 'dark' : 'light')
+  }
   const [statusFilter,  setStatusFilter]  = useState('all')
   const [deviceFilter,  setDeviceFilter]  = useState('all')
   const [kbSearch,      setKbSearch]      = useState('')
@@ -374,13 +391,13 @@ export default function PortalPage() {
   , [kbArticles, kbSearch])
 
   if (loading) return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center">
       <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
     </div>
   )
 
   if (selectedTicket) return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
       <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -406,7 +423,7 @@ export default function PortalPage() {
   )
 
   if (kbArticle) return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
       <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -424,9 +441,9 @@ export default function PortalPage() {
         <button onClick={() => setKbArticle(null)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-amber-600 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to knowledge base
         </button>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 capitalize">{kbArticle.category}</span>
-          <h1 className="text-xl font-bold text-slate-900 mt-3">{kbArticle.title}</h1>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white mt-3">{kbArticle.title}</h1>
           <div className="mt-4 text-sm text-slate-700 leading-relaxed"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(kbArticle.content) }} />
         </div>
@@ -444,7 +461,7 @@ export default function PortalPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 px-4 py-3 sticky top-0 z-10 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
@@ -470,6 +487,9 @@ export default function PortalPage() {
             <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
               <LogOut className="w-4 h-4" />
             </button>
+            <button onClick={toggleDark} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors">
+              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
         </div>
       </div>
@@ -477,17 +497,17 @@ export default function PortalPage() {
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
         {/* Welcome */}
         <div>
-          <h1 className="text-xl font-bold text-slate-800">
+          <h1 className="text-xl font-bold text-slate-800 dark:text-white">
             Welcome back, {user?.user_metadata?.full_name || user?.email?.split('@')[0]}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">Submit and track your support requests below.</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-slate-300 bg-slate-100">
+        <div className="flex gap-1 border-b border-slate-700 bg-slate-100 dark:bg-slate-900">
           {TABS.map(({ id, label, icon: Icon, badge }) => (
             <button key={id} onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === id ? 'border-amber-500 text-amber-600 bg-white rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-t-lg'}`}>
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === id ? 'border-amber-500 text-amber-600 bg-white dark:bg-slate-900 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800/60 rounded-t-lg'}`}>
               <Icon className="w-4 h-4" />
               {label}
               {badge && <span className="w-2 h-2 rounded-full bg-rose-500 flex-shrink-0" />}
@@ -505,11 +525,11 @@ export default function PortalPage() {
                 { label: 'In Progress', value: openTickets.filter(t => t.status === 'in_progress').length, icon: RefreshCw,    color: 'text-amber-600',   bg: 'bg-amber-50 border-amber-100' },
                 { label: 'Resolved',    value: closedTickets.length,                                       icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
               ].map(({ label, value, icon: Icon, color, bg }) => (
-                <div key={label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-center">
+                <div key={label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 text-center">
                   <div className={`w-9 h-9 rounded-xl border ${bg} flex items-center justify-center mx-auto mb-2`}>
                     <Icon className={`w-4 h-4 ${color}`} />
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">{value}</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
                   <p className="text-xs text-slate-400">{label}</p>
                 </div>
               ))}
@@ -517,9 +537,9 @@ export default function PortalPage() {
 
             {/* New ticket form */}
             {showForm && (
-              <div className="bg-white rounded-xl border-l-4 border-l-amber-400 border border-slate-200 shadow-sm p-5 space-y-4">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border-l-4 border-l-amber-400 border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-slate-900">Submit a New Request</h3>
+                  <h3 className="font-semibold text-slate-900 dark:text-white">Submit a New Request</h3>
                   <button onClick={() => setShowForm(false)} className="p-1 rounded hover:bg-slate-100 text-slate-400"><X className="w-4 h-4" /></button>
                 </div>
                 {submitErr && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{submitErr}</p>}
@@ -561,7 +581,7 @@ export default function PortalPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
+                  <button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
                   <button onClick={handleSubmitTicket} disabled={!form.title.trim() || submitting}
                     className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
                     {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -585,7 +605,7 @@ export default function PortalPage() {
             </div>
 
             {filteredTickets.length === 0 ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
                 <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
                 <p className="text-slate-600 font-medium">No tickets found</p>
                 <p className="text-slate-400 text-sm mt-1">
@@ -596,15 +616,15 @@ export default function PortalPage() {
               <div className="space-y-2">
                 {filteredTickets.map(ticket => (
                   <button key={ticket.id} onClick={() => setSelectedTicket(ticket)}
-                    className="w-full text-left bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-amber-300 transition-all p-4 group">
+                    className="w-full text-left bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-amber-300 transition-all p-4 group">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex gap-3 flex-1 min-w-0">
                         <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${PRIORITY_DOT[ticket.priority]}`} />
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-slate-900 text-sm truncate group-hover:text-amber-600 transition-colors">{ticket.title}</p>
+                          <p className="font-semibold text-slate-900 dark:text-white text-sm truncate group-hover:text-amber-600 transition-colors">{ticket.title}</p>
                           <div className="flex gap-2 mt-1.5 flex-wrap">
                             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${STATUS_CLS[ticket.status] ?? ''}`}>{lbl(ticket.status)}</span>
-                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 capitalize">{ticket.category}</span>
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize">{ticket.category}</span>
                           </div>
                           {ticket.description && <p className="text-xs text-slate-400 mt-1.5 line-clamp-1">{ticket.description}</p>}
                         </div>
@@ -630,11 +650,11 @@ export default function PortalPage() {
                 { label: 'Deployed',          value: devices.filter(d => d.status === 'deployed').length, icon: HardDrive, color: 'text-violet-600', bg: 'bg-violet-50 border-violet-100' },
                 { label: 'Warranty Alerts',   value: devices.filter(d => { if (!d.warranty_expiry) return false; const days = Math.ceil((new Date(d.warranty_expiry) - new Date()) / 86400000); return days <= 30; }).length, icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
               ].map(({ label, value, icon: Icon, color, bg }) => (
-                <div key={label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-center">
+                <div key={label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 text-center">
                   <div className={`w-9 h-9 rounded-xl border ${bg} flex items-center justify-center mx-auto mb-2`}>
                     <Icon className={`w-4 h-4 ${color}`} />
                   </div>
-                  <p className="text-2xl font-bold text-slate-900">{value}</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
                   <p className="text-xs text-slate-400">{label}</p>
                 </div>
               ))}
@@ -653,7 +673,7 @@ export default function PortalPage() {
             </div>
 
             {filteredDevices.length === 0 ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
                 <Monitor className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600 font-medium">{!customer ? 'No devices linked to your account' : 'No devices found'}</p>
                 <p className="text-slate-400 text-sm mt-1">{!customer ? 'Contact your MSP to associate your devices.' : `No ${deviceFilter.replace(/_/g,' ')} devices.`}</p>
@@ -666,14 +686,14 @@ export default function PortalPage() {
                   const warnExpiring = warrantyDays !== null && warrantyDays >= 0 && warrantyDays <= 30
                   const STATUS_BG = { deployed: 'bg-blue-100 text-blue-700', in_stock: 'bg-emerald-100 text-emerald-700', maintenance: 'bg-orange-100 text-orange-700', ordered: 'bg-amber-100 text-amber-700', retired: 'bg-slate-100 text-slate-500' }
                   return (
-                    <div key={device.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0">
+                    <div key={device.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center flex-shrink-0">
                         <HardDrive className="w-5 h-5 text-slate-400" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 flex-wrap">
                           <div>
-                            <p className="font-semibold text-slate-900 text-sm">{device.name}</p>
+                            <p className="font-semibold text-slate-900 dark:text-white text-sm">{device.name}</p>
                             {(device.vendor || device.model) && <p className="text-xs text-slate-400 mt-0.5">{[device.vendor, device.model].filter(Boolean).join(' · ')}</p>}
                           </div>
                           <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${STATUS_BG[device.status] || 'bg-slate-100 text-slate-500'}`}>{lbl(device.status)}</span>
@@ -702,7 +722,7 @@ export default function PortalPage() {
           <div className="space-y-3">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Your Invoices</h2>
             {invoices.length === 0 ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
                 <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600 font-medium">No invoices yet</p>
                 <p className="text-slate-400 text-sm mt-1">Invoices from your MSP will appear here.</p>
@@ -713,13 +733,13 @@ export default function PortalPage() {
               const unpaid   = ['sent','overdue','partial'].includes(inv.status)
               const balance  = Math.max(0, (inv.total || 0) - (inv.amount_paid || 0))
               return (
-                <div key={inv.id} className={`bg-white rounded-xl border shadow-sm p-4 flex items-center justify-between gap-4 ${overdue ? 'border-rose-300' : 'border-slate-200'}`}>
+                <div key={inv.id} className={`bg-white dark:bg-slate-900 rounded-xl border shadow-sm p-4 flex items-center justify-between gap-4 ${overdue ? 'border-rose-300' : 'border-slate-200'}`}>
                   <div className="flex items-center gap-3 min-w-0">
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${overdue ? 'bg-rose-100' : paid ? 'bg-emerald-100' : 'bg-amber-100'}`}>
                       {overdue ? <AlertCircle className="w-4 h-4 text-rose-600" /> : paid ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <CreditCard className="w-4 h-4 text-amber-600" />}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-sm text-slate-900">
+                      <p className="font-semibold text-sm text-slate-900 dark:text-white">
                         {inv.invoice_number ? `#${inv.invoice_number}` : 'Invoice'}
                         {inv.due_date && <span className="font-normal text-slate-400 ml-2 text-xs">Due {fmtDate(inv.due_date)}</span>}
                       </p>
@@ -731,7 +751,7 @@ export default function PortalPage() {
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <div className="text-right">
-                      <p className="font-bold text-slate-900 text-sm">${(inv.total ?? 0).toFixed(2)}</p>
+                      <p className="font-bold text-slate-900 dark:text-white text-sm">${(inv.total ?? 0).toFixed(2)}</p>
                       {unpaid && balance < (inv.total || 0) && <p className="text-xs text-slate-400">Balance: ${balance.toFixed(2)}</p>}
                     </div>
                     {unpaid && inv.stripe_payment_url && (
@@ -757,7 +777,7 @@ export default function PortalPage() {
                 placeholder="Search knowledge base..." className={`${inp} pl-9`} />
             </div>
             {filteredKb.length === 0 ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
                 <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600 font-medium">{kbSearch ? 'No articles found' : 'No articles published yet'}</p>
               </div>
@@ -765,10 +785,10 @@ export default function PortalPage() {
               <div className="space-y-2">
                 {filteredKb.map(article => (
                   <button key={article.id} onClick={() => setKbArticle(article)}
-                    className="w-full text-left bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-amber-300 transition-all p-4 group">
+                    className="w-full text-left bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-amber-300 transition-all p-4 group">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-900 text-sm group-hover:text-amber-600 transition-colors">{article.title}</p>
+                        <p className="font-semibold text-slate-900 dark:text-white text-sm group-hover:text-amber-600 transition-colors">{article.title}</p>
                         {article.content && <p className="text-xs text-slate-400 mt-1 line-clamp-2">{article.content}</p>}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
@@ -790,13 +810,13 @@ export default function PortalPage() {
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div>
                   <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">Your Current Plan</p>
-                  <h2 className="text-2xl font-bold text-slate-900">{plan.plan_name}</h2>
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{plan.plan_name}</h2>
                   {plan.msp_plans?.description && (
                     <p className="text-sm text-slate-500 mt-1">{plan.msp_plans.description}</p>
                   )}
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-3xl font-extrabold text-slate-900">
+                  <p className="text-3xl font-extrabold text-slate-900 dark:text-white">
                     ${Number(plan.plan_price || 0).toLocaleString()}
                   </p>
                   <p className="text-xs text-slate-400">
@@ -835,7 +855,7 @@ export default function PortalPage() {
           <div className="space-y-3">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Service Status</h2>
             {portalMonitors.length === 0 ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-12 text-center">
                 <Activity className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600 font-medium">No monitors configured</p>
               </div>
@@ -843,7 +863,7 @@ export default function PortalPage() {
               <div key={m.id} className={`bg-white rounded-xl border shadow-sm p-4 flex items-center gap-4 ${m.last_status === 'down' ? 'border-rose-300' : 'border-slate-200'}`}>
                 <div className={`w-3 h-3 rounded-full flex-shrink-0 ${m.last_status === 'up' ? 'bg-emerald-500' : m.last_status === 'down' ? 'bg-rose-500' : 'bg-slate-300'}`} />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">{m.name}</p>
+                  <p className="font-semibold text-slate-900 dark:text-white text-sm">{m.name}</p>
                   <a href={m.url} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-amber-500 flex items-center gap-1 truncate">
                     <Globe className="w-3 h-3 flex-shrink-0" />{m.url}
                   </a>
