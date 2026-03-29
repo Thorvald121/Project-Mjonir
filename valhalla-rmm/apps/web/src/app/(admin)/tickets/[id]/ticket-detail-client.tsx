@@ -8,7 +8,7 @@ import {
   ArrowLeft, Clock, User, Building2, Loader2,
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
-  BookOpen, Search, X, Sparkles, HardDrive, GitMerge,
+  BookOpen, Search, X, Sparkles, HardDrive, GitMerge, Activity,
 } from 'lucide-react'
 
 const PRIORITY_CLS = {
@@ -51,6 +51,124 @@ function LiveTimer({ startedAt }) {
 }
 
 // ── Watchers / CC Field ───────────────────────────────────────────────────────
+function ActivityTimeline({ ticketId }: { ticketId: string }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [events,  setEvents]  = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!ticketId) return
+    const load = async () => {
+      setLoading(true)
+      // Pull from audit_log for this ticket
+      const { data: auditRows } = await supabase
+        .from('audit_log')
+        .select('*')
+        .eq('table_name', 'tickets')
+        .eq('record_id', ticketId)
+        .order('created_at', { ascending: true })
+        .limit(100)
+
+      // Pull time entries
+      const { data: timeRows } = await supabase
+        .from('time_entries')
+        .select('id,technician,minutes,description,billable,created_at')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true })
+        .limit(50)
+
+      // Build unified event list
+      const events: any[] = []
+
+      for (const row of auditRows ?? []) {
+        if (row.action === 'INSERT') {
+          events.push({ id: row.id, type: 'created', at: row.created_at, actor: row.actor_name || row.actor_email || 'System', detail: 'Ticket created' })
+        } else if (row.action === 'UPDATE' && row.changed_fields) {
+          const fields = Object.keys(row.changed_fields)
+          for (const field of fields) {
+            const { from: f, to: t } = row.changed_fields[field]
+            const detail = (() => {
+              if (field === 'status')      return `Status changed from "${f}" to "${t}"`
+              if (field === 'priority')    return `Priority changed from "${f}" to "${t}"`
+              if (field === 'assigned_to') return t ? `Assigned to ${t}` : 'Unassigned'
+              if (field === 'category')    return `Category set to "${t}"`
+              if (field === 'sla_due_date')return `SLA due date set to ${t ? new Date(t).toLocaleDateString() : 'cleared'}`
+              if (field === 'title')       return `Title updated`
+              if (field === 'customer_name') return `Customer linked: ${t}`
+              return `${field.replace(/_/g,' ')} updated`
+            })()
+            events.push({ id: `${row.id}-${field}`, type: 'update', field, at: row.created_at, actor: row.actor_name || row.actor_email || 'System', detail })
+          }
+        }
+      }
+
+      for (const row of timeRows ?? []) {
+        const hrs = Math.floor((row.minutes || 0) / 60)
+        const mins = (row.minutes || 0) % 60
+        const dur = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
+        events.push({
+          id: `time-${row.id}`, type: 'time', at: row.created_at,
+          actor: row.technician || 'Unknown',
+          detail: `${dur} logged${row.description ? ` — ${row.description}` : ''}${row.billable ? '' : ' (non-billable)'}`,
+        })
+      }
+
+      events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+      setEvents(events)
+      setLoading(false)
+    }
+    load()
+  }, [ticketId])
+
+  const ICON_CFG = {
+    created: { dot: 'bg-emerald-500',  label: 'Created'  },
+    update:  { dot: 'bg-blue-500',     label: 'Updated'  },
+    time:    { dot: 'bg-violet-500',   label: 'Time'     },
+  }
+
+  const fmtAgo = (d: string) => {
+    const secs = Math.round((Date.now() - new Date(d).getTime()) / 1000)
+    if (secs < 3600)  return `${Math.floor(secs/60)}m ago`
+    if (secs < 86400) return `${Math.floor(secs/3600)}h ago`
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  if (loading) return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+      <div className="h-4 w-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse mb-4" />
+      {[1,2,3].map(i => <div key={i} className="h-3 bg-slate-100 dark:bg-slate-800 rounded animate-pulse mb-2.5" />)}
+    </div>
+  )
+
+  if (!events.length) return null
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+      <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-4 flex items-center gap-2">
+        <Activity className="w-4 h-4 text-slate-400" /> Activity Timeline
+      </h3>
+      <div className="relative">
+        {/* Vertical line */}
+        <div className="absolute left-[5px] top-2 bottom-2 w-px bg-slate-100 dark:bg-slate-800" />
+        <div className="space-y-3">
+          {events.map(ev => {
+            const cfg = ICON_CFG[ev.type] ?? ICON_CFG.update
+            return (
+              <div key={ev.id} className="flex items-start gap-3 pl-4 relative">
+                <span className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot} ring-2 ring-white dark:ring-slate-900`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 break-words leading-relaxed">{ev.detail}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{ev.actor} · {fmtAgo(ev.at)}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function WatchersField({ ticket, onUpdate }) {
   const supabase = createSupabaseBrowserClient()
   const [input,  setInput]  = useState('')
@@ -956,6 +1074,8 @@ export default function TicketDetailClient() {
               </div>
             </div>
           </div>
+
+          <ActivityTimeline ticketId={currentId} />
         </div>
 
         <div className="space-y-4">
