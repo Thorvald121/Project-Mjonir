@@ -1075,7 +1075,7 @@ export default function TicketDetailClient() {
             </div>
           </div>
 
-          <ActivityTimeline ticketId={currentId} />
+          <ActivityTimeline ticketId={ticket?.id} />
         </div>
 
         <div className="space-y-4">
