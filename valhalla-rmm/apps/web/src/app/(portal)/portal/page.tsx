@@ -46,6 +46,34 @@ const PRIORITY_DOT = {
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-slate-400 dark:placeholder:text-slate-500"
 
 // ── Ticket Detail ─────────────────────────────────────────────────────────────
+function PayButton({ invId, onLink }: { invId: string, onLink: (url: string) => void }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState(false)
+
+  const handlePay = async () => {
+    setLoading(true); setError(false)
+    const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
+      body: { invoice_id: invId }
+    })
+    setLoading(false)
+    if (error || !data?.url) { setError(true); return }
+    onLink(data.url)
+  }
+
+  if (error) return (
+    <span className="text-xs text-rose-500 italic">Payment unavailable</span>
+  )
+
+  return (
+    <button onClick={handlePay} disabled={loading}
+      className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CreditCard className="w-3 h-3" />}
+      {loading ? 'Loading…' : 'Pay Now'}
+    </button>
+  )
+}
+
 function PortalTicketDetail({ ticket, user, orgId, onBack }) {
   const supabase  = createSupabaseBrowserClient()
   const fileRef   = useRef()
@@ -760,7 +788,12 @@ export default function PortalPage() {
                         Pay Now <ExternalLink className="w-3 h-3" />
                       </a>
                     )}
-                    {unpaid && !inv.stripe_payment_url && <span className="text-xs text-slate-400 italic">Contact support</span>}
+                    {unpaid && !inv.stripe_payment_url && (
+                      <PayButton invId={inv.id} onLink={(url) => {
+                        setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, stripe_payment_url: url } : i))
+                        window.open(url, '_blank')
+                      }} />
+                    )}
                   </div>
                 </div>
               )
