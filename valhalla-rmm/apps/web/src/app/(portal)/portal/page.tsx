@@ -303,20 +303,43 @@ export default function PortalPage() {
         .select('id,name,company_email,logo_url,brand_color').eq('id', currentOrgId).single()
       setOrg(orgData)
 
-      // Find customer via customer_contacts table (supports multiple users per customer)
+      // Find customer — try multiple strategies in order
       let cust = null
+
+      // Strategy 1: customer_contacts table
       const { data: contactRows } = await supabase.from('customer_contacts')
         .select('customer_id').eq('email', u.email).limit(1)
       if (contactRows?.[0]?.customer_id) {
         const { data: custData } = await supabase.from('customers')
           .select('*').eq('id', contactRows[0].customer_id).single()
         if (custData) cust = custData
-      } else {
-        // Fallback: check customers.contact_email directly
-        const { data: byPrimary } = await supabase.from('customers')
-          .select('*').eq('contact_email', u.email).limit(1)
-        if (byPrimary?.[0]) cust = byPrimary[0]
       }
+
+      // Strategy 2: customers.contact_email
+      if (!cust) {
+        const { data: byEmail } = await supabase.from('customers')
+          .select('*').eq('contact_email', u.email).eq('organization_id', currentOrgId).limit(1)
+        if (byEmail?.[0]) cust = byEmail[0]
+      }
+
+      // Strategy 3: organization_members customer_id column
+      if (!cust) {
+        const { data: memberRow } = await supabase.from('organization_members')
+          .select('customer_id').eq('user_id', u.id).maybeSingle()
+        if (memberRow?.customer_id) {
+          const { data: byMember } = await supabase.from('customers')
+            .select('*').eq('id', memberRow.customer_id).maybeSingle()
+          if (byMember) cust = byMember
+        }
+      }
+
+      // Strategy 4: user_metadata.customer_id (set during invite)
+      if (!cust && u.user_metadata?.customer_id) {
+        const { data: byMeta } = await supabase.from('customers')
+          .select('*').eq('id', u.user_metadata.customer_id).maybeSingle()
+        if (byMeta) cust = byMeta
+      }
+
       setCustomer(cust)
 
       // Parallel data fetch — use local vars, not state (state updates are async)
@@ -329,8 +352,7 @@ export default function PortalPage() {
         cust?.id
           ? supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
               .eq('customer_id', cust.id).order('issue_date', { ascending: false }).limit(50)
-          : supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
-              .eq('customer_name', cust?.name || '').order('issue_date', { ascending: false }).limit(50),
+          : Promise.resolve({ data: [] }),
         cust?.id
           ? supabase.from('inventory_items').select('*').eq('customer_id', cust.id).order('name').limit(100)
           : Promise.resolve({ data: [] }),
