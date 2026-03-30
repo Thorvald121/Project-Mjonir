@@ -244,6 +244,7 @@ export default function TicketsPage() {
 
   const [tickets,        setTickets]        = useState([])
   const [customers,      setCustomers]      = useState([])
+  const [csatMap,        setCsatMap]        = useState({}) // ticket_id -> score
   const [loading,        setLoading]        = useState(true)
   const [loadingMore,    setLoadingMore]    = useState(false)
   const [hasMore,        setHasMore]        = useState(false)
@@ -254,6 +255,7 @@ export default function TicketsPage() {
   const [customerFilter, setCustomerFilter] = useState('all')
   const [selected,       setSelected]       = useState(new Set())
   const [bulkStatus,     setBulkStatus]     = useState('')
+  const [bulkAssign,     setBulkAssign]     = useState('')
   const [bulkLoading,    setBulkLoading]    = useState(false)
   const [confirmDelete,  setConfirmDelete]  = useState(false)
   const [deleteLoading,  setDeleteLoading]  = useState(false)
@@ -287,14 +289,18 @@ export default function TicketsPage() {
   // Auto-refresh when tickets change anywhere
   const loadAll = async () => {
     setLoading(true)
-    const [t, c] = await Promise.all([
+    const [t, c, csat] = await Promise.all([
       supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at').order('created_at', { ascending: false }).limit(PAGE + 1),
       supabase.from('customers').select('id,name,contact_name,contact_email,contract_type,block_hours_total,hourly_rate').eq('status','active').order('name').limit(200),
+      supabase.from('csat_responses').select('ticket_id,score').not('ticket_id','is',null).limit(1000),
     ])
     const rows = t.data ?? []
     setHasMore(rows.length > PAGE)
     setTickets(rows.slice(0, PAGE))
     setCustomers(c.data ?? [])
+    const map = {}
+    for (const r of (csat.data ?? [])) { if (r.ticket_id) map[r.ticket_id] = r.score }
+    setCsatMap(map)
     setLoading(false)
   }
 
@@ -336,6 +342,18 @@ export default function TicketsPage() {
     }
     setBulkLoading(false)
     setSelected(new Set()); setBulkStatus('')
+    loadAll()
+  }
+
+  const handleBulkAssign = async () => {
+    if (!bulkAssign || selected.size === 0) return
+    setBulkLoading(true)
+    const assignTo = bulkAssign === '__unassigned__' ? null : bulkAssign
+    for (const id of [...selected]) {
+      await supabase.from('tickets').update({ assigned_to: assignTo }).eq('id', id)
+    }
+    setBulkLoading(false)
+    setSelected(new Set()); setBulkAssign('')
     loadAll()
   }
 
@@ -400,6 +418,19 @@ export default function TicketsPage() {
             <button disabled={!bulkStatus || bulkLoading} onClick={handleBulkStatus}
               className="h-7 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs font-medium">
               {bulkLoading ? 'Applying…' : 'Apply'}
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-blue-600">Assign to:</span>
+            <select value={bulkAssign} onChange={e => setBulkAssign(e.target.value)}
+              className="h-7 px-2 border border-blue-200 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 focus:outline-none">
+              <option value="">Choose…</option>
+              <option value="__unassigned__">Unassigned</option>
+              {techs.map(t => <option key={t.user_email} value={t.user_email}>{t.display_name || t.user_email}</option>)}
+            </select>
+            <button disabled={!bulkAssign || bulkLoading} onClick={handleBulkAssign}
+              className="h-7 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs font-medium">
+              Assign
             </button>
           </div>
           <button onClick={() => setConfirmDelete(true)}
@@ -488,7 +519,18 @@ export default function TicketsPage() {
                         </div>
                       ) : <span className="text-slate-300 text-xs">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtDate(t.created_at)}</td>
+                    <td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      {fmtDate(t.created_at)}
+                      {csatMap[t.id] && (
+                        <div className="flex items-center gap-0.5 mt-1">
+                          {[1,2,3,4,5].map(n => (
+                            <svg key={n} className="w-2.5 h-2.5" viewBox="0 0 20 20" fill={n <= csatMap[t.id] ? '#FBBF24' : '#E2E8F0'}>
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 )
               })}

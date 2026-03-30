@@ -9,11 +9,94 @@ import {
   FileText, Package, Ticket, DollarSign, TrendingUp, X,
   CheckCircle2, AlertTriangle, Loader2, Save, Users,
   Heart, TrendingDown, Minus, Star, RefreshCw, Terminal,
+  StickyNote, Trash2,
 } from 'lucide-react'
 
-// ── Customer Health Score ─────────────────────────────────────────────────────
-function computeHealth({ tickets, invoices, csatResponses }) {
-  let score = 100
+// ── Sticky Notes ──────────────────────────────────────────────────────────────
+function StickyNotes({ customerId, orgId }) {
+  const supabase = createSupabaseBrowserClient()
+  const [notes,   setNotes]   = useState([])
+  const [text,    setText]    = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  const load = async () => {
+    const { data } = await supabase.from('customer_notes')
+      .select('*').eq('customer_id', customerId)
+      .order('created_at', { ascending: false }).limit(20)
+    setNotes(data ?? [])
+  }
+
+  useEffect(() => { if (customerId) load() }, [customerId])
+
+  const addNote = async () => {
+    if (!text.trim() || !orgId) return
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('customer_notes').insert({
+      customer_id:     customerId,
+      organization_id: orgId,
+      content:         text.trim(),
+      author_email:    user?.email || null,
+    })
+    setText('')
+    await load()
+    setSaving(false)
+  }
+
+  const deleteNote = async (id) => {
+    await supabase.from('customer_notes').delete().eq('id', id)
+    setNotes(prev => prev.filter(n => n.id !== id))
+  }
+
+  const fmtAgo = (d) => {
+    const s = Math.round((Date.now() - new Date(d).getTime()) / 1000)
+    if (s < 3600)  return `${Math.floor(s/60)}m ago`
+    if (s < 86400) return `${Math.floor(s/3600)}h ago`
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
+      <h3 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+        <StickyNote className="w-4 h-4 text-amber-500" /> Sticky Notes
+      </h3>
+      <div className="flex gap-2">
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) addNote() }}
+          placeholder="Add a note… (⌘↵ to save)"
+          rows={2}
+          className="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none placeholder:text-slate-400"
+        />
+        <button onClick={addNote} disabled={!text.trim() || saving}
+          className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors self-start">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+        </button>
+      </div>
+      {notes.length === 0 ? (
+        <p className="text-xs text-slate-400 text-center py-2">No notes yet — add context that doesn't belong in a ticket</p>
+      ) : (
+        <div className="space-y-2">
+          {notes.map(note => (
+            <div key={note.id} className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2.5 group">
+              <p className="flex-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{note.content}</p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <p className="text-[10px] text-slate-400">{fmtAgo(note.created_at)}</p>
+                <button onClick={() => deleteNote(note.id)}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-rose-500 transition-all">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+{
   const factors = []
   const open     = tickets.filter(t => !['resolved','closed'].includes(t.status))
   const critical = open.filter(t => t.priority === 'critical')
@@ -762,6 +845,7 @@ export default function CustomerDetailPage() {
 
       {/* Account Health Score */}
       <CustomerHealthScore tickets={tickets} invoices={invoices} csatResponses={csatResponses} />
+      <StickyNotes customerId={customer?.id} orgId={orgId} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
