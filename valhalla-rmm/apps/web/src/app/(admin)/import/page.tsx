@@ -111,6 +111,10 @@ function mapRow(row, orgId, customerId, customerName) {
   if (!ticket.title) ticket.title = row['Summary'] || row['Title'] || row['Issue key'] || 'Imported ticket'
   // Ensure created_at
   if (!ticket.created_at) ticket.created_at = new Date().toISOString()
+  // updated_at must never be null
+  if (!ticket.updated_at) ticket.updated_at = ticket.resolved_at || ticket.created_at
+  // tags must never be null
+  if (!ticket.tags) ticket.tags = []
 
   return ticket
 }
