@@ -6,7 +6,7 @@ const ADMIN_ROUTES  = [
   '/dashboard', '/tickets', '/customers', '/invoices', '/time-tracking',
   '/inventory', '/quotes', '/pipeline', '/reports', '/knowledge-base',
   '/settings', '/tech-dashboard', '/email-automations', '/ticket-automations',
-  '/canned-replies', '/msp-plans', '/monitoring', '/ticket-templates', '/scheduled-reports', '/contracts', '/audit-log', '/csat-analytics',
+  '/canned-replies', '/msp-plans', '/monitoring', '/ticket-templates', '/scheduled-reports', '/contracts', '/audit-log', '/csat-analytics', '/maintenance',
 ]
 
 export async function middleware(request: NextRequest) {
