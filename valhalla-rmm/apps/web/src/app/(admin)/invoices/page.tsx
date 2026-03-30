@@ -540,6 +540,106 @@ function SendEmailDialog({ inv, onClose, onSent }) {
   )
 }
 
+function AgingReport({ invoices }) {
+  const BUCKETS = [
+    { label: 'Current',    cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400', bar: 'bg-emerald-500' },
+    { label: '1–30 days',  cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',         bar: 'bg-amber-500'   },
+    { label: '31–60 days', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400',     bar: 'bg-orange-500'  },
+    { label: '61–90 days', cls: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400',             bar: 'bg-rose-500'    },
+    { label: '90+ days',   cls: 'bg-red-200 text-red-800 dark:bg-red-950/40 dark:text-red-400',                 bar: 'bg-red-600'     },
+  ]
+  const getBucket = (due) => {
+    if (!due) return 0
+    const days = Math.floor((Date.now() - new Date(due).getTime()) / 86400000)
+    if (days <= 0) return 0
+    if (days <= 30) return 1
+    if (days <= 60) return 2
+    if (days <= 90) return 3
+    return 4
+  }
+  const unpaid = invoices.filter(i => ['sent','overdue','partial'].includes(i.status))
+  const totals = [0,0,0,0,0]
+  const counts = [0,0,0,0,0]
+  const custMap = {}
+  unpaid.forEach(inv => {
+    const b   = getBucket(inv.due_date)
+    const bal = Math.max(0, (Number(inv.total) || 0) - (Number(inv.amount_paid) || 0))
+    totals[b] += bal; counts[b]++
+    const n = inv.customer_name || 'Unknown'
+    if (!custMap[n]) custMap[n] = { name: n, buckets: [0,0,0,0,0], total: 0 }
+    custMap[n].buckets[b] += bal
+    custMap[n].total += bal
+  })
+  const rows  = Object.values(custMap).sort((a, b) => b.total - a.total)
+  const grand = totals.reduce((s, v) => s + v, 0)
+  const fmtC  = (n) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  return (
+    <div className="space-y-5">
+      {/* Bucket summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {BUCKETS.map((b, i) => (
+          <div key={b.label} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${b.cls} inline-block mb-2`}>{b.label}</span>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtC(totals[i])}</p>
+            <p className="text-xs text-slate-400">{counts[i]} invoice{counts[i] !== 1 ? 's' : ''}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-customer breakdown */}
+      {rows.length === 0 ? (
+        <div className="py-16 text-center">
+          <CheckCircle2 className="w-12 h-12 text-emerald-300 mx-auto mb-3" />
+          <p className="text-slate-500 font-medium">All caught up — no outstanding invoices</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Customer Breakdown</p>
+            <p className="text-sm text-slate-500">Total outstanding: <span className="font-bold text-rose-600 dark:text-rose-400">{fmtC(grand)}</span></p>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-700 text-xs text-slate-400">
+                <th className="text-left pb-2.5 font-semibold">Customer</th>
+                {BUCKETS.map(b => (
+                  <th key={b.label} className="text-right pb-2.5 font-semibold">{b.label}</th>
+                ))}
+                <th className="text-right pb-2.5 font-semibold">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {rows.map(r => (
+                <tr key={r.name} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                  <td className="py-2.5 font-medium text-slate-900 dark:text-white">{r.name}</td>
+                  {r.buckets.map((v, i) => (
+                    <td key={i} className={`py-2.5 text-right text-xs font-medium ${v > 0 ? BUCKETS[i].cls : 'text-slate-300 dark:text-slate-700'}`}>
+                      {v > 0 ? fmtC(v) : '—'}
+                    </td>
+                  ))}
+                  <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white">{fmtC(r.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-300 dark:border-slate-600">
+                <td className="pt-2.5 text-xs font-bold text-slate-500 uppercase tracking-wide">Totals</td>
+                {totals.map((v, i) => (
+                  <td key={i} className="pt-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {v > 0 ? fmtC(v) : '—'}
+                  </td>
+                ))}
+                <td className="pt-2.5 text-right font-bold text-rose-600 dark:text-rose-400">{fmtC(grand)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function InvoicesPage() {
   const supabase = createSupabaseBrowserClient()
   const [invoices,      setInvoices]      = useState([])
@@ -555,6 +655,7 @@ export default function InvoicesPage() {
   const [statusLoading, setStatusLoading] = useState(null)
   const [stripeLoading, setStripeLoading] = useState(null)
   const [linkCopied,    setLinkCopied]    = useState(null)
+  const [activeTab,     setActiveTab]     = useState('invoices')
 
   useEffect(() => {
     const init = async () => {
@@ -676,7 +777,30 @@ export default function InvoicesPage() {
         ))}
       </div>
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        {loading ? (
+        {/* Tab bar */}
+        <div className="flex border-b border-slate-200 dark:border-slate-800 px-4">
+          {[
+            { id: 'invoices', label: 'All Invoices' },
+            { id: 'aging',    label: `AR Aging${overdueCount > 0 ? ` (${overdueCount} overdue)` : ''}` },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === tab.id
+                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'aging' && (
+          <div className="p-5">
+            <AgingReport invoices={invoices} />
+          </div>
+        )}
+
+        {activeTab === 'invoices' && loading && (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {Array(5).fill(0).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3">
@@ -688,7 +812,9 @@ export default function InvoicesPage() {
               </div>
             ))}
           </div>
-        ) : invoices.length === 0 ? (
+        )}
+
+        {activeTab === 'invoices' && !loading && invoices.length === 0 && (
           <div className="p-16 text-center">
             <FileText className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
             <p className="text-slate-500 font-medium mb-4">No invoices yet</p>
@@ -697,7 +823,9 @@ export default function InvoicesPage() {
               <Plus className="w-4 h-4" /> Create First Invoice
             </button>
           </div>
-        ) : (
+        )}
+
+        {activeTab === 'invoices' && !loading && invoices.length > 0 && (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {invoices.map(inv => {
               const cfg = STATUS_CFG[inv.status] || STATUS_CFG.draft
