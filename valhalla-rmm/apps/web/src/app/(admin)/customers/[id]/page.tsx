@@ -96,7 +96,9 @@ function StickyNotes({ customerId, orgId }) {
   )
 }
 
-{
+// ── Customer Health Score ─────────────────────────────────────────────────────
+function computeHealth({ tickets, invoices, csatResponses }) {
+  let score = 100
   const factors = []
   const open     = tickets.filter(t => !['resolved','closed'].includes(t.status))
   const critical = open.filter(t => t.priority === 'critical')
