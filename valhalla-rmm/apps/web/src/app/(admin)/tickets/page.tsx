@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2, FileCode2, Loader2 } from 'lucide-react'
@@ -296,49 +296,53 @@ export default function TicketsPage() {
       })
   }, [])
 
-  const buildQuery = (from = 0, email = myEmail) => {
+  const filtersRef = useRef({ statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail })
+  filtersRef.current = { statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail }
+
+  const buildQuery = useCallback((from = 0) => {
+    const f = filtersRef.current
     let q = supabase.from('tickets')
       .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at')
-      .order(sortField, { ascending: sortDir === 'asc' })
+      .order(f.sortField, { ascending: f.sortDir === 'asc' })
       .range(from, from + PAGE)
 
-    if (statusFilter   !== 'all') q = q.eq('status', statusFilter)
-    if (priorityFilter !== 'all') q = q.eq('priority', priorityFilter)
-    if (customerFilter !== 'all') q = q.eq('customer_name', customerFilter)
-    if (hideImported)             q = q.neq('source', 'import')
-    if (assigneeFilter === 'mine')            q = q.eq('assigned_to', email)
-    else if (assigneeFilter === 'unassigned') q = q.is('assigned_to', null)
-    else if (assigneeFilter !== 'all')        q = q.eq('assigned_to', assigneeFilter)
-    if (search.trim()) q = q.or(`title.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%,assigned_to.ilike.%${search.trim()}%`)
+    if (f.statusFilter   !== 'all') q = q.eq('status', f.statusFilter)
+    if (f.priorityFilter !== 'all') q = q.eq('priority', f.priorityFilter)
+    if (f.customerFilter !== 'all') q = q.eq('customer_name', f.customerFilter)
+    if (f.hideImported)             q = q.neq('source', 'import')
+    if (f.assigneeFilter === 'mine')            q = q.eq('assigned_to', f.myEmail)
+    else if (f.assigneeFilter === 'unassigned') q = q.is('assigned_to', null)
+    else if (f.assigneeFilter !== 'all')        q = q.eq('assigned_to', f.assigneeFilter)
+    if (f.search.trim()) q = q.or(`title.ilike.%${f.search.trim()}%,customer_name.ilike.%${f.search.trim()}%,assigned_to.ilike.%${f.search.trim()}%`)
 
     return q
-  }
+  }, [])
 
-  const loadAll = async (email = myEmail) => {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     setSelected(new Set())
-    const result = await buildQuery(0, email)
+    const result = await buildQuery(0)
     const rows = result.data ?? []
     setHasMore(rows.length > PAGE)
     setTickets(rows.slice(0, PAGE))
     setLoading(false)
-  }
+  }, [buildQuery])
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
     setLoadingMore(true)
     const result = await buildQuery(tickets.length)
     const rows = result.data ?? []
     setHasMore(rows.length > PAGE)
     setTickets(prev => [...prev, ...rows.slice(0, PAGE)])
     setLoadingMore(false)
-  }
+  }, [buildQuery, tickets.length])
 
-  useEffect(() => { loadAll() }, [statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported])
+  useEffect(() => { loadAll() }, [statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported]) // eslint-disable-line
 
   useEffect(() => {
     const t = setTimeout(() => loadAll(), 350)
     return () => clearTimeout(t)
-  }, [search])
+  }, [search]) // eslint-disable-line
 
   useRealtimeRefresh(['tickets'], loadAll)
 

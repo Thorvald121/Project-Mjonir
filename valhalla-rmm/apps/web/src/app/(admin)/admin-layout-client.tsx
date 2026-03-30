@@ -83,15 +83,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { showModal: showShortcuts, setShowModal: setShowShortcuts } = useKeyboardShortcuts()
 
   // Track which groups are open — all open by default, persisted to localStorage
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
-    if (typeof window === 'undefined') return {}
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  const [mounted,    setMounted]    = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
     try {
       const saved = localStorage.getItem('nav-groups')
-      return saved ? JSON.parse(saved) : {}
-    } catch { return {} }
-  })
+      if (saved) setOpenGroups(JSON.parse(saved))
+    } catch {}
+  }, [])
 
-  const isGroupOpen = (label: string) => openGroups[label] !== false // default open
+  const isGroupOpen = (label: string) => !mounted ? true : openGroups[label] !== false // default open
 
   const toggleGroup = (label: string) => {
     setOpenGroups(prev => {
