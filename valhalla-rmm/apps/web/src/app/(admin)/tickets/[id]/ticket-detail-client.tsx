@@ -9,6 +9,7 @@ import {
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
   BookOpen, Search, X, Sparkles, HardDrive, GitMerge, Activity,
+  CheckCircle2, Plus,
 } from 'lucide-react'
 
 const PRIORITY_CLS = {
