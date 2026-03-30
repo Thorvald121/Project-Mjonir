@@ -321,10 +321,16 @@ export default function PortalPage() {
 
       // Parallel data fetch — use local vars, not state (state updates are async)
       const [t, i, d, kb, cp, mon, tpl] = await Promise.all([
-        supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
-          .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
-        supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
-          .eq('contact_email', u.email).order('issue_date', { ascending: false }).limit(50),
+        cust?.id
+          ? supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
+              .eq('customer_id', cust.id).order('created_at', { ascending: false }).limit(100)
+          : supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
+              .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
+        cust?.id
+          ? supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
+              .eq('customer_id', cust.id).order('issue_date', { ascending: false }).limit(50)
+          : supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
+              .eq('customer_name', cust?.name || '').order('issue_date', { ascending: false }).limit(50),
         cust?.id
           ? supabase.from('inventory_items').select('*').eq('customer_id', cust.id).order('name').limit(100)
           : Promise.resolve({ data: [] }),
