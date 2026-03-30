@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X, CheckCircle2 } from 'lucide-react'
+import { Clock, Plus, Search, Trash2, DollarSign, Timer, FileText, Edit, X, CheckCircle2, Download } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -191,6 +191,7 @@ export default function TimeTrackingPage() {
   const [monthFilter,    setMonthFilter]    = useState(new Date().toISOString().slice(0, 7))
   const [dialogOpen,     setDialogOpen]     = useState(false)
   const [editing,        setEditing]        = useState(null)
+  const [activeTab,      setActiveTab]      = useState('log')
 
   useEffect(() => {
     const init = async () => {
@@ -239,6 +240,37 @@ export default function TimeTrackingPage() {
   const billableMinutes = filtered.filter(e => e.billable).reduce((s, e) => s + (e.minutes || 0), 0)
   const totalRevenue    = filtered.filter(e => e.billable && e.hourly_rate).reduce((s, e) => s + (e.hourly_rate * e.minutes) / 60, 0)
   const uniqueTechs     = [...new Set(entries.map(e => e.technician).filter(Boolean))]
+
+  // Report breakdowns
+  const byTech = useMemo(() => {
+    const map = {}
+    filtered.forEach(e => {
+      const k = e.technician || 'Unknown'
+      if (!map[k]) map[k] = { name: k, total: 0, billable: 0, revenue: 0, entries: 0 }
+      map[k].total    += e.minutes || 0
+      map[k].entries  += 1
+      if (e.billable) {
+        map[k].billable += e.minutes || 0
+        if (e.hourly_rate) map[k].revenue += (e.hourly_rate * (e.minutes || 0)) / 60
+      }
+    })
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  }, [filtered])
+
+  const byCustomer = useMemo(() => {
+    const map = {}
+    filtered.forEach(e => {
+      const k = e.customer_name || 'No customer'
+      if (!map[k]) map[k] = { name: k, total: 0, billable: 0, revenue: 0, entries: 0 }
+      map[k].total    += e.minutes || 0
+      map[k].entries  += 1
+      if (e.billable) {
+        map[k].billable += e.minutes || 0
+        if (e.hourly_rate) map[k].revenue += (e.hourly_rate * (e.minutes || 0)) / 60
+      }
+    })
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  }, [filtered])
 
   const monthOptions = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(); d.setMonth(d.getMonth() - i)
@@ -291,13 +323,123 @@ export default function TimeTrackingPage() {
             <option value="non-billable">Non-Billable</option>
           </select>
         </div>
-        <button onClick={() => { setEditing(null); setDialogOpen(true) }}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors flex-shrink-0">
-          <Plus className="w-4 h-4" /> Log Time
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={() => {
+            const rows = [['Date','Technician','Customer','Ticket','Description','Minutes','Hours','Billable','Rate','Amount']]
+            filtered.forEach(e => {
+              const amt = e.billable && e.hourly_rate ? ((e.hourly_rate * (e.minutes||0)) / 60).toFixed(2) : ''
+              rows.push([e.date||'', e.technician||'', e.customer_name||'', e.ticket_title||'', e.description||'', e.minutes||0, ((e.minutes||0)/60).toFixed(2), e.billable?'Yes':'No', e.hourly_rate||'', amt])
+            })
+            const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+            const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+            a.download = `time-report-${monthFilter||'all'}.csv`; a.click()
+          }}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
+          <button onClick={() => { setEditing(null); setDialogOpen(true) }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+            <Plus className="w-4 h-4" /> Log Time
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+        {[{ id: 'log', label: `Entry Log (${filtered.length})` }, { id: 'report', label: 'Report' }].map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === tab.id ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Report tab */}
+      {activeTab === 'report' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* By technician */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="font-semibold text-slate-900 dark:text-white text-sm">By Technician</h3>
+            </div>
+            {byTech.length === 0 ? (
+              <p className="text-slate-400 text-sm text-center py-8">No entries in this period</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50 text-xs text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                    <th className="px-4 py-2.5 text-left font-semibold">Technician</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Total</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Billable</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {byTech.map(r => (
+                    <tr key={r.name} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-2.5 font-medium text-slate-900 dark:text-white">{r.name}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-400">{fmtHours(r.total)}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-600 dark:text-amber-400">{fmtHours(r.billable)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400">${r.revenue.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                    <td className="px-4 py-2.5 text-xs font-bold text-slate-500 uppercase">Total</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-slate-700 dark:text-slate-300">{fmtHours(totalMinutes)}</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-amber-600">{fmtHours(billableMinutes)}</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-emerald-600">${totalRevenue.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+
+          {/* By customer */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="font-semibold text-slate-900 dark:text-white text-sm">By Customer</h3>
+            </div>
+            {byCustomer.length === 0 ? (
+              <p className="text-slate-400 text-sm text-center py-8">No entries in this period</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50 text-xs text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                    <th className="px-4 py-2.5 text-left font-semibold">Customer</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Total</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Billable</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {byCustomer.map(r => (
+                    <tr key={r.name} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-2.5 font-medium text-slate-900 dark:text-white">{r.name}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-400">{fmtHours(r.total)}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-600 dark:text-amber-400">{fmtHours(r.billable)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400">${r.revenue.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                    <td className="px-4 py-2.5 text-xs font-bold text-slate-500 uppercase">Total</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-slate-700 dark:text-slate-300">{fmtHours(totalMinutes)}</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-amber-600">{fmtHours(billableMinutes)}</td>
+                    <td className="px-4 py-2.5 text-right font-bold text-emerald-600">${totalRevenue.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'log' && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -372,7 +514,7 @@ export default function TimeTrackingPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      )}
 
       <LogTimeDialog
         open={dialogOpen}
