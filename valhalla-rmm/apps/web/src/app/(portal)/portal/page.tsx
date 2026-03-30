@@ -346,9 +346,9 @@ export default function PortalPage() {
       const [t, i, d, kb, cp, mon, tpl] = await Promise.all([
         cust?.id
           ? supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
-              .eq('customer_id', cust.id).order('created_at', { ascending: false }).limit(100)
+              .eq('customer_id', cust.id).neq('source', 'import').order('created_at', { ascending: false }).limit(100)
           : supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
-              .eq('contact_email', u.email).order('created_at', { ascending: false }).limit(100),
+              .eq('contact_email', u.email).neq('source', 'import').order('created_at', { ascending: false }).limit(100),
         cust?.id
           ? supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
               .eq('customer_id', cust.id).order('issue_date', { ascending: false }).limit(50)

@@ -244,7 +244,7 @@ export default function TicketsPage() {
 
   const [tickets,        setTickets]        = useState([])
   const [customers,      setCustomers]      = useState([])
-  const [csatMap,        setCsatMap]        = useState({}) // ticket_id -> score
+  const [csatMap,        setCsatMap]        = useState({})
   const [loading,        setLoading]        = useState(true)
   const [loadingMore,    setLoadingMore]    = useState(false)
   const [hasMore,        setHasMore]        = useState(false)
@@ -253,6 +253,9 @@ export default function TicketsPage() {
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [customerFilter, setCustomerFilter] = useState('all')
+  const [sortField,      setSortField]      = useState('created_at')
+  const [sortDir,        setSortDir]        = useState('desc')
+  const [hideImported,   setHideImported]   = useState(true)
   const [selected,       setSelected]       = useState(new Set())
   const [bulkStatus,     setBulkStatus]     = useState('')
   const [bulkAssign,     setBulkAssign]     = useState('')
@@ -265,7 +268,6 @@ export default function TicketsPage() {
 
   const PAGE = 100
 
-  // Listen for N shortcut from global handler
   useEffect(() => {
     const handler = (e: CustomEvent) => {
       if (e.detail?.target === 'new-ticket') setDialogOpen(true)
@@ -283,56 +285,66 @@ export default function TicketsPage() {
       if (member) setOrgId(member.organization_id)
     }
     init()
-    loadAll()
+    // Load customers separately — always full list regardless of filters
+    supabase.from('customers').select('id,name').eq('status','active').order('name').limit(500)
+      .then(({ data }) => setCustomers(data ?? []))
+    supabase.from('csat_responses').select('ticket_id,score').not('ticket_id','is',null).limit(2000)
+      .then(({ data }) => {
+        const map = {}
+        for (const r of (data ?? [])) { if (r.ticket_id) map[r.ticket_id] = r.score }
+        setCsatMap(map)
+      })
   }, [])
 
-  // Auto-refresh when tickets change anywhere
-  const loadAll = async () => {
+  const buildQuery = (from = 0, email = myEmail) => {
+    let q = supabase.from('tickets')
+      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at')
+      .order(sortField, { ascending: sortDir === 'asc' })
+      .range(from, from + PAGE)
+
+    if (statusFilter   !== 'all') q = q.eq('status', statusFilter)
+    if (priorityFilter !== 'all') q = q.eq('priority', priorityFilter)
+    if (customerFilter !== 'all') q = q.eq('customer_name', customerFilter)
+    if (hideImported)             q = q.neq('source', 'import')
+    if (assigneeFilter === 'mine')            q = q.eq('assigned_to', email)
+    else if (assigneeFilter === 'unassigned') q = q.is('assigned_to', null)
+    else if (assigneeFilter !== 'all')        q = q.eq('assigned_to', assigneeFilter)
+    if (search.trim()) q = q.or(`title.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%,assigned_to.ilike.%${search.trim()}%`)
+
+    return q
+  }
+
+  const loadAll = async (email = myEmail) => {
     setLoading(true)
-    const [t, c, csat] = await Promise.all([
-      supabase.from('tickets').select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at').order('created_at', { ascending: false }).limit(PAGE + 1),
-      supabase.from('customers').select('id,name,contact_name,contact_email,contract_type,block_hours_total,hourly_rate').eq('status','active').order('name').limit(200),
-      supabase.from('csat_responses').select('ticket_id,score').not('ticket_id','is',null).limit(1000),
-    ])
-    const rows = t.data ?? []
+    setSelected(new Set())
+    const result = await buildQuery(0, email)
+    const rows = result.data ?? []
     setHasMore(rows.length > PAGE)
     setTickets(rows.slice(0, PAGE))
-    setCustomers(c.data ?? [])
-    const map = {}
-    for (const r of (csat.data ?? [])) { if (r.ticket_id) map[r.ticket_id] = r.score }
-    setCsatMap(map)
     setLoading(false)
   }
 
   const loadMore = async () => {
     setLoadingMore(true)
-    const { data } = await supabase.from('tickets')
-      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at')
-      .order('created_at', { ascending: false })
-      .range(tickets.length, tickets.length + PAGE)
-    const rows = data ?? []
+    const result = await buildQuery(tickets.length)
+    const rows = result.data ?? []
     setHasMore(rows.length > PAGE)
     setTickets(prev => [...prev, ...rows.slice(0, PAGE)])
     setLoadingMore(false)
   }
 
+  useEffect(() => { loadAll() }, [statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported])
+
+  useEffect(() => {
+    const t = setTimeout(() => loadAll(), 350)
+    return () => clearTimeout(t)
+  }, [search])
+
   useRealtimeRefresh(['tickets'], loadAll)
 
-
-  const uniqueCustomers = useMemo(() => [...new Set(tickets.map(t => t.customer_name).filter(Boolean))].sort(), [tickets])
+  const uniqueCustomers = useMemo(() => customers.map(c => c.name).sort(), [customers])
   const uniqueAssignees = useMemo(() => [...new Set(tickets.map(t => t.assigned_to).filter(Boolean))].sort(), [tickets])
-
-  const filtered = useMemo(() => tickets.filter(t => {
-    const q = search.toLowerCase()
-    if (q && !t.title.toLowerCase().includes(q) && !(t.customer_name ?? '').toLowerCase().includes(q) && !(t.assigned_to ?? '').toLowerCase().includes(q)) return false
-    if (statusFilter   !== 'all' && t.status   !== statusFilter)   return false
-    if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false
-    if (customerFilter !== 'all' && t.customer_name !== customerFilter) return false
-    if (assigneeFilter === 'mine'       && t.assigned_to !== myEmail) return false
-    if (assigneeFilter === 'unassigned' && t.assigned_to)             return false
-    if (assigneeFilter !== 'all' && assigneeFilter !== 'mine' && assigneeFilter !== 'unassigned' && t.assigned_to !== assigneeFilter) return false
-    return true
-  }), [tickets, search, statusFilter, priorityFilter, customerFilter, assigneeFilter, myEmail])
+  const filtered = tickets
 
   const handleBulkStatus = async () => {
     if (!bulkStatus || selected.size === 0) return
@@ -398,6 +410,26 @@ export default function TicketsPage() {
           <select value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} className={sel}>
             <option value="all">All Customers</option>{uniqueCustomers.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <select value={`${sortField}:${sortDir}`} onChange={e => {
+            const [f, d] = e.target.value.split(':')
+            setSortField(f); setSortDir(d)
+          }} className={sel}>
+            <option value="created_at:desc">Newest first</option>
+            <option value="created_at:asc">Oldest first</option>
+            <option value="updated_at:desc">Recently updated</option>
+            <option value="priority:asc">Priority (critical first)</option>
+            <option value="sla_due_date:asc">SLA due (soonest)</option>
+            <option value="customer_name:asc">Customer A→Z</option>
+          </select>
+          <button onClick={() => setHideImported(p => !p)}
+            title={hideImported ? 'Currently hiding imported tickets — click to show' : 'Currently showing imported tickets — click to hide'}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+              hideImported
+                ? 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                : 'border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-700'
+            }`}>
+            {hideImported ? 'Show imported' : 'Hide imported'}
+          </button>
         </div>
         <button onClick={() => setDialogOpen(true)}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors flex-shrink-0">
