@@ -5,9 +5,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { useRouter } from 'next/navigation'
 import {
-  Monitor, AlertTriangle, CheckCircle2, Clock, HardDrive,
-  Cpu, MemoryStick, Wifi, RefreshCw, WifiOff, Search,
-  ArrowUpRight, Users, Package,
+  Monitor, AlertTriangle, RefreshCw, Search, Package,
 } from 'lucide-react'
 
 function fmtAgo(d) {
@@ -158,9 +156,9 @@ export default function DeviceHealthPage() {
         <div className="flex items-center gap-3 px-4 py-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 rounded-xl">
           <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0" />
           <p className="text-sm text-rose-700 dark:text-rose-400">
-            {stats.critical > 0 && <strong>{stats.critical} device{stats.critical > 1 ? 's' : ''} with critical disk usage (&gt;90%)</strong>}
+            {stats.critical > 0 && <strong>{stats.critical} device{stats.critical > 1 ? 's' : ''} with critical disk usage ( >90%)</strong>}
             {stats.critical > 0 && stats.diskAlerts > stats.critical && ' · '}
-            {stats.diskAlerts > stats.critical && `${stats.diskAlerts - stats.critical} device${stats.diskAlerts - stats.critical > 1 ? 's' : ''} with high disk usage (&gt;75%)`}
+            {stats.diskAlerts > stats.critical && `${stats.diskAlerts - stats.critical} device${stats.diskAlerts - stats.critical > 1 ? 's' : ''} with high disk usage ( >75%)`}
           </p>
         </div>
       )}
