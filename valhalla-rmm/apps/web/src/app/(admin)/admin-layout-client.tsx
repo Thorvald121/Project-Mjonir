@@ -12,7 +12,7 @@ import {
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight, ChevronDown,
   Zap, UsersRound, Moon, Sun, Menu, X, Activity,
   FileCode2, FileBarChart, FileSignature, Shield, Star, Keyboard, Repeat,
-  Upload,
+  Upload, Key,
 } from 'lucide-react'
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ const NAV_GROUPS = [
     items: [
       { label: 'Inventory',   icon: Package,  href: '/inventory' },
       { label: 'Monitoring',  icon: Activity, href: '/monitoring' },
+      { label: 'Vendors & Licenses', icon: Key, href: '/vendors' },
     ],
   },
   {
