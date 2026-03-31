@@ -1203,6 +1203,8 @@ export default function CustomerDetailPage() {
                 </div>
               )
             })}
+          </div>
+        )}
 
         {activeTab === 'licenses' && (
           <div>
@@ -1290,8 +1292,6 @@ export default function CustomerDetailPage() {
                 orgId={orgId}
               />
             )}
-          </div>
-        )}
           </div>
         )}
       </div>
