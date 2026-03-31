@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2, FileCode2, Loader2 } from 'lucide-react'
+import { Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2, FileCode2, Loader2, Bookmark, ChevronDown } from 'lucide-react'
 import { SlaPredictionBadge } from '@/components/SlaPrediction'
 
 function useRealtimeRefresh(tables, onRefresh) {
@@ -256,6 +256,10 @@ export default function TicketsPage() {
   const [sortField,      setSortField]      = useState('created_at')
   const [sortDir,        setSortDir]        = useState('desc')
   const [hideImported,   setHideImported]   = useState(true)
+  const [savedFilters,   setSavedFilters]   = useState<any[]>([])
+  const [filterName,     setFilterName]     = useState('')
+  const [showSaveInput,  setShowSaveInput]  = useState(false)
+  const [showSavedMenu,  setShowSavedMenu]  = useState(false)
   const [selected,       setSelected]       = useState(new Set())
   const [bulkStatus,     setBulkStatus]     = useState('')
   const [bulkAssign,     setBulkAssign]     = useState('')
@@ -285,6 +289,11 @@ export default function TicketsPage() {
       if (member) setOrgId(member.organization_id)
     }
     init()
+    // Load saved filters from localStorage
+    try {
+      const saved = localStorage.getItem('ticket-saved-filters')
+      if (saved) setSavedFilters(JSON.parse(saved))
+    } catch {}
     // Load customers separately — always full list regardless of filters
     supabase.from('customers').select('id,name').eq('status','active').order('name').limit(500)
       .then(({ data }) => setCustomers(data ?? []))
@@ -295,6 +304,49 @@ export default function TicketsPage() {
         setCsatMap(map)
       })
   }, [])
+
+  // Close saved filters menu on outside click
+  useEffect(() => {
+    if (!showSavedMenu) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('[data-saved-menu]')) setShowSavedMenu(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSavedMenu])
+
+  const currentFilters = () => ({
+    statusFilter, priorityFilter, assigneeFilter, customerFilter,
+    sortField, sortDir, hideImported, search,
+  })
+
+  const applyFilter = (f: any) => {
+    if (f.statusFilter   !== undefined) setStatusFilter(f.statusFilter)
+    if (f.priorityFilter !== undefined) setPriorityFilter(f.priorityFilter)
+    if (f.assigneeFilter !== undefined) setAssigneeFilter(f.assigneeFilter)
+    if (f.customerFilter !== undefined) setCustomerFilter(f.customerFilter)
+    if (f.sortField      !== undefined) setSortField(f.sortField)
+    if (f.sortDir        !== undefined) setSortDir(f.sortDir)
+    if (f.hideImported   !== undefined) setHideImported(f.hideImported)
+    if (f.search         !== undefined) setSearch(f.search)
+  }
+
+  const saveFilter = () => {
+    if (!filterName.trim()) return
+    const entry = { name: filterName.trim(), filters: currentFilters(), savedAt: Date.now() }
+    const next = [...savedFilters.filter(f => f.name !== entry.name), entry]
+    setSavedFilters(next)
+    localStorage.setItem('ticket-saved-filters', JSON.stringify(next))
+    setFilterName('')
+    setShowSaveInput(false)
+  }
+
+  const deleteFilter = (name: string) => {
+    const next = savedFilters.filter(f => f.name !== name)
+    setSavedFilters(next)
+    localStorage.setItem('ticket-saved-filters', JSON.stringify(next))
+  }
 
   const filtersRef = useRef({ statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail })
   filtersRef.current = { statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail }
@@ -434,6 +486,57 @@ export default function TicketsPage() {
             }`}>
             {hideImported ? 'Show imported' : 'Hide imported'}
           </button>
+
+          {/* Saved filters */}
+          <div className="relative" data-saved-menu>
+            <button onClick={() => { setShowSavedMenu(p => !p); setShowSaveInput(false) }}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              <Bookmark className="w-3.5 h-3.5" />
+              Saved{savedFilters.length > 0 && <span className="ml-0.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">{savedFilters.length}</span>}
+              <ChevronDown className={`w-3 h-3 transition-transform ${showSavedMenu ? 'rotate-180' : ''}`} />
+            </button>
+            {showSavedMenu && (
+              <div className="absolute top-full mt-1 left-0 z-30 w-64 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden">
+                {savedFilters.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-slate-400 text-center">No saved filters yet</p>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {savedFilters.map(sf => (
+                      <div key={sf.name} className="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 group">
+                        <button onClick={() => { applyFilter(sf.filters); setShowSavedMenu(false) }}
+                          className="flex-1 text-left text-sm font-medium text-slate-700 dark:text-slate-300 truncate">
+                          {sf.name}
+                        </button>
+                        <button onClick={() => deleteFilter(sf.name)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-300 hover:text-rose-500 transition-all">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="border-t border-slate-100 dark:border-slate-800 p-2">
+                  {!showSaveInput ? (
+                    <button onClick={() => setShowSaveInput(true)}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors">
+                      <Plus className="w-3.5 h-3.5" /> Save current filters
+                    </button>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <input autoFocus value={filterName} onChange={e => setFilterName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveFilter(); if (e.key === 'Escape') { setShowSaveInput(false); setFilterName('') } }}
+                        placeholder="Filter name…"
+                        className="flex-1 px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500" />
+                      <button onClick={saveFilter} disabled={!filterName.trim()}
+                        className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <button onClick={() => setDialogOpen(true)}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors flex-shrink-0">
