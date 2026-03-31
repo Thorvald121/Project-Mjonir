@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useRouter } from 'next/navigation'
 import {
   Package, Plus, Search, Edit, Trash2, X, Loader2,
   AlertTriangle, CheckCircle2, ExternalLink, Calendar,
@@ -48,6 +49,7 @@ function getStatus(license) {
 
 export default function VendorLicensesPage() {
   const supabase  = createSupabaseBrowserClient()
+  const router    = useRouter()
   const [licenses,  setLicenses]  = useState([])
   const [customers, setCustomers] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -272,7 +274,12 @@ export default function VendorLicensesPage() {
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 capitalize">{l.category}</span>
                       </div>
                       {l.vendor && <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" />{l.vendor}</p>}
-                      {l.customer_name && <p className="text-xs text-slate-400 mt-0.5">Client: {l.customer_name}</p>}
+                      {l.customer_name && (
+                        <button onClick={() => { const c = customers.find(x => x.name === l.customer_name); if (c) router.push(`/customers/${c.id}`) }}
+                          className="text-xs text-amber-600 dark:text-amber-400 hover:underline mt-0.5 text-left">
+                          {l.customer_name}
+                        </button>
+                      )}
 
                       <div className="flex flex-wrap gap-4 mt-2">
                         {l.renewal_date && (

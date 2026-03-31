@@ -9,9 +9,25 @@ import {
   FileText, Package, Ticket, DollarSign, TrendingUp, X,
   CheckCircle2, AlertTriangle, Loader2, Save, Users,
   Heart, TrendingDown, Minus, Star, RefreshCw, Terminal,
-  StickyNote, Trash2,
+  StickyNote, Trash2, Key, Calendar, ExternalLink,
 } from 'lucide-react'
 
+
+// ── License helpers ───────────────────────────────────────────────────────────
+const LIC_STATUS_CFG = {
+  active:   { label: 'Active',   cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' },
+  expiring: { label: 'Expiring', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
+  expired:  { label: 'Expired',  cls: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400' },
+  cancelled:{ label: 'Cancelled',cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' },
+}
+function getLicStatus(l) {
+  if (l.status === 'cancelled') return 'cancelled'
+  if (!l.renewal_date) return 'active'
+  const days = Math.ceil((new Date(l.renewal_date + 'T00:00:00').getTime() - Date.now()) / 86400000)
+  if (days < 0)  return 'expired'
+  if (days <= 30) return 'expiring'
+  return 'active'
+}
 // ── Sticky Notes ──────────────────────────────────────────────────────────────
 function StickyNotes({ customerId, orgId }) {
   const supabase = createSupabaseBrowserClient()
@@ -666,6 +682,140 @@ function ContactDialog({ open, onClose, onSaved, contact, customerId, orgId }) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+
+// ── License Dialog ────────────────────────────────────────────────────────────
+const LIC_BLANK = {
+  name: '', vendor: '', category: 'software', status: 'active',
+  license_key: '', seats: '', cost: '', billing_cycle: 'annual',
+  renewal_date: '', purchase_date: '', contact_name: '', contact_email: '',
+  contact_phone: '', website: '', notes: '',
+}
+const LIC_CATS = ['software','hardware','saas','subscription','support','domain','ssl','other']
+
+function LicenseDialog({ open, onClose, onSaved, editing, customerId, customerName, orgId }) {
+  const supabase = createSupabaseBrowserClient()
+  const [form, setForm] = useState({ ...LIC_BLANK })
+  const [saving, setSaving] = useState(false)
+  const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
+  const inp2 = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+
+  useEffect(() => {
+    if (editing) {
+      setForm({
+        name: editing.name||'', vendor: editing.vendor||'', category: editing.category||'software',
+        status: editing.status||'active', license_key: editing.license_key||'',
+        seats: editing.seats??'', cost: editing.cost??'', billing_cycle: editing.billing_cycle||'annual',
+        renewal_date: editing.renewal_date||'', purchase_date: editing.purchase_date||'',
+        contact_name: editing.contact_name||'', contact_email: editing.contact_email||'',
+        contact_phone: editing.contact_phone||'', website: editing.website||'', notes: editing.notes||'',
+      })
+    } else {
+      setForm({ ...LIC_BLANK })
+    }
+  }, [editing, open])
+
+  const save = async () => {
+    if (!form.name.trim() || !orgId) return
+    setSaving(true)
+    const payload = {
+      ...form,
+      organization_id: orgId,
+      customer_id:   customerId || null,
+      customer_name: customerName || null,
+      seats: form.seats ? Number(form.seats) : null,
+      cost:  form.cost  ? Number(form.cost)  : null,
+      renewal_date:  form.renewal_date  || null,
+      purchase_date: form.purchase_date || null,
+    }
+    if (editing) {
+      await supabase.from('vendor_licenses').update(payload).eq('id', editing.id)
+    } else {
+      await supabase.from('vendor_licenses').insert(payload)
+    }
+    setSaving(false)
+    onSaved()
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
+          <h2 className="font-bold text-slate-900 dark:text-white">{editing ? 'Edit License' : 'Add License'}</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-3 overflow-y-auto flex-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Name *</label>
+              <input value={form.name} onChange={e => s('name', e.target.value)} placeholder="e.g. Microsoft 365 Business" className={`mt-1 ${inp2}`} autoFocus />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Vendor</label>
+              <input value={form.vendor} onChange={e => s('vendor', e.target.value)} placeholder="e.g. Microsoft" className={`mt-1 ${inp2}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Category</label>
+              <select value={form.category} onChange={e => s('category', e.target.value)} className={`mt-1 ${inp2}`}>
+                {LIC_CATS.map(c => <option key={c} value={c} className="capitalize">{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cost ($)</label>
+              <input type="number" min={0} step="0.01" value={form.cost} onChange={e => s('cost', e.target.value)} placeholder="0.00" className={`mt-1 ${inp2}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Billing Cycle</label>
+              <select value={form.billing_cycle} onChange={e => s('billing_cycle', e.target.value)} className={`mt-1 ${inp2}`}>
+                <option value="monthly">Monthly</option>
+                <option value="annual">Annual</option>
+                <option value="one_time">One-time</option>
+                <option value="multi_year">Multi-year</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Seats</label>
+              <input type="number" min={1} value={form.seats} onChange={e => s('seats', e.target.value)} placeholder="e.g. 25" className={`mt-1 ${inp2}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Renewal Date</label>
+              <input type="date" value={form.renewal_date} onChange={e => s('renewal_date', e.target.value)} className={`mt-1 ${inp2}`} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">License Key</label>
+              <input value={form.license_key} onChange={e => s('license_key', e.target.value)} placeholder="XXXXX-XXXXX-XXXXX" className={`mt-1 ${inp2} font-mono`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Vendor Contact</label>
+              <input value={form.contact_name} onChange={e => s('contact_name', e.target.value)} placeholder="Contact name" className={`mt-1 ${inp2}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Email</label>
+              <input value={form.contact_email} onChange={e => s('contact_email', e.target.value)} placeholder="support@vendor.com" className={`mt-1 ${inp2}`} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Portal / Website URL</label>
+              <input value={form.website} onChange={e => s('website', e.target.value)} placeholder="https://portal.vendor.com" className={`mt-1 ${inp2}`} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
+              <textarea value={form.notes} onChange={e => s('notes', e.target.value)} rows={2} className={`mt-1 ${inp2} resize-none`} />
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex-shrink-0">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+          <button onClick={save} disabled={!form.name.trim() || saving}
+            className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add License'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CustomerDetailPage() {
   const params   = useParams()
   const router   = useRouter()
@@ -688,11 +838,14 @@ export default function CustomerDetailPage() {
   const [activeTab,   setActiveTab]   = useState('tickets')
   const [contactOpen, setContactOpen] = useState(false)
   const [editingContact, setEditingContact] = useState(null)
+  const [licenses,    setLicenses]    = useState([])
+  const [licOpen,     setLicOpen]     = useState(false)
+  const [licEditing,  setLicEditing]  = useState(null)
 
   const loadAll = useCallback(async () => {
     const id = idRef.current
     if (!id) return
-    const [cust, t, inv, te, items, ctcts, csat] = await Promise.all([
+    const [cust, t, inv, te, items, ctcts, csat, lic] = await Promise.all([
       supabase.from('customers').select('*').eq('id', id).single(),
       supabase.from('tickets').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
       supabase.from('invoices').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
@@ -700,7 +853,9 @@ export default function CustomerDetailPage() {
       supabase.from('inventory_items').select('*').eq('customer_id', id).order('name').limit(100),
       supabase.from('customer_contacts').select('*').eq('customer_id', id).order('is_primary', { ascending: false }).order('name'),
       supabase.from('csat_responses').select('score,submitted_at').eq('customer_name', id).limit(50),
+      supabase.from('vendor_licenses').select('*').eq('customer_id', id).order('renewal_date', { ascending: true, nullsFirst: false }),
     ])
+    setLicenses(lic.data ?? [])
     if (cust.error) { setError('Customer not found'); setLoading(false); return }
     setCustomer(cust.data)
     setTickets(t.data ?? [])
@@ -749,6 +904,7 @@ export default function CustomerDetailPage() {
     { id: 'invoices', label: 'Invoices',   count: invoices.length },
     { id: 'time',     label: 'Time Entries', count: timeEntries.length },
     { id: 'assets',   label: 'Assets',     count: inventory.length },
+    { id: 'licenses', label: 'Licenses',   count: licenses.length },
   ]
 
   if (loading) return (
@@ -1047,6 +1203,95 @@ export default function CustomerDetailPage() {
                 </div>
               )
             })}
+
+        {activeTab === 'licenses' && (
+          <div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+              <p className="text-sm text-slate-500 dark:text-slate-400">{licenses.length} license{licenses.length !== 1 ? 's' : ''}</p>
+              <button onClick={() => { setLicEditing(null); setLicOpen(true) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors">
+                <Plus className="w-3.5 h-3.5" /> Add License
+              </button>
+            </div>
+            {licenses.length === 0 ? (
+              <div className="p-12 text-center">
+                <Key className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">No licenses tracked for this customer</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {licenses.map(l => {
+                  const st   = getLicStatus(l)
+                  const cfg  = LIC_STATUS_CFG[st]
+                  const days = l.renewal_date ? Math.ceil((new Date(l.renewal_date + 'T00:00:00').getTime() - Date.now()) / 86400000) : null
+                  return (
+                    <div key={l.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${st === 'expired' ? 'bg-rose-100 dark:bg-rose-950/40' : st === 'expiring' ? 'bg-amber-100 dark:bg-amber-950/40' : 'bg-violet-100 dark:bg-violet-950/40'}`}>
+                        <Key className={`w-4 h-4 ${st === 'expired' ? 'text-rose-600' : st === 'expiring' ? 'text-amber-600' : 'text-violet-600 dark:text-violet-400'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-slate-900 dark:text-white text-sm">{l.name}</p>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 capitalize">{l.category}</span>
+                        </div>
+                        {l.vendor && <p className="text-xs text-slate-400 mt-0.5">{l.vendor}</p>}
+                        <div className="flex flex-wrap gap-3 mt-1">
+                          {l.renewal_date && (
+                            <span className={`flex items-center gap-1 text-xs ${days !== null && days <= 30 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400'}`}>
+                              <Calendar className="w-3 h-3" />
+                              Renews {new Date(l.renewal_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {days !== null && days >= 0 && days <= 60 && ` (${days}d)`}
+                            </span>
+                          )}
+                          {l.cost && <span className="text-xs text-slate-400">${Number(l.cost).toLocaleString()} / {l.billing_cycle || 'year'}</span>}
+                          {l.seats && <span className="text-xs text-slate-400">{l.seats} seats</span>}
+                        </div>
+                        {l.notes && <p className="text-xs text-slate-400 italic mt-1">{l.notes}</p>}
+                      </div>
+                      <div className="flex gap-1 flex-shrink-0">
+                        {l.website && (
+                          <a href={l.website.startsWith('http') ? l.website : `https://${l.website}`} target="_blank" rel="noreferrer"
+                            className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-blue-500 transition-colors">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                        <button onClick={() => { setLicEditing(l); setLicOpen(true) }}
+                          className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={async () => {
+                          if (!confirm('Delete this license?')) return
+                          await supabase.from('vendor_licenses').delete().eq('id', l.id)
+                          setLicenses(prev => prev.filter(x => x.id !== l.id))
+                        }} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Inline add/edit license dialog */}
+            {licOpen && (
+              <LicenseDialog
+                open={licOpen}
+                onClose={() => { setLicOpen(false); setLicEditing(null) }}
+                onSaved={async () => {
+                  const { data } = await supabase.from('vendor_licenses').select('*').eq('customer_id', params?.id).order('renewal_date', { ascending: true, nullsFirst: false })
+                  setLicenses(data ?? [])
+                  setLicOpen(false); setLicEditing(null)
+                }}
+                editing={licEditing}
+                customerId={params?.id}
+                customerName={customer?.name}
+                orgId={orgId}
+              />
+            )}
+          </div>
+        )}
           </div>
         )}
       </div>
