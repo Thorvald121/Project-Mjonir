@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Plus, Search, Package, AlertTriangle,
-  Edit, Trash2, Loader2, Upload, Download, X, Ticket, Terminal,
+  Edit, Trash2, Loader2, Upload, Download, X, Terminal,
 } from 'lucide-react'
 
 function LinkedTicketsBadge({ assetId }) {
@@ -654,7 +654,36 @@ export default function InventoryPage() {
                 {`./register-macos-linux.sh --org-id "${orgId}" --api-key "YOUR_ANON_KEY"`}
               </div>
             </div>
-            <p className="text-xs text-slate-500">Replace <span className="text-slate-400 font-mono">YOUR_ANON_KEY</span> with your Supabase anon key. Optionally add <span className="text-slate-400 font-mono">--customer-id</span> to link to a specific customer. Download scripts from the repo: <span className="text-slate-400">/agent/</span></p>
+            <p className="text-xs text-slate-500">
+              Replace <span className="text-slate-400 font-mono">YOUR_ANON_KEY</span> with your Supabase anon key. Download scripts from{' '}
+              <a href="/agent" target="_blank" className="text-violet-400 hover:underline">/agent</a>.
+            </p>
+          </div>
+
+          {/* Heartbeat scheduling */}
+          <div className="border-t border-slate-700 pt-4 space-y-3">
+            <p className="text-sm font-semibold text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+              Schedule Heartbeat (keep devices updated automatically)
+            </p>
+            <p className="text-xs text-slate-400">Run once to set up — the agent will check in daily and update disk, RAM, IP, and OS info automatically.</p>
+            <div>
+              <p className="text-xs font-semibold text-violet-400 mb-1.5">Windows — Task Scheduler (run as Administrator)</p>
+              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 break-all select-all">
+                {`$action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-NonInteractive -File C:\valhalla-agent\register-windows.ps1 -OrgId \"${orgId}\" -ApiKey \"YOUR_ANON_KEY\""
+$trigger = New-ScheduledTaskTrigger -Daily -At 8am
+Register-ScheduledTask -TaskName "Valhalla RMM Agent" -Action $action -Trigger $trigger -RunLevel Highest`}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-violet-400 mb-1.5">macOS / Linux — cron (daily at 8am)</p>
+              <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 break-all select-all">
+                {`echo "0 8 * * * /path/to/register-macos-linux.sh --org-id \"${orgId}\" --api-key \"YOUR_ANON_KEY\"" | crontab -`}
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">
+              Devices that haven't checked in for 7+ days will show <span className="text-rose-400">Offline</span> in Device Health and auto-create an alert ticket.
+            </p>
           </div>
         </div>
       )}
@@ -694,12 +723,24 @@ export default function InventoryPage() {
                         <p className="text-xs text-slate-400">{[item.vendor || item.manufacturer, item.model].filter(Boolean).join(' ')}</p>
                       )}
                       {item.os && <p className="text-xs text-slate-400">{item.os}</p>}
-                      {item.last_seen_at && (
-                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                          Last seen {(() => { const s = Math.round((Date.now() - new Date(item.last_seen_at)) / 1000); if (s < 3600) return `${Math.floor(s/60)}m ago`; if (s < 86400) return `${Math.floor(s/3600)}h ago`; return `${Math.floor(s/86400)}d ago` })()}
+                      {item.last_seen_at ? (() => {
+                        const ms = Date.now() - new Date(item.last_seen_at).getTime()
+                        const days = ms / 86400000
+                        const ago = (() => { const s = Math.round(ms/1000); if (s < 3600) return `${Math.floor(s/60)}m ago`; if (s < 86400) return `${Math.floor(s/3600)}h ago`; return `${Math.floor(s/86400)}d ago` })()
+                        const color = days > 7 ? 'text-rose-600 dark:text-rose-400' : days > 1 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                        const dot   = days > 7 ? 'bg-rose-500' : days > 1 ? 'bg-amber-500' : 'bg-emerald-500'
+                        return (
+                          <p className={`text-[11px] ${color} flex items-center gap-1 mt-0.5`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${dot} inline-block`} />
+                            {days > 7 ? `Offline · ${ago}` : days > 1 ? `Stale · ${ago}` : `Last seen ${ago}`}
+                          </p>
+                        )
+                      })() : item.category === 'hardware' ? (
+                        <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 inline-block" />
+                          No agent
                         </p>
-                      )}
+                      ) : null}
                     </td>
                     <td className="px-3 py-3">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${CAT_CLS[item.category] ?? ''}`}>{item.category}</span>

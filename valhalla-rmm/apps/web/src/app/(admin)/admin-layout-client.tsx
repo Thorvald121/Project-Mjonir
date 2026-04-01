@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Ticket, Users, Clock, FileText,
   Package, BarChart2, BookOpen, Settings, LogOut,
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight, ChevronDown,
-  Zap, UsersRound, Moon, Sun, Menu, X, Activity,
+  Zap, UsersRound, Moon, Sun, Menu, Activity,
   FileCode2, FileBarChart, FileSignature, Shield, Star, Keyboard, Repeat,
   Upload, Key,
 } from 'lucide-react'
