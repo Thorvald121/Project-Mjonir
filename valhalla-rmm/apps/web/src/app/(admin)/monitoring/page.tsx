@@ -44,21 +44,23 @@ function sslDays(dateStr) {
 // ── Add Monitor Dialog ────────────────────────────────────────────────────────
 function AddMonitorDialog({ open, onClose, onSaved, orgId, customers }) {
   const supabase = createSupabaseBrowserClient()
-  const [form,   setForm]   = useState({ name: '', url: '', type: 'http', check_interval: '5', customer_id: '' })
+  const [form,   setForm]   = useState({ name: '', url: '', type: 'http', port: '', keyword: '', check_interval: '5', customer_id: '' })
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState(null)
   const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
     if (!open) return
-    setForm({ name: '', url: '', type: 'http', check_interval: '5', customer_id: '' })
+    setForm({ name: '', url: '', type: 'http', port: '', keyword: '', check_interval: '5', customer_id: '' })
     setErr(null)
   }, [open])
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.url.trim()) { setErr('Name and URL are required'); return }
+    if (form.type === 'tcp' && !form.port) { setErr('Port is required for TCP monitors'); return }
     let url = form.url.trim()
-    if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url
+    // Only prefix http for HTTP/keyword monitors, not TCP
+    if (form.type !== 'tcp' && !url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url
     setSaving(true); setErr(null)
     const cust = customers.find(c => c.id === form.customer_id)
     const { error } = await supabase.from('monitors').insert({
@@ -68,6 +70,8 @@ function AddMonitorDialog({ open, onClose, onSaved, orgId, customers }) {
       name:            form.name.trim(),
       url,
       type:            form.type,
+      port:            form.port ? parseInt(form.port) : null,
+      keyword:         form.keyword || null,
       check_interval:  parseInt(form.check_interval) || 5,
       status:          'active',
     })
@@ -94,16 +98,36 @@ function AddMonitorDialog({ open, onClose, onSaved, orgId, customers }) {
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">URL *</label>
-            <input value={form.url} onChange={e => s('url', e.target.value)} placeholder="https://example.com" className={`mt-1 ${inp}`} />
+            <input value={form.url} onChange={e => s('url', e.target.value)}
+              placeholder={form.type === 'tcp' ? 'IP or hostname, e.g. 192.168.1.1' : 'https://example.com'}
+              className={`mt-1 ${inp}`} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</label>
               <select value={form.type} onChange={e => s('type', e.target.value)} className={`mt-1 ${inp}`}>
                 <option value="http">HTTP/HTTPS</option>
-                <option value="keyword">Keyword check</option>
+                <option value="keyword">Keyword Match</option>
+                <option value="tcp">TCP Port</option>
               </select>
             </div>
+            {form.type === 'tcp' && (
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Port *</label>
+                <input type="number" min={1} max={65535} value={form.port} onChange={e => s('port', e.target.value)}
+                  placeholder="e.g. 80, 443, 3389, 9100"
+                  className={`mt-1 ${inp}`} />
+                <p className="text-[11px] text-slate-400 mt-1">Common: 80 HTTP · 443 HTTPS · 3389 RDP · 9100 Printer · 22 SSH · 3306 MySQL</p>
+              </div>
+            )}
+            {form.type === 'keyword' && (
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Keyword to match</label>
+                <input value={form.keyword} onChange={e => s('keyword', e.target.value)}
+                  placeholder="Text that must appear in the response"
+                  className={`mt-1 ${inp}`} />
+              </div>
+            )}
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Interval (min)</label>
               <select value={form.check_interval} onChange={e => s('check_interval', e.target.value)} className={`mt-1 ${inp}`}>
@@ -348,11 +372,19 @@ export default function MonitoringPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5">
-                            <a href={m.url} target="_blank" rel="noreferrer"
-                              className="text-xs text-slate-400 hover:text-amber-500 truncate flex items-center gap-1 max-w-xs" onClick={e => e.stopPropagation()}>
-                              <Globe className="w-3 h-3 flex-shrink-0" />{m.url}
-                            </a>
-                            {m.url.startsWith('https') && <Shield className="w-3 h-3 text-emerald-500 flex-shrink-0" title="HTTPS" />}
+                            {m.type === 'tcp' ? (
+                              <span className="text-xs text-slate-400 flex items-center gap-1">
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-400">TCP</span>
+                                {m.url}:{m.port}
+                              </span>
+                            ) : (
+                              <a href={m.url} target="_blank" rel="noreferrer"
+                                className="text-xs text-slate-400 hover:text-amber-500 truncate flex items-center gap-1 max-w-xs" onClick={e => e.stopPropagation()}>
+                                <Globe className="w-3 h-3 flex-shrink-0" />{m.url}
+                              </a>
+                            )}
+                            {m.type === 'keyword' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Keyword</span>}
+                            {m.url.startsWith('https') && m.type !== 'tcp' && <Shield className="w-3 h-3 text-emerald-500 flex-shrink-0" title="HTTPS" />}
                           </div>
                         </div>
 

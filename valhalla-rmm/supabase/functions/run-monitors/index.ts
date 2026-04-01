@@ -40,43 +40,91 @@ async function checkMonitor(monitor, supabase, resendKey, appUrl) {
   const start = Date.now()
   let status = 'down', statusCode = null, error = null, responseMs = null, sslExpiry = null
 
-  try {
-    const controller = new AbortController()
-    const timeout    = setTimeout(() => controller.abort(), 15000)
-    const res        = await fetch(monitor.url, {
-      method:  'HEAD',
-      signal:  controller.signal,
-      redirect: 'follow',
-      headers: { 'User-Agent': 'ValhallaMon/1.0' },
-    })
-    clearTimeout(timeout)
-    responseMs = Date.now() - start
-    statusCode = res.status
-    status     = res.ok ? 'up' : 'down'
-    error      = res.ok ? null : `HTTP ${res.status}`
+  if (monitor.type === 'tcp') {
+    // ── TCP port check ─────────────────────────────────────────────────────
+    const port = monitor.port || 80
+    try {
+      const conn = await Promise.race([
+        Deno.connect({ hostname: monitor.url, port }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000)),
+      ])
+      responseMs = Date.now() - start
+      conn.close()
+      status = 'up'
+    } catch (err) {
+      responseMs = Date.now() - start
+      status = 'down'
+      error  = err.message === 'Timeout' ? 'TCP timeout (10s)' : `TCP connect failed: ${err.message}`
+    }
+  } else if (monitor.type === 'keyword') {
+    // ── Keyword check ──────────────────────────────────────────────────────
+    try {
+      const controller = new AbortController()
+      const timeout    = setTimeout(() => controller.abort(), 15000)
+      const res        = await fetch(monitor.url, {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'ValhallaMon/1.0' },
+      })
+      clearTimeout(timeout)
+      responseMs = Date.now() - start
+      statusCode = res.status
+      if (!res.ok) {
+        status = 'down'; error = `HTTP ${res.status}`
+      } else {
+        const body = await res.text()
+        if (monitor.keyword && body.includes(monitor.keyword)) {
+          status = 'up'
+        } else {
+          status = 'down'
+          error  = monitor.keyword ? `Keyword "${monitor.keyword}" not found` : 'No keyword configured'
+        }
+      }
+    } catch (err) {
+      responseMs = Date.now() - start
+      status = 'down'
+      error  = err.name === 'AbortError' ? 'Timeout (15s)' : err.message
+    }
+  } else {
+    // ── HTTP/HTTPS check (default) ──────────────────────────────────────────
+    try {
+      const controller = new AbortController()
+      const timeout    = setTimeout(() => controller.abort(), 15000)
+      const res        = await fetch(monitor.url, {
+        method:  'HEAD',
+        signal:  controller.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'ValhallaMon/1.0' },
+      })
+      clearTimeout(timeout)
+      responseMs = Date.now() - start
+      statusCode = res.status
+      status     = res.ok ? 'up' : 'down'
+      error      = res.ok ? null : `HTTP ${res.status}`
 
-    // Check SSL expiry if HTTPS
-    if (monitor.url.startsWith('https://') && res.ok) {
-      try {
-        const urlObj   = new URL(monitor.url)
-        const certRes  = await fetch(`https://api.certspotter.com/v1/issuances?domain=${urlObj.hostname}&expand=dns_names&expand=issuer&include_subdomains=false`, {
-          headers: { 'Accept': 'application/json' }
-        })
-        if (certRes.ok) {
-          const certs = await certRes.json()
-          if (certs?.length > 0) {
-            const latest = certs.sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime())[0]
-            if (latest?.not_after) {
-              sslExpiry = new Date(latest.not_after).toISOString().slice(0, 10)
+      // Check SSL expiry if HTTPS
+      if (monitor.url.startsWith('https://') && res.ok) {
+        try {
+          const urlObj   = new URL(monitor.url)
+          const certRes  = await fetch(`https://api.certspotter.com/v1/issuances?domain=${urlObj.hostname}&expand=dns_names&expand=issuer&include_subdomains=false`, {
+            headers: { 'Accept': 'application/json' }
+          })
+          if (certRes.ok) {
+            const certs = await certRes.json()
+            if (certs?.length > 0) {
+              const latest = certs.sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime())[0]
+              if (latest?.not_after) {
+                sslExpiry = new Date(latest.not_after).toISOString().slice(0, 10)
+              }
             }
           }
-        }
-      } catch { /* SSL check is best-effort */ }
+        } catch { /* SSL check is best-effort */ }
+      }
+    } catch (err) {
+      responseMs = Date.now() - start
+      status     = 'down'
+      error      = err.name === 'AbortError' ? 'Timeout (15s)' : err.message
     }
-  } catch (err) {
-    responseMs = Date.now() - start
-    status     = 'down'
-    error      = err.name === 'AbortError' ? 'Timeout (15s)' : err.message
   }
 
   // Record check result
