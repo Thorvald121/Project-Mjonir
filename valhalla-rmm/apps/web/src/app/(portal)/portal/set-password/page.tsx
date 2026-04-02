@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Loader2, CheckCircle2, Eye, EyeOff, Lock } from 'lucide-react'
+import { Loader2, CheckCircle2, Eye, EyeOff, Lock, AlertTriangle } from 'lucide-react'
 import { Suspense } from 'react'
 
 function SetPasswordForm() {
@@ -15,26 +15,20 @@ function SetPasswordForm() {
   const [confirm,  setConfirm]  = useState('')
   const [showPw,   setShowPw]   = useState(false)
   const [loading,  setLoading]  = useState(false)
-  const [ready,    setReady]    = useState(false)  // true once auth event fires
+  const [ready,    setReady]    = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const [done,     setDone]     = useState(false)
 
   useEffect(() => {
-    // Listen for Supabase auth events
-    // PASSWORD_RECOVERY fires when user arrives from a reset link
-    // SIGNED_IN fires when user arrives from an invite link (handled via /auth/confirm)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
-        if (session) setReady(true)
+    // Session was already established server-side by /auth/confirm
+    // Just verify it exists
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setReady(true)
+      } else {
+        setError('This link has expired or already been used. Please request a new one.')
       }
     })
-
-    // Also check for an existing session immediately (invite flow sets session before redirect)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
-
-    return () => subscription.unsubscribe()
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,13 +43,12 @@ function SetPasswordForm() {
     if (error) { setError(error.message); setLoading(false); return }
 
     setDone(true)
-    setLoading(false)
 
-    // Sign out and back in to get a clean session, then go to portal
+    // Sign out so they get a clean login, then redirect to portal login
     setTimeout(async () => {
       await supabase.auth.signOut()
-      router.push('/portal/login?message=password_set')
-    }, 2000)
+      router.replace('/portal/login?message=password_set')
+    }, 1500)
   }
 
   const inp = "w-full px-3 py-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white"
@@ -64,13 +57,9 @@ function SetPasswordForm() {
     <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950 p-4">
       <div className="w-full max-w-sm space-y-6">
 
-        {/* Header */}
         <div className="text-center">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500 mb-4">
-            {done
-              ? <CheckCircle2 className="w-6 h-6 text-white" />
-              : <Lock className="w-6 h-6 text-white" />
-            }
+            {done ? <CheckCircle2 className="w-6 h-6 text-white" /> : <Lock className="w-6 h-6 text-white" />}
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
             {done ? 'Password Set!' : 'Set Your Password'}
@@ -78,27 +67,35 @@ function SetPasswordForm() {
           <p className="text-sm text-slate-500 mt-1">
             {done
               ? 'Redirecting you to sign in…'
-              : 'Choose a secure password for your client portal'
-            }
+              : 'Choose a secure password to access your portal'}
           </p>
         </div>
 
-        {/* Loading — waiting for auth event */}
-        {!ready && !done && (
-          <div className="flex flex-col items-center gap-3 py-6">
+        {/* Checking session */}
+        {!ready && !error && !done && (
+          <div className="flex flex-col items-center gap-3 py-4">
             <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-            <p className="text-sm text-slate-400">Verifying your link…</p>
+            <p className="text-sm text-slate-400">Setting up your account…</p>
+          </div>
+        )}
+
+        {/* Error state */}
+        {error && !done && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-lg">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+            <a href="/portal/login"
+              className="block text-center px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+              Back to portal login
+            </a>
           </div>
         )}
 
         {/* Password form */}
         {ready && !done && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-lg">
-                {error}
-              </div>
-            )}
             <div className="space-y-1">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 New Password
@@ -139,7 +136,7 @@ function SetPasswordForm() {
           </form>
         )}
 
-        {/* Done state */}
+        {/* Done */}
         {done && (
           <div className="flex justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
