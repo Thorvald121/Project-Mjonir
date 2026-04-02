@@ -41,6 +41,11 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user) {
+    // Never redirect away from these pages — they handle their own auth state
+    if (path.startsWith('/portal/set-password') || path.startsWith('/auth/confirm')) {
+      return supabaseResponse
+    }
+
     const { data: member } = await supabase
       .from('organization_members').select('role').eq('user_id', user.id).single()
 
@@ -48,9 +53,7 @@ export async function middleware(request: NextRequest) {
     const isStaff = ['owner', 'admin', 'technician'].includes(role)
 
     // Redirect away from login pages
-    // But NOT if they're coming from an invite/reset link (verified=1 param)
-    const isPostVerify = request.nextUrl.searchParams.get('verified') === '1'
-    if ((path === '/login' || path === '/portal/login') && !isPostVerify) {
+    if (path === '/login' || path === '/portal/login') {
       return NextResponse.redirect(new URL(isStaff ? '/dashboard' : '/portal', request.url))
     }
 
