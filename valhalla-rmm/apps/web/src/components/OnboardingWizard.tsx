@@ -136,7 +136,7 @@ export default function OnboardingWizard({ onClose, onComplete }: {
         email:           inviteEmail,
         role:            'client',
         organization_id: orgId,
-        redirect_to:     `${window.location.origin}/portal`,
+        redirect_to:     `${window.location.origin}/auth/confirm`,
       }),
     })
     setInviteSent(true)

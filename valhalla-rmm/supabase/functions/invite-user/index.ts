@@ -30,7 +30,7 @@ serve(async (req) => {
 
     // Send invite via Supabase Admin API
     const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: redirect_to || `${Deno.env.get('SUPABASE_URL').replace('.supabase.co', '')}/invite`,
+      redirectTo: redirect_to || 'https://valhalla-rmm.com/auth/confirm',
       data: { role, organization_id },
     })
 

@@ -307,8 +307,8 @@ function TeamSection({ orgId }) {
     setInviting(true); setErr(null); setSuccess(null)
     try {
       const redirectTo = invRole === 'client'
-        ? `${window.location.origin}/portal`
-        : `${window.location.origin}/invite`
+        ? `${window.location.origin}/auth/confirm`
+        : `${window.location.origin}/auth/confirm`
       const { data, error } = await supabase.functions.invoke('invite-user', {
         body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: redirectTo }
       })
