@@ -979,6 +979,7 @@ export default function TicketDetailClient() {
       author_email:    user?.email ?? '',
       content:         noteText.trim(),
       is_staff:        noteMode === 'internal',
+      source:          noteMode === 'internal' ? 'internal' : 'reply',
       attachment_url,
       attachment_name,
     })

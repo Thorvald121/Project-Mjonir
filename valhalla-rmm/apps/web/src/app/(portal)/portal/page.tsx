@@ -86,7 +86,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.from('ticket_comments')
-        .select('*').eq('ticket_id', ticket.id).eq('is_staff', false)
+        .select('*').eq('ticket_id', ticket.id).neq('source', 'internal')
         .order('created_at', { ascending: true })
       setComments(data ?? [])
     }
@@ -128,7 +128,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
     setComment(''); setAttachment(null)
     // Reload comments
     const { data } = await supabase.from('ticket_comments')
-      .select('*').eq('ticket_id', ticket.id).eq('is_staff', false).order('created_at', { ascending: true })
+      .select('*').eq('ticket_id', ticket.id).neq('source', 'internal').order('created_at', { ascending: true })
     setComments(data ?? [])
     setSending(false)
   }
@@ -187,7 +187,7 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
             <div className={`max-w-[80%] flex flex-col gap-1 ${c.is_staff ? '' : 'items-end'}`}>
               <div className={`rounded-xl px-4 py-3 text-sm shadow-sm ${c.is_staff ? 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white' : 'bg-slate-700 text-slate-100'}`}>
                 <p className={`font-medium text-xs mb-1 ${c.is_staff ? 'text-slate-500' : 'text-slate-400'}`}>{c.is_staff ? `${c.author_name || c.author_email} · Support Team` : (c.author_name || c.author_email)}</p>
-                <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{c.content}</p>
+                <p className={`whitespace-pre-wrap break-words text-sm ${c.is_staff ? 'text-slate-700 dark:text-slate-200' : 'text-slate-100'}`}>{c.content}</p>
                 {c.attachment_url && (
                   <a href={c.attachment_url} target="_blank" rel="noreferrer"
                     className={`flex items-center gap-1.5 mt-2 text-xs underline ${c.is_staff ? 'text-amber-600' : 'text-slate-300'}`}>
