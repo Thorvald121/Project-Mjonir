@@ -170,6 +170,8 @@ serve(async (req) => {
     if (!ticket.contact_email && senderEmail) updates.contact_email = senderEmail
     // Re-open if client replies to a resolved/closed/waiting ticket
     if (['waiting', 'resolved', 'closed'].includes(ticket.status)) updates.status = 'open'
+    // Mark ticket as having an unread client reply
+    updates.last_customer_reply_at = new Date().toISOString()
     if (Object.keys(updates).length > 0) await supabase.from('tickets').update(updates).eq('id', ticketId)
 
     console.log('Added comment to ticket:', ticketId)

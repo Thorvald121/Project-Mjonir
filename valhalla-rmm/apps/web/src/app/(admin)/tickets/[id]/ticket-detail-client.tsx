@@ -1020,8 +1020,10 @@ export default function TicketDetailClient() {
       })
     }
 
-    if (noteMode === 'reply' && !t.first_response_at) {
-      await supabase.from('tickets').update({ first_response_at: new Date().toISOString() }).eq('id', currentId)
+    if (noteMode === 'reply') {
+      const staffUpdate: any = { last_customer_reply_at: null }
+      if (!t.first_response_at) staffUpdate.first_response_at = new Date().toISOString()
+      await supabase.from('tickets').update(staffUpdate).eq('id', currentId)
     }
     setNoteText('')
     setAttachment(null)

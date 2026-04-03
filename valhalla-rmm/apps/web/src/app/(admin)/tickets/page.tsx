@@ -354,7 +354,7 @@ export default function TicketsPage() {
   const buildQuery = useCallback((from = 0) => {
     const f = filtersRef.current
     let q = supabase.from('tickets')
-      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at')
+      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at,last_customer_reply_at')
       .order(f.sortField, { ascending: f.sortDir === 'asc' })
       .range(from, from + PAGE)
 
@@ -617,6 +617,11 @@ export default function TicketsPage() {
                     <td className="px-3 py-3 cursor-pointer max-w-xs" onClick={() => router.push(`/tickets/${t.id}`)}>
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-slate-900 dark:text-white hover:text-amber-600 transition-colors truncate">{t.title}</p>
+                        {t.last_customer_reply_at && (
+                          <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 animate-pulse">
+                            ● Client replied
+                          </span>
+                        )}
                         {slaState === 'breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
                         {slaState === 'warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
                         <SlaPredictionBadge ticket={t} compact />

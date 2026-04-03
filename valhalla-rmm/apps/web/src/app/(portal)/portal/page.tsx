@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import {
   Shield, Plus, Ticket, CheckCircle2, RefreshCw, ChevronRight,
   X, FileText, CreditCard, AlertCircle, ExternalLink, Monitor,
@@ -120,10 +121,10 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
       attachment_url,
       attachment_name,
     })
-    // Re-open if client replies to a resolved/closed/waiting ticket
-    if (['waiting', 'resolved', 'closed'].includes(ticket.status)) {
-      await supabase.from('tickets').update({ status: 'open' }).eq('id', ticket.id)
-    }
+    // Re-open ticket + mark unread client reply
+    const portalUpdate: any = { last_customer_reply_at: new Date().toISOString() }
+    if (['waiting', 'resolved', 'closed'].includes(ticket.status)) portalUpdate.status = 'open'
+    await supabase.from('tickets').update(portalUpdate).eq('id', ticket.id)
     setComment(''); setAttachment(null)
     // Reload comments
     const { data } = await supabase.from('ticket_comments')
@@ -945,6 +946,7 @@ export default function PortalPage() {
             )}
           </div>
         )}
+      </ErrorBoundary>
       </div>
     </div>
   )
