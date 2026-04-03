@@ -479,6 +479,8 @@ export default function PortalPage() {
     </div>
   )
 
+
+
   if (kbArticle) return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
       <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
@@ -508,7 +510,7 @@ export default function PortalPage() {
     </div>
   )
 
-  const TABS = [
+    const TABS = [
     { id: 'tickets',    label: 'Tickets',        icon: Ticket,   badge: null },
     { id: 'devices',    label: 'My Devices',      icon: Monitor,  badge: devices.filter(d => d.warranty_expiry && new Date(d.warranty_expiry) < new Date()).length > 0 ? '!' : null },
     { id: 'invoices',   label: 'Invoices',        icon: FileText, badge: invoices.filter(i => i.status === 'overdue').length > 0 ? '!' : null },
