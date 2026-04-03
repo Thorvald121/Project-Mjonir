@@ -574,6 +574,7 @@ export default function PortalPage() {
           ))}
         </div>
 
+        <ErrorBoundary label="this section">
         {/* ── TICKETS TAB ────────────────────────────────────────── */}
         {activeTab === 'tickets' && (
           <div className="space-y-4">
