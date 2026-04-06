@@ -1025,6 +1025,9 @@ export default function TicketDetailClient() {
       const staffUpdate: any = { last_customer_reply_at: null }
       if (!t.first_response_at) staffUpdate.first_response_at = new Date().toISOString()
       await supabase.from('tickets').update(staffUpdate).eq('id', currentId)
+      await loadTicket()  // refresh local ticket state so badge clears immediately
+      // Notify ticket list to re-fetch so badge clears there too
+      window.dispatchEvent(new CustomEvent('supabase:change', { detail: { table: 'tickets' } }))
     }
     setNoteText('')
     setAttachment(null)
