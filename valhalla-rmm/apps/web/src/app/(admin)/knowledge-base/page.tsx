@@ -102,14 +102,32 @@ function ArticleDialog({ open, onClose, onSaved, editing, orgId }) {
 function ArticleView({ article, onClose, onEdit, onHelpful }) {
   const renderMarkdown = (text) => {
     if (!text) return ''
-    return text
+    // Handle tables first (before other replacements)
+    let result = text
+    // Convert markdown tables
+    result = result.replace(/^\|(.+)\|$/gm, (match, row) => {
+      const cells = row.split('|').map(c => c.trim())
+      const isHeader = false
+      return '<tr>' + cells.map(c => `<td style="padding:6px 10px;border:1px solid #e2e8f0;font-size:13px;">${c}</td>`).join('') + '</tr>'
+    })
+    result = result.replace(/^\|[-| :]+\|$/gm, '') // remove separator rows
+    result = result.replace(/(<tr>.*<\/tr>\n?)+/gs, (m) => {
+      const rows = m.trim().split('\n')
+      const header = rows[0].replace(/td/g, 'th').replace(/style="[^"]*"/g, 'style="padding:6px 10px;border:1px solid #e2e8f0;font-size:12px;font-weight:600;background:#f8fafc;text-align:left;"')
+      const body = rows.slice(1).join('\n')
+      return `<table style="width:100%;border-collapse:collapse;margin:12px 0;"><thead>${header}</thead><tbody>${body}</tbody></table>`
+    })
+    return result
       .replace(/^### (.+)$/gm, '<h3 class="text-base font-bold text-slate-900 dark:text-white mt-4 mb-2">$1</h3>')
       .replace(/^## (.+)$/gm,  '<h2 class="text-lg font-bold text-slate-900 dark:text-white mt-5 mb-2">$1</h2>')
       .replace(/^# (.+)$/gm,   '<h1 class="text-xl font-bold text-slate-900 dark:text-white mt-5 mb-3">$1</h1>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g,     '<em>$1</em>')
       .replace(/`(.+?)`/g,       '<code class="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono">$1</code>')
+      .replace(/^> (.+)$/gm,     '<blockquote class="border-l-4 border-amber-400 pl-3 my-2 text-slate-500 italic text-sm">$1</blockquote>')
+      .replace(/^(\d+)\. (.+)$/gm, '<li class="ml-4 list-decimal">$2</li>')
       .replace(/^- (.+)$/gm,     '<li class="ml-4 list-disc">$1</li>')
+      .replace(/(<li[^>]*>.*<\/li>\n?)+/gs, m => `<ul class="space-y-1 my-2">${m}</ul>`)
       .replace(/\n\n/g, '</p><p class="mb-3">')
       .replace(/\n/g, '<br/>')
   }
