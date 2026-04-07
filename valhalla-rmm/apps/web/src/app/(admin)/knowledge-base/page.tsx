@@ -99,6 +99,130 @@ function ArticleDialog({ open, onClose, onSaved, editing, orgId }) {
   )
 }
 
+
+function ArticleFeedback({ article, onHelpful }) {
+  const supabase = createSupabaseBrowserClient()
+  const [voted,        setVoted]        = useState(null) // 'helpful' | 'not_helpful'
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedback,     setFeedback]     = useState('')
+  const [submitted,    setSubmitted]    = useState(false)
+  const [submitting,   setSubmitting]   = useState(false)
+
+  const REASONS = [
+    'Information is outdated',
+    'Steps didn\'t work for me',
+    'Missing information I needed',
+    'Too complicated / hard to follow',
+    'Not relevant to my issue',
+    'Other',
+  ]
+
+  const handleHelpful = () => {
+    if (voted) return
+    setVoted('helpful')
+    onHelpful(article.id, 'helpful_count', article.helpful_count || 0)
+  }
+
+  const handleNotHelpful = () => {
+    if (voted) return
+    setVoted('not_helpful')
+    onHelpful(article.id, 'not_helpful_count', article.not_helpful_count || 0)
+    setShowFeedback(true)
+  }
+
+  const handleSubmitFeedback = async () => {
+    if (!feedback.trim()) return
+    setSubmitting(true)
+    await supabase.from('kb_feedback').insert({
+      article_id:   article.id,
+      article_title: article.title,
+      feedback,
+      submitted_at: new Date().toISOString(),
+    })
+    setSubmitting(false)
+    setSubmitted(true)
+    setShowFeedback(false)
+  }
+
+  return (
+    <div className="mt-8 pt-5 border-t border-slate-200 dark:border-slate-800 space-y-3">
+      {!submitted ? (
+        <>
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-sm text-slate-500 dark:text-slate-400">Was this article helpful?</p>
+            <div className="flex items-center gap-2">
+              <button onClick={handleHelpful} disabled={!!voted}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                  voted === 'helpful'
+                    ? 'bg-emerald-100 border-emerald-300 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-700 dark:text-emerald-400'
+                    : voted
+                    ? 'border-slate-200 text-slate-300 dark:border-slate-700 dark:text-slate-600 cursor-not-allowed'
+                    : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950/20'
+                }`}>
+                👍 Helpful ({article.helpful_count || 0})
+              </button>
+              <button onClick={handleNotHelpful} disabled={!!voted}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                  voted === 'not_helpful'
+                    ? 'bg-rose-100 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-700 dark:text-rose-400'
+                    : voted
+                    ? 'border-slate-200 text-slate-300 dark:border-slate-700 dark:text-slate-600 cursor-not-allowed'
+                    : 'border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/20'
+                }`}>
+                👎 Not Helpful ({article.not_helpful_count || 0})
+              </button>
+            </div>
+          </div>
+
+          {/* Feedback form — shown after clicking Not Helpful */}
+          {showFeedback && (
+            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Help us improve — what was missing or wrong?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {REASONS.map(r => (
+                  <button key={r} onClick={() => setFeedback(r)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      feedback === r
+                        ? 'bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-400'
+                        : 'border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-amber-300 hover:text-amber-600'
+                    }`}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={feedback}
+                onChange={e => setFeedback(e.target.value)}
+                placeholder="Optional: add more detail…"
+                rows={2}
+                className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+              />
+              <div className="flex items-center gap-2">
+                <button onClick={handleSubmitFeedback} disabled={!feedback.trim() || submitting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors">
+                  {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  Submit Feedback
+                </button>
+                <button onClick={() => { setShowFeedback(false); setFeedback('') }}
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="w-4 h-4" />
+          Thanks for your feedback — we'll use it to improve this article.
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ArticleView({ article, onClose, onEdit, onHelpful }) {
   const renderMarkdown = (text) => {
     if (!text) return ''
@@ -152,17 +276,7 @@ function ArticleView({ article, onClose, onEdit, onHelpful }) {
       <div className="px-5 py-5">
         <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed prose-sm max-w-none"
           dangerouslySetInnerHTML={{ __html: `<p class="mb-3">${renderMarkdown(article.content)}</p>` }} />
-        <div className="mt-8 pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center gap-4">
-          <p className="text-sm text-slate-500">Was this article helpful?</p>
-          <button onClick={() => onHelpful(article.id, 'helpful_count', article.helpful_count || 0)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 text-sm transition-colors">
-            👍 Helpful ({article.helpful_count || 0})
-          </button>
-          <button onClick={() => onHelpful(article.id, 'view_count', article.view_count || 0)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 text-sm transition-colors">
-            👎 Not Helpful
-          </button>
-        </div>
+        <ArticleFeedback article={article} onHelpful={onHelpful} />
       </div>
     </div>
   )
@@ -213,7 +327,7 @@ export default function KnowledgeBasePage() {
   const handleHelpful = async (id, field, currentVal) => {
     await supabase.from('knowledge_articles').update({ [field]: currentVal + 1 }).eq('id', id)
     setViewing(v => v ? { ...v, [field]: currentVal + 1 } : v)
-    loadArticles()
+    setArticles(prev => prev.map(a => a.id === id ? { ...a, [field]: currentVal + 1 } : a))
   }
 
   const filtered = useMemo(() => articles.filter(a => {
