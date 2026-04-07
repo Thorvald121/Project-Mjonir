@@ -60,8 +60,10 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   const [saving,    setSaving]    = useState(false)
   const [err,       setErr]       = useState(null)
   const [techs,     setTechs]     = useState([])
-  const [templates, setTemplates] = useState([])
-  const [showTpl,   setShowTpl]   = useState(false)
+  const [templates,   setTemplates]   = useState([])
+  const [showTpl,     setShowTpl]     = useState(false)
+  const [kbSuggestions, setKbSuggestions] = useState([])
+  const [kbLoading,     setKbLoading]     = useState(false)
   const [form,   setForm]   = useState({
     title: '', description: '', priority: 'medium', category: 'other',
     customer_id: '', assigned_to: '', contact_name: '', contact_email: '', tags: '',
@@ -170,6 +172,29 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Title *</label>
             <input value={form.title} onChange={e => s('title',e.target.value)} required placeholder="Brief description of the issue" className={`mt-1 ${inp}`} autoFocus />
+            {/* KB suggestions */}
+            {kbSuggestions.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <BookOpen className="w-3 h-3" /> Related knowledge base articles — check before submitting:
+                </p>
+                {kbSuggestions.map(a => (
+                  <a key={a.id} href={`/knowledge-base`} target="_blank" rel="noreferrer"
+                    className="flex items-start gap-2 p-2 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 hover:bg-blue-100 dark:hover:bg-blue-950/40 transition-colors group">
+                    <BookOpen className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 group-hover:underline truncate">{a.title}</p>
+                      <p className="text-[11px] text-slate-500 truncate">{a.content?.replace(/<[^>]*>/g,'').slice(0,80)}…</p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+            {kbLoading && (
+              <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Searching knowledge base…
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
