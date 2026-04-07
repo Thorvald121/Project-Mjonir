@@ -2,7 +2,7 @@
 'use client'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Plus, Search, BookOpen, Pencil, Trash2, Loader2, X } from 'lucide-react'
+import { Plus, Search, BookOpen, Pencil, Trash2, Loader2, X, CheckCircle2, ThumbsUp, ThumbsDown } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -100,9 +100,10 @@ function ArticleDialog({ open, onClose, onSaved, editing, orgId }) {
 }
 
 
-function ArticleFeedback({ article, onHelpful }) {
+function ArticleFeedback({ article, onHelpful, votedArticles, setVotedArticles }) {
   const supabase = createSupabaseBrowserClient()
-  const [voted,        setVoted]        = useState(null) // 'helpful' | 'not_helpful'
+  const voted = votedArticles?.[article.id] || null
+  const setVoted = (val) => setVotedArticles(prev => ({ ...prev, [article.id]: val }))
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedback,     setFeedback]     = useState('')
   const [submitted,    setSubmitted]    = useState(false)
@@ -223,7 +224,7 @@ function ArticleFeedback({ article, onHelpful }) {
   )
 }
 
-function ArticleView({ article, onClose, onEdit, onHelpful }) {
+function ArticleView({ article, onClose, onEdit, onHelpful, votedArticles, setVotedArticles }) {
   const renderMarkdown = (text) => {
     if (!text) return ''
     // Handle tables first (before other replacements)
@@ -276,7 +277,7 @@ function ArticleView({ article, onClose, onEdit, onHelpful }) {
       <div className="px-5 py-5">
         <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed prose-sm max-w-none"
           dangerouslySetInnerHTML={{ __html: `<p class="mb-3">${renderMarkdown(article.content)}</p>` }} />
-        <ArticleFeedback article={article} onHelpful={onHelpful} />
+        <ArticleFeedback article={article} onHelpful={onHelpful} votedArticles={votedArticles} setVotedArticles={setVotedArticles} />
       </div>
     </div>
   )
@@ -294,6 +295,7 @@ export default function KnowledgeBasePage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing,    setEditing]    = useState(null)
   const [viewing,    setViewing]    = useState(null)
+  const [votedArticles, setVotedArticles] = useState({}) // persists votes: {articleId: 'helpful'|'not_helpful'}
 
   useEffect(() => {
     const init = async () => {
@@ -384,6 +386,8 @@ export default function KnowledgeBasePage() {
           onClose={() => setViewing(null)}
           onEdit={() => { setEditing(viewing); setDialogOpen(true) }}
           onHelpful={handleHelpful}
+          votedArticles={votedArticles}
+          setVotedArticles={setVotedArticles}
         />
       )}
 
