@@ -9,53 +9,177 @@ import {
   RotateCcw, CreditCard, ExternalLink, Link, Mail, Download,
 } from 'lucide-react'
 
-function buildInvoiceHtml(inv) {
-  const items = Array.isArray(inv.line_items) ? inv.line_items : []
-  const fmt = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+function buildInvoiceHtml(inv, org = {}) {
+  const items    = Array.isArray(inv.line_items) ? inv.line_items : []
+  const fmt      = (d) => d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
+  const fmtMoney = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const balance  = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
+  const accent   = org.brand_color || '#f59e0b'
+  const orgName  = org.name || 'Valhalla IT'
+  const orgEmail = org.company_email || ''
+  const orgPhone = org.phone || ''
+
+  const TERMS_LABELS = { net_15: 'Net 15', net_30: 'Net 30', net_60: 'Net 60', due_on_receipt: 'Due on Receipt' }
+
+  const STATUS_STYLE = {
+    paid:    'background:#d1fae5;color:#065f46;',
+    draft:   'background:#f1f5f9;color:#475569;',
+    sent:    'background:#dbeafe;color:#1e40af;',
+    overdue: 'background:#fee2e2;color:#991b1b;',
+    partial: 'background:#fef3c7;color:#92400e;',
+    void:    'background:#f1f5f9;color:#94a3b8;',
+  }
+  const statusStyle = STATUS_STYLE[inv.status] || STATUS_STYLE.sent
+  const statusLabel = inv.status ? inv.status.charAt(0).toUpperCase() + inv.status.slice(1) : 'Sent'
+
   const rows = items.map(i => `
     <tr>
-      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;">${i.description || ''}</td>
-      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:center;font-size:13px;">${i.quantity || 1}</td>
-      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;font-size:13px;">$${Number(i.unit_price || 0).toFixed(2)}</td>
-      <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;text-align:right;font-size:13px;font-weight:600;">$${(Number(i.quantity || 0) * Number(i.unit_price || 0)).toFixed(2)}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;">${i.description || ''}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:center;font-size:13px;color:#64748b;">${Number(i.quantity || 1)}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;color:#64748b;">${fmtMoney(i.unit_price)}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;font-weight:600;color:#1e293b;">${fmtMoney((i.quantity || 1) * (i.unit_price || 0))}</td>
     </tr>`).join('')
-  const balance = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
-  return `<!DOCTYPE html><html><head><title>Invoice ${inv.invoice_number || ''}</title>
-  <style>body{font-family:system-ui,sans-serif;margin:0;padding:40px;color:#1e293b;} @media print{body{padding:20px;}}</style>
-  </head><body>
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;">
-    <div><h1 style="font-size:28px;font-weight:700;margin:0;">Invoice</h1><p style="color:#64748b;margin:4px 0 0;">${inv.invoice_number || ''}</p></div>
-    <div style="text-align:right;">
-      <p style="font-size:13px;margin:0;color:#64748b;">Issued: ${fmt(inv.issue_date)}</p>
-      <p style="font-size:13px;margin:4px 0 0;color:#64748b;">Due: ${fmt(inv.due_date)}</p>
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Invoice ${inv.invoice_number || ''} — ${orgName}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; background: #fff; }
+    .page { max-width: 760px; margin: 0 auto; padding: 48px 48px 64px; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { padding: 32px; }
+      .no-print { display: none !important; }
+    }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; padding-bottom: 32px; border-bottom: 3px solid ${accent}; }
+    .org-name { font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
+    .org-contact { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.6; }
+    .invoice-meta { text-align: right; }
+    .invoice-title { font-size: 32px; font-weight: 800; color: #0f172a; letter-spacing: -1px; }
+    .invoice-number { font-size: 14px; color: #64748b; margin-top: 2px; }
+    .status-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 8px; ${statusStyle} }
+    .addresses { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 32px; }
+    .address-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #94a3b8; margin-bottom: 6px; }
+    .address-name { font-size: 16px; font-weight: 700; color: #0f172a; }
+    .address-detail { font-size: 13px; color: #64748b; margin-top: 2px; }
+    .dates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; background: #f8fafc; border-radius: 10px; padding: 16px 20px; margin-bottom: 32px; }
+    .date-item .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 4px; }
+    .date-item .value { font-size: 14px; font-weight: 600; color: #1e293b; }
+    .date-item .value.overdue { color: #dc2626; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    thead tr { border-bottom: 2px solid #0f172a; }
+    th { padding: 10px 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; text-align: left; }
+    th:not(:first-child) { text-align: right; }
+    th:nth-child(2) { text-align: center; }
+    .totals { margin-left: auto; width: 280px; }
+    .total-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; color: #64748b; }
+    .total-final { display: flex; justify-content: space-between; padding: 12px 0; font-size: 20px; font-weight: 800; color: #0f172a; border-top: 2px solid #0f172a; margin-top: 8px; }
+    .total-final span:last-child { color: ${accent}; }
+    .paid-badge { font-size: 10px; font-weight: 700; background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 20px; vertical-align: middle; margin-left: 8px; }
+    .notes { margin-top: 40px; padding: 16px 20px; background: #f8fafc; border-left: 4px solid ${accent}; border-radius: 0 8px 8px 0; }
+    .notes-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 6px; }
+    .notes-text { font-size: 13px; color: #475569; line-height: 1.6; white-space: pre-wrap; }
+    .footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
+    .print-btn { position: fixed; bottom: 24px; right: 24px; background: ${accent}; color: white; border: none; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 8px; }
+    .print-btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="org-name">${orgName}</div>
+      <div class="org-contact">
+        ${orgEmail ? orgEmail + '<br/>' : ''}
+        ${orgPhone ? orgPhone : ''}
+      </div>
+    </div>
+    <div class="invoice-meta">
+      <div class="invoice-title">Invoice</div>
+      <div class="invoice-number">${inv.invoice_number || ''}</div>
+      <div><span class="status-badge">${statusLabel}</span></div>
     </div>
   </div>
-  <div style="margin-bottom:32px;">
-    <p style="font-size:11px;text-transform:uppercase;color:#94a3b8;letter-spacing:0.05em;margin:0 0 4px;">Bill To</p>
-    <p style="font-size:16px;font-weight:600;margin:0;">${inv.customer_name || ''}</p>
-    ${inv.contact_email ? `<p style="font-size:13px;color:#64748b;margin:2px 0 0;">${inv.contact_email}</p>` : ''}
+
+  <!-- Addresses -->
+  <div class="addresses">
+    <div>
+      <div class="address-label">Bill To</div>
+      <div class="address-name">${inv.customer_name || ''}</div>
+      ${inv.contact_email ? `<div class="address-detail">${inv.contact_email}</div>` : ''}
+    </div>
+    <div style="text-align:right;">
+      <div class="address-label">From</div>
+      <div class="address-name">${orgName}</div>
+      ${orgEmail ? `<div class="address-detail">${orgEmail}</div>` : ''}
+    </div>
   </div>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
-    <thead><tr style="border-bottom:2px solid #1e293b;">
-      <th style="padding:8px 0;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.05em;">Description</th>
-      <th style="padding:8px 0;text-align:center;font-size:11px;text-transform:uppercase;color:#64748b;">Qty</th>
-      <th style="padding:8px 0;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b;">Rate</th>
-      <th style="padding:8px 0;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b;">Total</th>
-    </tr></thead>
+
+  <!-- Dates -->
+  <div class="dates">
+    <div class="date-item">
+      <div class="label">Invoice #</div>
+      <div class="value">${inv.invoice_number || '—'}</div>
+    </div>
+    <div class="date-item">
+      <div class="label">Issued</div>
+      <div class="value">${fmt(inv.issue_date)}</div>
+    </div>
+    <div class="date-item">
+      <div class="label">Due Date</div>
+      <div class="value ${inv.status === 'overdue' ? 'overdue' : ''}">${fmt(inv.due_date)}${inv.payment_terms ? ` <span style="font-size:11px;color:#94a3b8;">(${TERMS_LABELS[inv.payment_terms] || inv.payment_terms})</span>` : ''}</div>
+    </div>
+  </div>
+
+  <!-- Line items -->
+  <table>
+    <thead>
+      <tr>
+        <th style="width:50%;">Description</th>
+        <th style="width:10%;text-align:center;">Qty</th>
+        <th style="width:20%;text-align:right;">Rate</th>
+        <th style="width:20%;text-align:right;">Amount</th>
+      </tr>
+    </thead>
     <tbody>${rows}</tbody>
   </table>
-  <div style="margin-left:auto;max-width:240px;">
-    ${(inv.discount_amount || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:4px;"><span>Discount</span><span>-$${Number(inv.discount_amount).toFixed(2)}</span></div>` : ''}
-    ${(inv.tax_rate || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:4px;"><span>Tax (${inv.tax_rate}%)</span><span>$${Number(inv.tax_amount || 0).toFixed(2)}</span></div>` : ''}
-    ${(inv.amount_paid || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#10b981;margin-bottom:4px;"><span>Paid</span><span>-$${Number(inv.amount_paid).toFixed(2)}</span></div>` : ''}
-    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;border-top:2px solid #1e293b;padding-top:8px;margin-top:8px;">
+
+  <!-- Totals -->
+  <div class="totals">
+    ${inv.discount_amount > 0 ? `<div class="total-row"><span>Discount</span><span>-${fmtMoney(inv.discount_amount)}</span></div>` : ''}
+    ${inv.tax_rate > 0 ? `<div class="total-row"><span>Tax (${inv.tax_rate}%)</span><span>${fmtMoney(inv.tax_amount)}</span></div>` : ''}
+    ${inv.amount_paid > 0 ? `<div class="total-row" style="color:#059669;"><span>Paid</span><span>-${fmtMoney(inv.amount_paid)}</span></div>` : ''}
+    <div class="total-final">
       <span>${inv.amount_paid > 0 && balance < inv.total ? 'Balance Due' : 'Total'}</span>
-      <span style="color:#f59e0b;">$${balance.toFixed(2)}</span>
+      <span>${fmtMoney(balance)}</span>
     </div>
+    ${inv.status === 'paid' ? `<div style="text-align:center;margin-top:8px;"><span class="paid-badge">✓ PAID IN FULL</span></div>` : ''}
   </div>
-  ${inv.notes ? `<div style="margin-top:32px;padding:16px;background:#f8fafc;border-radius:8px;font-size:13px;color:#64748b;">${inv.notes}</div>` : ''}
-  </body></html>`
+
+  <!-- Notes -->
+  ${inv.notes ? `<div class="notes"><div class="notes-label">Notes</div><div class="notes-text">${inv.notes}</div></div>` : ''}
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>Thank you for your business</span>
+    <span>${orgName} · ${orgEmail}</span>
+  </div>
+</div>
+
+<!-- Print button (hidden when printing) -->
+<button class="print-btn no-print" onclick="window.print()">
+  🖨 Save as PDF
+</button>
+
+</body>
+</html>`
 }
+
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -112,7 +236,92 @@ function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = 
   )
 }
 
-function ViewDialog({ inv, onClose }) {
+
+function PartialPaymentSection({ inv, orgId, onPaid }) {
+  const supabase       = createSupabaseBrowserClient()
+  const balance        = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
+  const [loading,      setLoading]      = useState(false)
+  const [partialAmt,   setPartialAmt]   = useState('')
+  const [showPartial,  setShowPartial]  = useState(false)
+  const [copied,       setCopied]       = useState(false)
+
+  const openFullLink = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
+        body: { invoice_id: inv.id }
+      })
+      if (error || data?.error) { alert(`Stripe error: ${error?.message || data?.error}`); return }
+      if (data?.url) {
+        await supabase.from('invoices').update({ stripe_payment_url: data.url }).eq('id', inv.id)
+        window.open(data.url, '_blank')
+      }
+    } catch (e) { alert(`Error: ${e.message}`) }
+    finally { setLoading(false) }
+  }
+
+  const openPartialLink = async () => {
+    const amt = parseFloat(partialAmt)
+    if (!amt || amt <= 0 || amt > balance) { alert('Enter a valid amount up to the balance due'); return }
+    setLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('stripe-create-payment-link', {
+        body: { invoice_id: inv.id, partial_amount: amt }
+      })
+      if (error || data?.error) { alert(`Stripe error: ${error?.message || data?.error}`); return }
+      if (data?.url) window.open(data.url, '_blank')
+    } catch (e) { alert(`Error: ${e.message}`) }
+    finally { setLoading(false); setShowPartial(false); setPartialAmt('') }
+  }
+
+  const copyLink = async () => {
+    if (!inv.stripe_payment_url) return
+    try { await navigator.clipboard.writeText(inv.stripe_payment_url); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+    catch { window.prompt('Copy payment link:', inv.stripe_payment_url) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={openFullLink} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors">
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+          Pay Full Balance (${balance.toFixed(2)})
+        </button>
+        <button onClick={() => setShowPartial(p => !p)}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 transition-colors">
+          <DollarSign className="w-3.5 h-3.5" /> Partial Payment
+        </button>
+        {inv.stripe_payment_url && (
+          <button onClick={copyLink}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 transition-colors">
+            {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Link className="w-3.5 h-3.5" />}
+            {copied ? 'Copied!' : 'Copy Pay Link'}
+          </button>
+        )}
+      </div>
+      {showPartial && (
+        <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+          <span className="text-xs text-slate-500 flex-shrink-0">Amount $</span>
+          <input type="number" min={0.5} max={balance} step={0.01} value={partialAmt}
+            onChange={e => setPartialAmt(e.target.value)}
+            placeholder={`0.01 – ${balance.toFixed(2)}`}
+            className="flex-1 px-2 py-1 border border-slate-200 dark:border-slate-600 rounded text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button onClick={openPartialLink} disabled={loading || !partialAmt}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-xs font-semibold">
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Go'}
+          </button>
+          <button onClick={() => { setShowPartial(false); setPartialAmt('') }}
+            className="text-slate-400 hover:text-slate-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ViewDialog({ inv, onClose, orgId, loadAll }) {
   if (!inv) return null
   const items = Array.isArray(inv.line_items) ? inv.line_items : []
   const cfg = STATUS_CFG[inv.status] || STATUS_CFG.draft
@@ -128,12 +337,15 @@ function ViewDialog({ inv, onClose }) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                const printWindow = window.open('', '_blank')
-                const html = buildInvoiceHtml(inv)
-                printWindow.document.write(html)
-                printWindow.document.close()
-                printWindow.focus()
-                setTimeout(() => { printWindow.print() }, 500)
+                const html = buildInvoiceHtml(inv, org)
+                const blob = new Blob([html], { type: 'text/html' })
+                const url  = URL.createObjectURL(blob)
+                const a    = document.createElement('a')
+                a.href     = url
+                a.target   = '_blank'
+                a.rel      = 'noopener'
+                a.click()
+                setTimeout(() => URL.revokeObjectURL(url), 10000)
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               <Download className="w-3.5 h-3.5" /> Download PDF
@@ -182,13 +394,8 @@ function ViewDialog({ inv, onClose }) {
             </>}
           </div>
           {inv.notes && <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm text-slate-600 dark:text-slate-400">{inv.notes}</div>}
-          {inv.stripe_payment_url && inv.status !== 'paid' && (
-            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-900/40">
-              <Link className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <p className="text-xs text-amber-700 dark:text-amber-400 flex-1 truncate">{inv.stripe_payment_url}</p>
-              <button onClick={() => navigator.clipboard.writeText(inv.stripe_payment_url)}
-                className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex-shrink-0">Copy</button>
-            </div>
+          {inv.status !== 'paid' && (
+            <PartialPaymentSection inv={inv} orgId={orgId} onPaid={() => { setViewing(null); loadAll() }} />
           )}
         </div>
       </div>
@@ -647,6 +854,7 @@ export default function InvoicesPage() {
   const [timeEntries,   setTimeEntries]   = useState([])
   const [loading,       setLoading]       = useState(true)
   const [orgId,         setOrgId]         = useState(null)
+  const [org,           setOrg]           = useState({})
   const [dialogOpen,    setDialogOpen]    = useState(false)
   const [editing,       setEditing]       = useState(null)
   const [viewing,       setViewing]       = useState(null)
@@ -662,7 +870,13 @@ export default function InvoicesPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
-      if (member) setOrgId(member.organization_id)
+      if (member) {
+        setOrgId(member.organization_id)
+        // Load org branding for PDF
+        supabase.from('organizations').select('name,company_email,phone,brand_color,logo_url')
+          .eq('id', member.organization_id).single()
+          .then(({ data }) => { if (data) setOrg(data) })
+      }
       loadAll()
     }
     init()
@@ -870,7 +1084,7 @@ export default function InvoicesPage() {
         )}
       </div>
       <InvoiceDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditing(null) }} onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }} editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries} />
-      {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} />}
+      {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} orgId={orgId} loadAll={loadAll} />}
       {payingInv && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
       {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
     </div>
