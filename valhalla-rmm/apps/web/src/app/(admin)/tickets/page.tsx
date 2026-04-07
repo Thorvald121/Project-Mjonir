@@ -269,6 +269,7 @@ export default function TicketsPage() {
   const [dialogOpen,     setDialogOpen]     = useState(false)
   const [myEmail,        setMyEmail]        = useState(null)
   const [orgId,          setOrgId]          = useState(null)
+  const [techs,          setTechs]          = useState([])
 
   const PAGE = 100
 
