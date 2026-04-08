@@ -304,41 +304,62 @@ export default function PortalPage() {
         .select('id,name,company_email,logo_url,brand_color').eq('id', currentOrgId).single()
       setOrg(orgData)
 
-      // Find customer — try multiple strategies in order
+      // Find customer account for this portal user
+      // Primary: organization_members.customer_id (direct link set at invite time)
+      // Fallbacks: email matching via customer_contacts or customers.contact_email
       let cust = null
 
-      // Strategy 1: customer_contacts table
-      const { data: contactRows } = await supabase.from('customer_contacts')
-        .select('customer_id').eq('email', u.email).limit(1)
-      if (contactRows?.[0]?.customer_id) {
-        const { data: custData } = await supabase.from('customers')
-          .select('*').eq('id', contactRows[0].customer_id).single()
-        if (custData) cust = custData
+      // Primary — direct customer_id link on the member row (most reliable)
+      const { data: memberRow } = await supabase.from('organization_members')
+        .select('customer_id').eq('user_id', u.id).maybeSingle()
+
+      if (memberRow?.customer_id) {
+        const { data: byMember } = await supabase.from('customers')
+          .select('*').eq('id', memberRow.customer_id).maybeSingle()
+        if (byMember) cust = byMember
       }
 
-      // Strategy 2: customers.contact_email
+      // Fallback 1 — customer_contacts table email match
       if (!cust) {
-        const { data: byEmail } = await supabase.from('customers')
-          .select('*').eq('contact_email', u.email).eq('organization_id', currentOrgId).limit(1)
-        if (byEmail?.[0]) cust = byEmail[0]
-      }
-
-      // Strategy 3: organization_members customer_id column
-      if (!cust) {
-        const { data: memberRow } = await supabase.from('organization_members')
-          .select('customer_id').eq('user_id', u.id).maybeSingle()
-        if (memberRow?.customer_id) {
-          const { data: byMember } = await supabase.from('customers')
-            .select('*').eq('id', memberRow.customer_id).maybeSingle()
-          if (byMember) cust = byMember
+        const { data: contactRows } = await supabase.from('customer_contacts')
+          .select('customer_id').eq('email', u.email).limit(1)
+        if (contactRows?.[0]?.customer_id) {
+          const { data: custData } = await supabase.from('customers')
+            .select('*').eq('id', contactRows[0].customer_id).single()
+          if (custData) {
+            cust = custData
+            // Backfill the direct link so next login is instant
+            await supabase.from('organization_members')
+              .update({ customer_id: custData.id })
+              .eq('user_id', u.id)
+          }
         }
       }
 
-      // Strategy 4: user_metadata.customer_id (set during invite)
+      // Fallback 2 — customers.contact_email match
+      if (!cust) {
+        const { data: byEmail } = await supabase.from('customers')
+          .select('*').eq('contact_email', u.email).eq('organization_id', currentOrgId).limit(1)
+        if (byEmail?.[0]) {
+          cust = byEmail[0]
+          // Backfill the direct link
+          await supabase.from('organization_members')
+            .update({ customer_id: byEmail[0].id })
+            .eq('user_id', u.id)
+        }
+      }
+
+      // Fallback 3 — user_metadata.customer_id (legacy)
       if (!cust && u.user_metadata?.customer_id) {
         const { data: byMeta } = await supabase.from('customers')
           .select('*').eq('id', u.user_metadata.customer_id).maybeSingle()
-        if (byMeta) cust = byMeta
+        if (byMeta) {
+          cust = byMeta
+          // Backfill the direct link
+          await supabase.from('organization_members')
+            .update({ customer_id: byMeta.id })
+            .eq('user_id', u.id)
+        }
       }
 
       setCustomer(cust)

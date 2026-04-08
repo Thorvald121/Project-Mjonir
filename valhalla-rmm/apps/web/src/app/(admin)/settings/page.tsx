@@ -310,7 +310,7 @@ function TeamSection({ orgId }) {
         ? `${window.location.origin}/auth/confirm`
         : `${window.location.origin}/auth/confirm`
       const { data, error } = await supabase.functions.invoke('invite-user', {
-        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: redirectTo }
+        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: redirectTo, customer_id: invRole === 'client' && invCustomer ? invCustomer : undefined }
       })
       if (error) { setErr(error.message); return }
       if (data?.error) { setErr(data.error); return }

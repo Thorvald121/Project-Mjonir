@@ -137,6 +137,7 @@ export default function OnboardingWizard({ onClose, onComplete }: {
         role:            'client',
         organization_id: orgId,
         redirect_to:     `${window.location.origin}/auth/confirm`,
+        customer_id:     customerId,
       }),
     })
     setInviteSent(true)

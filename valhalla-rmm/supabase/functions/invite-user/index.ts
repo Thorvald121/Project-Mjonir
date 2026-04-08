@@ -16,7 +16,7 @@ serve(async (req) => {
     const body = await req.json()
     console.log('invite-user called with:', JSON.stringify({ ...body, organization_id: body.organization_id?.slice(0,8) + '...' }))
 
-    const { email, role, organization_id, redirect_to } = body
+    const { email, role, organization_id, redirect_to, customer_id } = body
 
     if (!email)           return json({ error: 'email is required' }, 400)
     if (!organization_id) return json({ error: 'organization_id is required' }, 400)
@@ -47,14 +47,17 @@ serve(async (req) => {
     const userId = inviteData?.user?.id
 
     if (userId) {
+      const memberPayload: any = {
+        user_id:         userId,
+        user_email:      email,
+        organization_id,
+        role:            role || 'client',
+      }
+      if (customer_id) memberPayload.customer_id = customer_id
+
       const { error: memberError } = await supabase
         .from('organization_members')
-        .upsert({
-          user_id:         userId,
-          user_email:      email,
-          organization_id,
-          role:            role || 'client',
-        }, { onConflict: 'user_id,organization_id' })
+        .upsert(memberPayload, { onConflict: 'user_id,organization_id' })
 
       if (memberError) {
         console.error('member upsert error:', memberError.message)
@@ -65,12 +68,14 @@ serve(async (req) => {
       const { data: users } = await supabase.auth.admin.listUsers()
       const existing = users?.users?.find(u => u.email === email)
       if (existing) {
-        await supabase.from('organization_members').upsert({
+        const existingPayload: any = {
           user_id:         existing.id,
           user_email:      email,
           organization_id,
           role:            role || 'client',
-        }, { onConflict: 'user_id,organization_id' })
+        }
+        if (customer_id) existingPayload.customer_id = customer_id
+        await supabase.from('organization_members').upsert(existingPayload, { onConflict: 'user_id,organization_id' })
       }
     }
 
