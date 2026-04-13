@@ -119,7 +119,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
     setForm({ title:'', description:'', priority:'medium', category:'other', customer_id:'', assigned_to:'', contact_name:'', contact_email:'', tags:'' })
     setErr(null); setShowTpl(false); setKbSuggestions([])
     supabase.from('organization_members').select('id,user_email,display_name,role')
-      .eq('role', 'technician').or('role.eq.admin,role.eq.owner')
+      .in('role', ['owner','admin','technician'])
       .then(({ data }) => setTechs(data ?? []))
     supabase.from('ticket_templates').select('id,name,title,description,priority,category,tags')
       .then(({ data }) => setTemplates(data ?? []))
@@ -538,7 +538,7 @@ export default function TicketsPage() {
       }
     }
     init()
-    supabase.from('customers').select('id,name').eq('status','active').order('name').limit(500)
+    supabase.from('customers').select('id,name,contact_email').eq('status','active').order('name').limit(500)
       .then(({ data }) => setCustomers(data ?? []))
     supabase.from('csat_responses').select('ticket_id,score').not('ticket_id','is',null).limit(2000)
       .then(({ data }) => {
