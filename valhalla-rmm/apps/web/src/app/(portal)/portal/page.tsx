@@ -10,7 +10,7 @@ import {
   X, FileText, CreditCard, AlertCircle, ExternalLink, Monitor,
   AlertTriangle, HardDrive, BookOpen, LogOut, ArrowLeft,
   Paperclip, Send, Loader2, MessageSquare, User, Search, Package,
-  Activity, Globe, Moon, Sun,
+  Activity, Globe, Moon, Sun, Download,
 } from 'lucide-react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,6 +73,114 @@ function PayButton({ invId, onLink }: { invId: string, onLink: (url: string) => 
       {loading ? 'Loading…' : 'Pay Now'}
     </button>
   )
+}
+
+
+function buildPortalInvoiceHtml(inv, org = {}) {
+  const items    = Array.isArray(inv.line_items) ? inv.line_items : []
+  const fmt      = (d) => d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'
+  const fmtMoney = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const balance  = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
+  const accent   = org?.brand_color || '#f59e0b'
+  const orgName  = org?.name || 'Valhalla IT'
+  const orgEmail = org?.company_email || 'support@valhalla-it.net'
+  const paid     = inv.status === 'paid'
+
+  const STATUS_STYLE = {
+    paid:    'background:#d1fae5;color:#065f46;',
+    overdue: 'background:#fee2e2;color:#991b1b;',
+    partial: 'background:#fef3c7;color:#92400e;',
+    sent:    'background:#dbeafe;color:#1e40af;',
+    draft:   'background:#f1f5f9;color:#475569;',
+  }
+  const statusStyle = STATUS_STYLE[inv.status] || STATUS_STYLE.sent
+  const statusLabel = inv.status ? inv.status.charAt(0).toUpperCase() + inv.status.slice(1) : 'Sent'
+
+  const rows = items.map(i => `
+    <tr>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;">${i.description || ''}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:center;font-size:13px;color:#64748b;">${Number(i.quantity || 1)}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;color:#64748b;">${fmtMoney(i.unit_price)}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;font-weight:600;color:#1e293b;">${fmtMoney((i.quantity || 1) * (i.unit_price || 0))}</td>
+    </tr>`).join('')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Invoice ${inv.invoice_number || ''} — ${orgName}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; background: #fff; }
+    .page { max-width: 760px; margin: 0 auto; padding: 48px 48px 64px; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page { padding: 32px; } .no-print { display: none !important; } }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; padding-bottom: 32px; border-bottom: 3px solid ${accent}; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th { padding: 10px 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; text-align: left; border-bottom: 2px solid #0f172a; }
+    th:not(:first-child) { text-align: right; }
+    th:nth-child(2) { text-align: center; }
+    .print-btn { position: fixed; bottom: 24px; right: 24px; background: ${accent}; color: white; border: none; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div style="font-size:22px;font-weight:800;color:#0f172a;">${orgName}</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px;">${orgEmail}</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:32px;font-weight:800;color:#0f172a;">Invoice</div>
+      <div style="font-size:14px;color:#64748b;">${inv.invoice_number || ''}</div>
+      <div style="margin-top:8px;"><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;${statusStyle}">${statusLabel}</span></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:32px;">
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#94a3b8;margin-bottom:6px;">Bill To</div>
+      <div style="font-size:16px;font-weight:700;color:#0f172a;">${inv.customer_name || ''}</div>
+      ${inv.contact_email ? `<div style="font-size:13px;color:#64748b;margin-top:2px;">${inv.contact_email}</div>` : ''}
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#94a3b8;margin-bottom:6px;">Details</div>
+      <div style="font-size:13px;color:#1e293b;">Issued: ${fmt(inv.issue_date)}</div>
+      <div style="font-size:13px;color:#1e293b;margin-top:2px;">Due: ${fmt(inv.due_date)}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th style="width:50%;">Description</th>
+      <th style="width:10%;text-align:center;">Qty</th>
+      <th style="width:20%;text-align:right;">Rate</th>
+      <th style="width:20%;text-align:right;">Amount</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <div style="margin-left:auto;width:280px;">
+    ${(inv.discount_amount || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:4px;"><span>Discount</span><span>-${fmtMoney(inv.discount_amount)}</span></div>` : ''}
+    ${(inv.tax_rate || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#64748b;margin-bottom:4px;"><span>Tax (${inv.tax_rate}%)</span><span>${fmtMoney(inv.tax_amount)}</span></div>` : ''}
+    ${(inv.amount_paid || 0) > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:#059669;margin-bottom:4px;"><span>Paid</span><span>-${fmtMoney(inv.amount_paid)}</span></div>` : ''}
+    <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:800;color:#0f172a;border-top:2px solid #0f172a;padding-top:8px;margin-top:8px;">
+      <span>${paid ? 'Total' : 'Balance Due'}</span>
+      <span style="color:${accent};">${fmtMoney(paid ? inv.total : balance)}</span>
+    </div>
+    ${paid ? `<div style="text-align:center;margin-top:8px;"><span style="background:#d1fae5;color:#065f46;font-size:11px;font-weight:700;padding:3px 12px;border-radius:20px;">✓ PAID IN FULL</span></div>` : ''}
+  </div>
+
+  ${inv.notes ? `<div style="margin-top:32px;padding:16px;background:#f8fafc;border-left:4px solid ${accent};font-size:13px;color:#475569;">${inv.notes}</div>` : ''}
+
+  <div style="margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;display:flex;justify-content:space-between;">
+    <span>Thank you for your business</span>
+    <span>${orgName} · ${orgEmail}</span>
+  </div>
+</div>
+<button class="no-print" onclick="window.print()" style="position:fixed;bottom:24px;right:24px;background:${accent};color:white;border:none;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;">
+  🖨 Save as PDF
+</button>
+</body></html>`
 }
 
 function PortalTicketDetail({ ticket, user, orgId, onBack }) {
@@ -251,6 +359,7 @@ export default function PortalPage() {
   const [customer,      setCustomer]      = useState(null)
   const [tickets,       setTickets]       = useState([])
   const [invoices,      setInvoices]      = useState([])
+  const [viewingInvoice, setViewingInvoice] = useState(null)
   const [devices,       setDevices]       = useState([])
   const [kbArticles,    setKbArticles]    = useState([])
   const [plan,          setPlan]          = useState(null)
@@ -372,7 +481,7 @@ export default function PortalPage() {
           : supabase.from('tickets').select('id,title,status,priority,category,description,created_at,assigned_to,sla_due_date')
               .eq('contact_email', u.email).neq('source', 'import').order('created_at', { ascending: false }).limit(100),
         cust?.id
-          ? supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url')
+          ? supabase.from('invoices').select('id,invoice_number,total,status,issue_date,due_date,amount_paid,stripe_payment_url,line_items,tax_rate,tax_amount,discount_amount,notes,contact_email')
               .eq('customer_id', cust.id).order('issue_date', { ascending: false }).limit(50)
           : Promise.resolve({ data: [] }),
         cust?.id
@@ -813,41 +922,129 @@ export default function PortalPage() {
               const paid     = inv.status === 'paid'
               const unpaid   = ['sent','overdue','partial'].includes(inv.status)
               const balance  = Math.max(0, (inv.total || 0) - (inv.amount_paid || 0))
+              const isViewing = viewingInvoice?.id === inv.id
               return (
-                <div key={inv.id} className={`bg-white dark:bg-slate-900 rounded-xl border shadow-sm p-4 flex items-center justify-between gap-4 ${overdue ? 'border-rose-300' : 'border-slate-200'}`}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${overdue ? 'bg-rose-100' : paid ? 'bg-emerald-100' : 'bg-amber-100'}`}>
-                      {overdue ? <AlertCircle className="w-4 h-4 text-rose-600" /> : paid ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <CreditCard className="w-4 h-4 text-amber-600" />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-sm text-slate-900 dark:text-white">
-                        {inv.invoice_number ? `#${inv.invoice_number}` : 'Invoice'}
-                        {inv.due_date && <span className="font-normal text-slate-400 ml-2 text-xs">Due {fmtDate(inv.due_date)}</span>}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${overdue ? 'bg-rose-100 text-rose-700' : paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{lbl(inv.status)}</span>
-                        {inv.issue_date && <span className="text-xs text-slate-400">Issued {fmtDate(inv.issue_date)}</span>}
+                <div key={inv.id} className={`bg-white dark:bg-slate-900 rounded-xl border shadow-sm overflow-hidden ${overdue ? 'border-rose-300 dark:border-rose-800' : 'border-slate-200 dark:border-slate-800'}`}>
+                  {/* Invoice header row */}
+                  <div className="p-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${overdue ? 'bg-rose-100' : paid ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                        {overdue ? <AlertCircle className="w-4 h-4 text-rose-600" /> : paid ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <CreditCard className="w-4 h-4 text-amber-600" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm text-slate-900 dark:text-white">
+                          {inv.invoice_number ? `#${inv.invoice_number}` : 'Invoice'}
+                          {inv.due_date && <span className="font-normal text-slate-400 ml-2 text-xs">Due {fmtDate(inv.due_date)}</span>}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${overdue ? 'bg-rose-100 text-rose-700' : paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{lbl(inv.status)}</span>
+                          {inv.issue_date && <span className="text-xs text-slate-400">Issued {fmtDate(inv.issue_date)}</span>}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className="text-right">
-                      <p className="font-bold text-slate-900 dark:text-white text-sm">${(inv.total ?? 0).toFixed(2)}</p>
-                      {unpaid && balance < (inv.total || 0) && <p className="text-xs text-slate-400">Balance: ${balance.toFixed(2)}</p>}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="text-right mr-1">
+                        <p className="font-bold text-slate-900 dark:text-white text-sm">${(inv.total ?? 0).toFixed(2)}</p>
+                        {unpaid && balance < (inv.total || 0) && <p className="text-xs text-slate-400">Bal: ${balance.toFixed(2)}</p>}
+                      </div>
+                      {/* View details toggle */}
+                      <button onClick={() => setViewingInvoice(isViewing ? null : inv)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                        <FileText className="w-3.5 h-3.5" />
+                        {isViewing ? 'Hide' : 'Details'}
+                      </button>
+                      {unpaid && inv.stripe_payment_url && (
+                        <a href={inv.stripe_payment_url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                          Pay Now <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                      {unpaid && !inv.stripe_payment_url && (
+                        <PayButton invId={inv.id} onLink={(url) => {
+                          setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, stripe_payment_url: url } : i))
+                          window.open(url, '_blank')
+                        }} />
+                      )}
                     </div>
-                    {unpaid && inv.stripe_payment_url && (
-                      <a href={inv.stripe_payment_url} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
-                        Pay Now <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                    {unpaid && !inv.stripe_payment_url && (
-                      <PayButton invId={inv.id} onLink={(url) => {
-                        setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, stripe_payment_url: url } : i))
-                        window.open(url, '_blank')
-                      }} />
-                    )}
                   </div>
+
+                  {/* Expandable detail section */}
+                  {isViewing && (
+                    <div className="border-t border-slate-100 dark:border-slate-800 px-4 pb-4 pt-3 space-y-3">
+                      {/* Line items */}
+                      {Array.isArray(inv.line_items) && inv.line_items.length > 0 && (
+                        <div>
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200 dark:border-slate-700">
+                                <th className="text-left text-xs font-semibold text-slate-400 pb-2">Description</th>
+                                <th className="text-center text-xs font-semibold text-slate-400 pb-2 w-12">Qty</th>
+                                <th className="text-right text-xs font-semibold text-slate-400 pb-2 w-20">Rate</th>
+                                <th className="text-right text-xs font-semibold text-slate-400 pb-2 w-20">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {inv.line_items.map((item, i) => (
+                                <tr key={i}>
+                                  <td className="py-2 text-slate-700 dark:text-slate-300 text-sm pr-4">{item.description}</td>
+                                  <td className="py-2 text-center text-slate-500 text-sm">{item.quantity}</td>
+                                  <td className="py-2 text-right text-slate-500 text-sm">${Number(item.unit_price || 0).toFixed(2)}</td>
+                                  <td className="py-2 text-right text-slate-900 dark:text-white font-medium text-sm">${(Number(item.quantity || 1) * Number(item.unit_price || 0)).toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Totals */}
+                      <div className="flex justify-end">
+                        <div className="w-52 space-y-1 text-sm">
+                          {(inv.discount_amount || 0) > 0 && (
+                            <div className="flex justify-between text-slate-500">
+                              <span>Discount</span>
+                              <span>-${Number(inv.discount_amount).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {(inv.tax_rate || 0) > 0 && (
+                            <div className="flex justify-between text-slate-500">
+                              <span>Tax ({inv.tax_rate}%)</span>
+                              <span>${Number(inv.tax_amount || 0).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {(inv.amount_paid || 0) > 0 && (
+                            <div className="flex justify-between text-emerald-600">
+                              <span>Paid</span>
+                              <span>-${Number(inv.amount_paid).toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-1.5 mt-1">
+                            <span>{unpaid && balance < (inv.total || 0) ? 'Balance Due' : 'Total'}</span>
+                            <span className="text-amber-600">${paid ? Number(inv.total || 0).toFixed(2) : balance.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {inv.notes && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 italic border-t border-slate-100 dark:border-slate-800 pt-2">{inv.notes}</p>
+                      )}
+
+                      {/* Download PDF */}
+                      <div className="flex justify-end pt-1">
+                        <button onClick={() => {
+                          const html = buildPortalInvoiceHtml(inv, org)
+                          const blob = new Blob([html], { type: 'text/html' })
+                          const url  = URL.createObjectURL(blob)
+                          const a    = document.createElement('a')
+                          a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.click()
+                          setTimeout(() => URL.revokeObjectURL(url), 10000)
+                        }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                          <Download className="w-3.5 h-3.5" /> Download PDF
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
