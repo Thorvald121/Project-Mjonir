@@ -91,7 +91,7 @@ function OrgSection({ org, onSaved }) {
         <input type="email" value={form.company_email} onChange={e => sf('company_email', e.target.value)} placeholder="support@yourcompany.com" className={inp} />
       </FieldRow>
       <FieldRow label="App URL" hint="Public URL — used in CSAT links and email footers.">
-        <input value={form.app_url} onChange={e => sf('app_url', e.target.value)} placeholder="https://valhalla-rmm.com" className={inp} />
+        <input value={form.app_url} onChange={e => sf('app_url', e.target.value)} placeholder="https://valhalla-it.net" className={inp} />
       </FieldRow>
       <FieldRow label="Client Portal URL" hint="Share with clients.">
         <div className="flex items-center gap-2">
@@ -234,7 +234,7 @@ function IntegrationsSection({ org }) {
   ]
   const SCLS = { configured: 'bg-emerald-100 text-emerald-700', not_configured: 'bg-amber-100 text-amber-700', manual: 'bg-blue-100 text-blue-700' }
   return (
-    <Section title="Integrations" description="External services connected to Valhalla RMM.">
+    <Section title="Integrations" description="External services connected to Valhalla IT.">
       <div className="space-y-3">
         {items.map(item => (
           <div key={item.name} className="flex items-start gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -278,7 +278,7 @@ function TeamSection({ orgId }) {
 
   const loadMembers = async () => {
     setLoading(true)
-    const { data } = await supabase.from('organization_members').select('id,user_email,role,display_name').eq('organization_id', orgId).order('created_at')
+    const { data } = await supabase.from('organization_members').select('id,user_email,role,display_name,customer_id').eq('organization_id', orgId).order('created_at')
     setMembers(data ?? [])
     setLoading(false)
   }
@@ -348,7 +348,7 @@ function TeamSection({ orgId }) {
   const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
 
   return (
-    <Section title="Team Members" description="Manage who has access to your Valhalla RMM account.">
+    <Section title="Team Members" description="Manage who has access to your Valhalla IT account.">
       <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
         <p className="text-sm font-medium text-slate-900 dark:text-white">Invite Team Member or Client</p>
         <p className="text-xs text-slate-400">They will receive an email with a link to set their password. <strong>Clients</strong> will be directed to the client portal at <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/portal</code> — they must use a separate browser or incognito window to log in there.</p>
@@ -422,9 +422,7 @@ function TeamSection({ orgId }) {
                       onClick={async () => {
                         if (!confirm(`Send password reset email to ${member.user_email}?`)) return
                         const { error } = await supabase.auth.resetPasswordForEmail(member.user_email, {
-                          redirectTo: member.role === 'client'
-                            ? `${window.location.origin}/portal`
-                            : `${window.location.origin}/invite`,
+                          redirectTo: `${window.location.origin}/auth/confirm`,
                         })
                         if (error) alert('Error: ' + error.message)
                         else alert(`Password reset email sent to ${member.user_email}`)
@@ -445,11 +443,25 @@ function TeamSection({ orgId }) {
                       if (!cust) return null
                       return (
                         <div key={custId} className="flex items-center gap-1.5">
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">{cust.name}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            member.customer_id === custId
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 ring-1 ring-amber-400'
+                              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                          }`}>
+                            {cust.name}
+                            {member.customer_id === custId && <span className="ml-1 text-[10px]">✓ portal</span>}
+                          </span>
                           <button
                             onClick={async () => {
                               await supabase.from('customer_contacts').delete().eq('customer_id', custId).eq('email', member.user_email)
+                              // Clear organization_members.customer_id if it matches
+                              if (member.customer_id === custId) {
+                                await supabase.from('organization_members')
+                                  .update({ customer_id: null })
+                                  .eq('id', member.id)
+                              }
                               loadCustomers()
+                              loadMembers()
                             }}
                             className="text-slate-300 hover:text-rose-500 transition-colors text-xs leading-none">✕</button>
                         </div>
@@ -461,6 +473,7 @@ function TeamSection({ orgId }) {
                       onChange={async (e) => {
                         const custId = e.target.value
                         if (!custId) return
+                        // Write to customer_contacts for contact lookup
                         await supabase.from('customer_contacts').upsert({
                           organization_id: orgId,
                           customer_id:     custId,
@@ -468,7 +481,12 @@ function TeamSection({ orgId }) {
                           name:            member.display_name || member.user_email.split('@')[0],
                           role:            'contact',
                         }, { onConflict: 'customer_id,email', ignoreDuplicates: true })
+                        // Also update organization_members.customer_id — this is what the portal uses
+                        await supabase.from('organization_members')
+                          .update({ customer_id: custId })
+                          .eq('id', member.id)
                         loadCustomers()
+                        loadMembers()
                       }}
                       className="px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
@@ -522,7 +540,7 @@ function AccountSection({ user }) {
 
   const startEnroll = async () => {
     setEnrolling(true); setVerifyErr(null)
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Valhalla RMM' })
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Valhalla IT' })
     if (error) { setVerifyErr(error.message); setEnrolling(false); return }
     setQrCode(data.totp.qr_code)
     setSecret(data.totp.secret)
