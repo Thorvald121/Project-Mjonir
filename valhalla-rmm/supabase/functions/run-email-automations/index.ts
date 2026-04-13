@@ -92,7 +92,7 @@ serve(async (req) => {
           'Content-Type':  'application/json',
         },
         body: JSON.stringify({
-          from:    'Valhalla IT Support <support@valhalla-rmm.com>',
+          from:    'Valhalla IT Support <support@valhalla-it.net>',
           to:      [toEmail],
           subject,
           html,

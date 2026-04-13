@@ -33,8 +33,8 @@ serve(async (req) => {
       try { config = typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config } catch {}
     }
 
-    const fromName  = org.name || 'Valhalla RMM'
-    const fromEmail = `${fromName} <support@valhalla-rmm.com>`
+    const fromName  = org.name || 'Valhalla IT'
+    const fromEmail = `${fromName} <support@valhalla-it.net>`
     const appUrl    = Deno.env.get('APP_URL') || 'https://project-mjonir.vercel.app'
 
     const sends = []

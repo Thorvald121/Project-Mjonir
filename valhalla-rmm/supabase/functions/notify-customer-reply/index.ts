@@ -32,14 +32,14 @@ serve(async (req) => {
     }
     if (!config.customer_reply_push) return ok('skipped: notifications off')
 
-    const orgName = org?.name || 'Valhalla RMM'
+    const orgName = org?.name || 'Valhalla IT'
     const preview = (comment.content || '').slice(0, 120) + ((comment.content || '').length > 120 ? '…' : '')
 
     const res = await fetch('https://api.resend.com/emails', {
       method:  'POST',
       headers: { 'Authorization': 'Bearer ' + RESEND_KEY, 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        from:    `${orgName} <support@valhalla-rmm.com>`,
+        from:    `${orgName} <support@valhalla-it.net>`,
         to:      [ticket.assigned_to],
         subject: `[Client Reply] ${ticket.title}`,
         html:    `

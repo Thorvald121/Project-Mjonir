@@ -27,7 +27,7 @@ serve(async (req) => {
       })
     }
 
-    const fromAddress = from || 'Valhalla IT <invoices@valhalla-rmm.com>'
+    const fromAddress = from || 'Valhalla IT <invoices@valhalla-it.net>'
 
     const payload = {
       from:    fromAddress,

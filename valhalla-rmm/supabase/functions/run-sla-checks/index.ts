@@ -18,7 +18,7 @@ serve(async () => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
     const RESEND_KEY = Deno.env.get('RESEND_API_KEY')
-    const APP_URL    = Deno.env.get('APP_URL') || 'https://valhalla-rmm.com'
+    const APP_URL    = Deno.env.get('APP_URL') || 'https://valhalla-it.net'
     const now        = new Date()
     const oneHour    = new Date(now.getTime() + 60 * 60 * 1000).toISOString()
 
@@ -144,7 +144,7 @@ async function sendEmail(resendKey, { to, subject, html }) {
       method:  'POST',
       headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        from:    'Valhalla IT Alerts <support@valhalla-rmm.com>',
+        from:    'Valhalla IT Alerts <support@valhalla-it.net>',
         to:      [to],
         subject,
         html,

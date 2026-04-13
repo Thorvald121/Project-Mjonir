@@ -1012,7 +1012,7 @@ export default function TicketDetailClient() {
 
       await supabase.functions.invoke('send-invoice-email', {
         body: {
-          from:     'Valhalla IT Support <support@valhalla-rmm.com>',
+          from:     'Valhalla IT Support <support@valhalla-it.net>',
           reply_to: `support+${currentId}@valhalla-rmm.com`,
           to:       t.contact_email,
           subject,

@@ -167,7 +167,7 @@ async function checkMonitor(monitor, supabase, resendKey, appUrl) {
       const html    = `
 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;background:#f8fafc;">
   <div style="background:#0f172a;padding:16px 24px;border-radius:12px 12px 0 0;border-left:4px solid ${color};">
-    <h2 style="color:${color};margin:0;font-size:15px;">${emoji} ${org.name || 'Valhalla RMM'} — Monitor Alert</h2>
+    <h2 style="color:${color};margin:0;font-size:15px;">${emoji} ${org.name || 'Valhalla IT'} — Monitor Alert</h2>
   </div>
   <div style="background:#fff;padding:20px 24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
     <table style="width:100%;font-size:13px;border-collapse:collapse;">
@@ -188,7 +188,7 @@ async function checkMonitor(monitor, supabase, resendKey, appUrl) {
         method:  'POST',
         headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          from:    `${org.name || 'Valhalla RMM'} <support@valhalla-rmm.com>`,
+          from:    `${org.name || 'Valhalla IT'} <support@valhalla-it.net>`,
           to:      [org.company_email],
           subject,
           html,
