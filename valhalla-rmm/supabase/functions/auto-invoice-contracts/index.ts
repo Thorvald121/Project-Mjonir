@@ -20,11 +20,12 @@ serve(async (req) => {
     const now     = new Date()
     const today   = now.toISOString().slice(0, 10)
 
-    // Fetch active contracts with a value and billing cycle
+    // Fetch active contracts with auto_invoice enabled
     const query = supabase
       .from('contracts')
       .select('*')
       .eq('status', 'active')
+      .eq('auto_invoice', true)
       .not('value', 'is', null)
       .not('billing_cycle', 'eq', 'one_time')
       .not('start_date', 'is', null)
@@ -82,8 +83,49 @@ serve(async (req) => {
         next_invoice_date: nextDate,
       }).eq('id', contract.id)
 
-      invoiced.push(contract.id)
+      invoiced.push({ id: contract.id, title: contract.title, invoice: invoiceNumber, customer: contract.customer_name })
       console.log(`Invoiced contract ${contract.id} (${contract.title}) → ${invoiceNumber}`)
+    }
+
+    // Send summary email to admin if any invoices were created
+    const RESEND_KEY = Deno.env.get('RESEND_API_KEY')
+    if (RESEND_KEY && invoiced.length > 0) {
+      const rows = invoiced.map(i =>
+        `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${i.customer || '—'}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${i.title}</td>` +
+        `<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;">${i.invoice}</td></tr>`
+      ).join('')
+      const APP_URL = Deno.env.get('APP_URL') || 'https://valhalla-rmm.com'
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from:    'Valhalla IT <support@valhalla-it.net>',
+          to:      ['admin@valhalla-it.net'],
+          subject: `${invoiced.length} draft invoice${invoiced.length > 1 ? 's' : ''} created from contracts`,
+          html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#f8fafc;">
+  <div style="background:#0f172a;padding:16px 20px;border-radius:12px 12px 0 0;border-left:5px solid #f59e0b;">
+    <h2 style="color:#f59e0b;margin:0;font-size:15px;">Contract Auto-Invoicing</h2>
+    <p style="color:#94a3b8;margin:4px 0 0;font-size:12px;">${invoiced.length} draft invoice${invoiced.length > 1 ? 's' : ''} created — ${today}</p>
+  </div>
+  <div style="background:#fff;padding:16px 20px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
+    <p style="font-size:13px;color:#475569;margin:0 0 12px;">The following draft invoices were automatically created and are ready for review:</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f8fafc;">
+        <th style="padding:6px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Customer</th>
+        <th style="padding:6px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Contract</th>
+        <th style="padding:6px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;">Invoice #</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:16px;text-align:center;">
+      <a href="${APP_URL}/invoices" style="background:#f59e0b;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;">Review Invoices →</a>
+    </div>
+  </div>
+</div>`,
+        }),
+      }).catch(e => console.error('Summary email failed:', e.message))
     }
 
     return ok(`invoiced ${invoiced.length}, skipped ${skipped.length}`)
