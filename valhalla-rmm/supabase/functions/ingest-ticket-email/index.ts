@@ -103,24 +103,49 @@ serve(async (req) => {
       const orgId = orgs?.[0]?.id
       if (!orgId) return new Response(JSON.stringify({ error: 'No org found' }), { status: 500 })
 
+      // Check if this is a Squarespace form submission and parse it cleanly
+      const sqFields = parseSquarespaceFormEmail(htmlBody || textBody)
+      const isSquarespace = !!sqFields
+
+      // Use parsed fields if available, otherwise fall back to email sender
+      const contactEmail = sqFields?.email   || senderEmail
+      const contactName  = sqFields?.name    || senderName || senderEmail
+      const contactPhone = sqFields?.phone   || null
+
       const { data: customers } = await supabase
-        .from('customers').select('id,name').eq('contact_email', senderEmail).limit(1)
+        .from('customers').select('id,name')
+        .or(`contact_email.eq.${contactEmail},name.ilike.${sqFields?.company || 'NOMATCH'}`)
+        .limit(1)
       const customer = customers?.[0]
+
+      // Build clean description
+      const description = isSquarespace
+        ? buildSquarespaceDescription(sqFields)
+        : textBody || htmlBody || ''
+
+      // Build meaningful title
+      let title = cleanSubject(subject || 'Email inquiry')
+      if (isSquarespace) {
+        if (sqFields.company) title = `Website enquiry from ${sqFields.company}`
+        else if (sqFields.name) title = `Website enquiry from ${sqFields.name}`
+        else title = 'Website enquiry'
+      }
 
       const { data: newTicket, error: ticketErr } = await supabase
         .from('tickets')
         .insert({
           organization_id: orgId,
-          title:           cleanSubject(subject || 'Email inquiry'),
-          description:     textBody || htmlBody || '',
-          priority:        'medium',
+          title,
+          description,
+          priority:        'low',
           category:        'other',
           status:          'open',
-          contact_email:   senderEmail,
-          contact_name:    senderName || senderEmail,
+          contact_email:   contactEmail,
+          contact_name:    contactName,
           customer_id:     customer?.id   || null,
-          customer_name:   customer?.name || null,
-          source:          'email',
+          customer_name:   customer?.name || sqFields?.company || null,
+          source:          isSquarespace ? 'web' : 'email',
+          tags:            isSquarespace ? ['web-enquiry'] : [],
         })
         .select().single()
 
@@ -184,6 +209,46 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: err.message }), { status: 500 })
   }
 })
+
+
+// ── Squarespace form email parser ─────────────────────────────────────────────
+function parseSquarespaceFormEmail(html) {
+  if (!html) return null
+  // Detect Squarespace form emails
+  if (!html.includes('Form Submission') && !html.includes('squarespace')) return null
+
+  const fields = {}
+  // Extract field pairs from <b>Label:</b> <span>Value</span> pattern
+  const regex = /<b>([^<]+):<\/b>\s*<span>([^<]*)<\/span>/gi
+  let match
+  while ((match = regex.exec(html)) !== null) {
+    const key   = match[1].trim().toLowerCase().replace(/\s+/g, '_')
+    const value = match[2].trim()
+    // Clean up email field — Squarespace appends ", accepts marketing: false"
+    fields[key] = value.replace(/,?\s*accepts marketing:\s*(true|false)/i, '').trim()
+  }
+
+  if (Object.keys(fields).length === 0) return null
+
+  return {
+    name:    fields.name    || fields.full_name || fields.your_name || '',
+    email:   fields.email   || fields.your_email || fields.email_address || '',
+    phone:   fields.phone   || fields.phone_number || fields.your_phone || '',
+    company: fields.business_name || fields.company || fields.company_name || fields.business || '',
+    message: fields.message || fields.your_message || fields.comments || fields.enquiry || '',
+    subject: fields.subject || fields.your_subject || '',
+  }
+}
+
+function buildSquarespaceDescription(fields) {
+  const lines = []
+  if (fields.company) lines.push(`**Business:** ${fields.company}`)
+  if (fields.name)    lines.push(`**Name:** ${fields.name}`)
+  if (fields.email)   lines.push(`**Email:** ${fields.email}`)
+  if (fields.phone)   lines.push(`**Phone:** ${fields.phone}`)
+  if (fields.message) lines.push(`\n**Message:**\n${fields.message}`)
+  return lines.join('\n')
+}
 
 // ── Email parsing ──────────────────────────────────────────────────────────────
 
