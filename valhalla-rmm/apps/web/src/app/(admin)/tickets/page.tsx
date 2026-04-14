@@ -349,6 +349,7 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
                   t.source === 'portal' ? 'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400' :
                   t.source === 'email'  ? 'bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400' :
+                  t.source === 'web'    ? 'bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400' :
                   'bg-slate-100 text-slate-500'
                 }`}>via {t.source}</span>
               )}
