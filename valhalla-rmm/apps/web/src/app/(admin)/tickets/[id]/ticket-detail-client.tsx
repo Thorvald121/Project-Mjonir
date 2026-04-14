@@ -1127,7 +1127,13 @@ export default function TicketDetailClient() {
           {ticket.description && (
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-3">Description</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words leading-relaxed">{ticket.description}</p>
+              <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed space-y-1"
+                dangerouslySetInnerHTML={{ __html: ticket.description
+                  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                  .replace(/^\n/g, '')
+                  .replace(/\n\n/g, '</p><p class="mt-2">')
+                  .replace(/\n/g, '<br/>')
+                }} />
             </div>
           )}
 
