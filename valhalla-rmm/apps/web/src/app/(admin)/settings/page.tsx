@@ -143,10 +143,13 @@ function OrgSection({ org, onSaved }) {
 function SlaSection({ org, onSaved }) {
   const supabase = createSupabaseBrowserClient()
   const [sla,         setSla]         = useState({ critical: 1, high: 4, medium: 24, low: 72 })
+  const [esc,         setEsc]         = useState({ critical: 2, high: 4, medium: 12, low: 24 })
   const [notif,       setNotif]       = useState({ ticket_assigned_email: true, sla_breach_email: true, customer_reply_push: true })
   const [savingSla,   setSavingSla]   = useState(false)
+  const [savingEsc,   setSavingEsc]   = useState(false)
   const [savingNotif, setSavingNotif] = useState(false)
   const [savedSla,    setSavedSla]    = useState(false)
+  const [savedEsc,    setSavedEsc]    = useState(false)
   const [savedNotif,  setSavedNotif]  = useState(false)
 
   useEffect(() => {
