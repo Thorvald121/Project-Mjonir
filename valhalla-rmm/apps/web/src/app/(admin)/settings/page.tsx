@@ -151,8 +151,15 @@ function SlaSection({ org, onSaved }) {
 
   useEffect(() => {
     if (org?.sla_config) { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
+    if (org?.escalation_config) { try { setEsc(typeof org.escalation_config === 'string' ? JSON.parse(org.escalation_config) : org.escalation_config) } catch {} }
     if (org?.notification_config) { try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
   }, [org])
+
+  const saveEsc = async () => {
+    setSavingEsc(true)
+    await supabase.from('organizations').update({ escalation_config: esc }).eq('id', org.id)
+    setSavingEsc(false); setSavedEsc(true); setTimeout(() => setSavedEsc(false), 2000)
+  }
 
   const saveSla = async () => {
     setSavingSla(true)
@@ -193,6 +200,30 @@ function SlaSection({ org, onSaved }) {
           </button>
         </div>
       </div>
+      <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
+        <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Escalation Thresholds (hours without response)</p>
+        <p className="text-xs text-slate-400 mb-3">If no staff response is sent within these hours, the ticket priority is automatically bumped up one level.</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {['critical','high','medium','low'].map(p => (
+            <div key={p} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${PCLS[p]}`}>{p}</p>
+              <div className="flex items-center gap-1.5">
+                <input type="number" min={1} value={esc[p] || ''} onChange={e => setEsc(s => ({ ...s, [p]: Number(e.target.value) }))}
+                  className="w-16 px-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                <span className="text-xs text-slate-400">hrs</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end mt-3">
+          <button onClick={saveEsc} disabled={savingEsc}
+            className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
+            {savingEsc ? <Loader2 className="w-4 h-4 animate-spin" /> : savedEsc ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            {savedEsc ? 'Saved!' : 'Save Escalation'}
+          </button>
+        </div>
+      </div>
+
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
         <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Notification Preferences</p>
         <div className="space-y-3">
