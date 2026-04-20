@@ -24,7 +24,7 @@ serve(async (req) => {
     const query = supabase
       .from('contracts')
       .select('*')
-      .eq('status', 'active')
+      .in('status', ['active', 'signed'])
       .eq('auto_invoice', true)
       .not('value', 'is', null)
       .not('billing_cycle', 'eq', 'one_time')
