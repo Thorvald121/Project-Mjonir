@@ -797,9 +797,13 @@ export default function TicketDetailClient() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
-      supabase.from('organization_members').select('signature')
+      supabase.from('organization_members').select('signature,display_name,user_email')
         .eq('user_id', user.id).single()
-        .then(({ data }) => { if (data?.signature) setSignature(data.signature) })
+        .then(({ data }) => {
+          if (data?.signature)    setSignature(data.signature)
+          if (data?.display_name) myNameRef.current = data.display_name
+          else if (data?.user_email) myNameRef.current = data.user_email.split('@')[0]
+        })
     })
   }, [])
   const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
@@ -812,6 +816,7 @@ export default function TicketDetailClient() {
   const idRef          = useRef(null)
   const orgIdRef       = useRef(null)
   const myEmailRef     = useRef(null)
+  const myNameRef      = useRef(null)
   const ticketRef      = useRef(null)
   const fileInputRef   = useRef(null)
   const refreshRef     = useRef(null)
@@ -876,6 +881,7 @@ export default function TicketDetailClient() {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       myEmailRef.current = user?.email ?? null
+      if (!myNameRef.current) myNameRef.current = user?.email?.split('@')[0] ?? 'Staff'
       const { data: member } = await supabase
         .from('organization_members').select('organization_id').eq('user_id', user?.id).single()
       if (member) orgIdRef.current = member.organization_id
@@ -989,11 +995,11 @@ export default function TicketDetailClient() {
     await supabase.from('ticket_comments').insert({
       ticket_id:       currentId,
       organization_id: t.organization_id,
-      author_name:     user?.email ?? 'Unknown',
+      author_name:     myNameRef.current || user?.email?.split('@')[0] || 'Staff',
       author_email:    user?.email ?? '',
       content:         noteText.trim(),
-      is_staff:        noteMode === 'internal',
-      source:          noteMode === 'internal' ? 'internal' : 'reply',
+      is_staff:        true,  // always true — staff member is writing this
+      source:          noteMode === 'internal' ? 'internal' : 'email',
       attachment_url,
       attachment_name,
     })
