@@ -1002,40 +1002,25 @@ export default function TicketDetailClient() {
     if (noteMode === 'reply' && t.contact_email) {
       const subject  = `Re: ${t.title} [#${currentId}]`
       const bodyText = noteText.trim()
-      const signatureHtml = signature
-        ? `<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
-    <p style="color:#64748b;font-size:13px;white-space:pre-wrap;line-height:1.6;">${signature.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`
-        : ''
-      // Convert URLs to hyperlinks and escape HTML safely
-      const formatBody = (text) => {
-        return text
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(
-            /(https?:\/\/[^\s<>"']+)/g,
-            '<a href="$1" style="color:#f59e0b;word-break:break-all;">$1</a>'
-          )
-          .replace(/\n/g, '<br/>')
-      }
+      const signaturePlain = signature ? `\n\n--\n${signature}` : ''
 
-      const html = `
-<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;">
-  <div style="background:#0f172a;padding:20px 24px;border-radius:10px 10px 0 0;">
-    <h2 style="color:#f59e0b;margin:0;font-size:16px;">Reply from Valhalla IT</h2>
-    <p style="color:#94a3b8;margin:6px 0 0;font-size:13px;">${t.title}</p>
-  </div>
-  <div style="background:#ffffff;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e2e8f0;border-top:none;">
-    <div style="color:#1e293b;font-size:14px;line-height:1.7;">${formatBody(bodyText)}</div>
-    ${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}" style="color:#f59e0b;">${attachment_name || 'Attachment'}</a></p>` : ''}
-    ${signatureHtml}
-    <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
-    <p style="color:#94a3b8;font-size:12px;margin:0;">
-      Reply to this email to respond to your support ticket.
-    </p>
-    <!-- TICKET_ID:${currentId} -->
-  </div>
-</div>`
+      // Plain text version — avoids Gmail content filters entirely
+      // Links work fine in plain text and won't be blocked
+      const textBody = `${bodyText}${signaturePlain}\n\n---\nReply to this email to respond to your support ticket.\nTICKET_ID:${currentId}`
+
+      // HTML version as fallback for email clients that prefer it
+      const htmlBody = `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:24px;">
+<p style="color:#94a3b8;font-size:12px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;margin-bottom:20px;">
+  <strong style="color:#0f172a;">Valhalla IT</strong> — ${t.title}
+</p>
+<div style="white-space:pre-wrap;">${bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}">${attachment_name || 'Attachment'}</a></p>` : ''}
+${signature ? `<p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8f0;margin-top:20px;padding-top:16px;white-space:pre-wrap;">${signature.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>` : ''}
+<p style="color:#94a3b8;font-size:11px;border-top:1px solid #e2e8f0;margin-top:20px;padding-top:12px;">
+  Reply to this email to respond to your support ticket.
+</p>
+<!-- TICKET_ID:${currentId} -->
+</body></html>`
 
       await supabase.functions.invoke('send-invoice-email', {
         body: {
@@ -1043,6 +1028,7 @@ export default function TicketDetailClient() {
           reply_to: `support+${currentId}@valhalla-rmm.com`,
           to:       t.contact_email,
           subject,
+          text:     textBody,
           html,
         }
       })

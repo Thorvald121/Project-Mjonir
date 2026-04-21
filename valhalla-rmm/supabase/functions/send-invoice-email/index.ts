@@ -12,10 +12,10 @@ serve(async (req) => {
   }
 
   try {
-    const { to, subject, html, from, reply_to } = await req.json()
+    const { to, subject, html, text, from, reply_to } = await req.json()
 
-    if (!to || !subject || !html) {
-      return new Response(JSON.stringify({ error: 'Missing to, subject, or html' }), {
+    if (!to || !subject || (!html && !text)) {
+      return new Response(JSON.stringify({ error: 'Missing to, subject, or html/text' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
@@ -29,13 +29,14 @@ serve(async (req) => {
 
     const fromAddress = from || 'Valhalla IT <invoices@valhalla-it.net>'
 
-    const payload = {
+    const payload: any = {
       from:    fromAddress,
       to:      [to],
       subject,
-      html,
     }
 
+    if (html)     payload.html     = html
+    if (text)     payload.text     = text
     if (reply_to) payload.reply_to = reply_to
 
     const res = await fetch('https://api.resend.com/emails', {
