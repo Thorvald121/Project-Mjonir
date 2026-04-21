@@ -1003,14 +1003,9 @@ export default function TicketDetailClient() {
       const subject  = `Re: ${t.title} [#${currentId}]`
       const bodyText = noteText.trim()
 
-      // Plain text only — HTML causes Gmail content filter to block delivery
-      // Links, signatures, everything works fine in plain text
       const textBody = [
         bodyText,
         signature ? `\n--\n${signature}` : '',
-        `\n---`,
-        `Reply to this email to respond to your support ticket.`,
-        `TICKET_ID:${currentId}`,
         attachment_url ? `\nAttachment: ${attachment_url}` : '',
       ].filter(Boolean).join('\n')
 
@@ -1158,25 +1153,78 @@ export default function TicketDetailClient() {
             </div>
             <div className="p-5 space-y-4">
               {comments.length > 0 && (
-                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                  {comments.map(comment => (
-                    <div key={comment.id} className={`rounded-lg border p-3 ${comment.is_staff ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/40' : 'bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900/40'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        {comment.is_staff ? <Lock className="w-3 h-3 text-amber-600" /> : <Mail className="w-3 h-3 text-blue-600" />}
-                        <span className="font-medium text-slate-900 dark:text-white text-xs">{comment.author_name || comment.author_email}</span>
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${comment.is_staff ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {comment.is_staff ? 'Internal' : 'Client Reply'}
-                        </span>
-                        <span className="text-xs text-slate-400 ml-auto">{fmtDate(comment.created_at)}</span>
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+                  {comments.map(comment => {
+                    const isInternal = comment.is_staff && comment.source === 'internal'
+                    const isStaffReply = comment.is_staff && comment.source !== 'internal'
+                    const isClient = !comment.is_staff
+
+                    // Internal note — full width yellow
+                    if (isInternal) return (
+                      <div key={comment.id} className="flex items-start gap-2">
+                        <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Lock className="w-3 h-3 text-amber-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">{comment.author_name || comment.author_email}</span>
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">Internal note</span>
+                            <span className="text-[11px] text-slate-400 ml-auto">{fmtDate(comment.created_at)}</span>
+                          </div>
+                          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 border-dashed rounded-lg px-3 py-2.5">
+                            <p className="text-xs text-amber-900 dark:text-amber-300 whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words text-xs leading-relaxed">{comment.content}</p>
-                      {comment.attachment_url && (
-                        <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                          <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
-                        </a>
-                      )}
-                    </div>
-                  ))}
+                    )
+
+                    // Staff reply — right aligned, blue bubble
+                    if (isStaffReply) return (
+                      <div key={comment.id} className="flex items-end gap-2 flex-row-reverse">
+                        <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold">
+                          {(comment.author_name || comment.author_email || 'S')[0].toUpperCase()}
+                        </div>
+                        <div className="max-w-[75%] min-w-0">
+                          <div className="flex items-center gap-2 justify-end mb-1">
+                            <span className="text-[11px] text-slate-400">{fmtDate(comment.created_at)}</span>
+                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{comment.author_name || comment.author_email}</span>
+                          </div>
+                          <div className="bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2.5">
+                            <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
+                            {comment.attachment_url && (
+                              <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-200 hover:text-white">
+                                <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+
+                    // Client reply — left aligned, white bubble with green accent
+                    return (
+                      <div key={comment.id} className="flex items-end gap-2">
+                        <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center flex-shrink-0 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
+                          {(comment.author_name || comment.author_email || 'C')[0].toUpperCase()}
+                        </div>
+                        <div className="max-w-[75%] min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{comment.author_name || comment.author_email}</span>
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">Client</span>
+                            <span className="text-[11px] text-slate-400">{fmtDate(comment.created_at)}</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-800 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
+                            <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
+                            {comment.attachment_url && (
+                              <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                                <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -1198,6 +1246,15 @@ export default function TicketDetailClient() {
                   )}
                   {noteMode === 'reply' && canEmailClient && (
                     <p className="text-xs text-blue-600">Will be emailed to <strong>{ticket.contact_email}</strong></p>
+                  )}
+                  {noteMode === 'reply' && canEmailClient && /https?:\/\//.test(noteText) && (
+                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Link detected</strong> — Gmail may block emails containing links from new domains.
+                        Ask the client to add <strong>support@valhalla-it.net</strong> to their contacts, or share the link via the portal instead.
+                      </span>
+                    </div>
                   )}
                   <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={4}
                     placeholder={noteMode === 'internal' ? 'Add an internal note...' : 'Type your reply to the client...'}
