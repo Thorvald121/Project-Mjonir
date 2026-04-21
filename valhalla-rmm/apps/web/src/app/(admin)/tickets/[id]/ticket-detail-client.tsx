@@ -1002,25 +1002,17 @@ export default function TicketDetailClient() {
     if (noteMode === 'reply' && t.contact_email) {
       const subject  = `Re: ${t.title} [#${currentId}]`
       const bodyText = noteText.trim()
-      const signaturePlain = signature ? `\n\n--\n${signature}` : ''
 
-      // Plain text version — avoids Gmail content filters entirely
-      // Links work fine in plain text and won't be blocked
-      const textBody = `${bodyText}${signaturePlain}\n\n---\nReply to this email to respond to your support ticket.\nTICKET_ID:${currentId}`
-
-      // HTML version as fallback for email clients that prefer it
-      const htmlBody = `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:24px;">
-<p style="color:#94a3b8;font-size:12px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;margin-bottom:20px;">
-  <strong style="color:#0f172a;">Valhalla IT</strong> — ${t.title}
-</p>
-<div style="white-space:pre-wrap;">${bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}">${attachment_name || 'Attachment'}</a></p>` : ''}
-${signature ? `<p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8f0;margin-top:20px;padding-top:16px;white-space:pre-wrap;">${signature.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>` : ''}
-<p style="color:#94a3b8;font-size:11px;border-top:1px solid #e2e8f0;margin-top:20px;padding-top:12px;">
-  Reply to this email to respond to your support ticket.
-</p>
-<!-- TICKET_ID:${currentId} -->
-</body></html>`
+      // Plain text only — HTML causes Gmail content filter to block delivery
+      // Links, signatures, everything works fine in plain text
+      const textBody = [
+        bodyText,
+        signature ? `\n--\n${signature}` : '',
+        `\n---`,
+        `Reply to this email to respond to your support ticket.`,
+        `TICKET_ID:${currentId}`,
+        attachment_url ? `\nAttachment: ${attachment_url}` : '',
+      ].filter(Boolean).join('\n')
 
       await supabase.functions.invoke('send-invoice-email', {
         body: {
@@ -1029,7 +1021,6 @@ ${signature ? `<p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8
           to:       t.contact_email,
           subject,
           text:     textBody,
-          html:     htmlBody,
         }
       })
     }
