@@ -1029,7 +1029,7 @@ ${signature ? `<p style="color:#64748b;font-size:13px;border-top:1px solid #e2e8
           to:       t.contact_email,
           subject,
           text:     textBody,
-          html,
+          html:     htmlBody,
         }
       })
     }
