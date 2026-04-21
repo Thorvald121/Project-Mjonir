@@ -894,9 +894,23 @@ export default function TicketDetailClient() {
 
   const updateField = async (field, value) => {
     const currentId = idRef.current
-    if (!currentId) return
+    const t = ticketRef.current
+    if (!currentId || !t) return
     setUpdating(true)
+    const oldValue = t[field] ?? null
     await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
+    // Write audit log entry with actor so we know who made the change
+    if (oldValue !== value) {
+      await supabase.from('audit_log').insert({
+        organization_id: t.organization_id,
+        table_name:      'tickets',
+        record_id:       currentId,
+        record_title:    t.title,
+        action:          'UPDATE',
+        actor_email:     myEmail || null,
+        changed_fields:  { [field]: { from: oldValue, to: value } },
+      })
+    }
     await loadTicket()
     setUpdating(false)
   }
@@ -992,6 +1006,19 @@ export default function TicketDetailClient() {
         ? `<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
     <p style="color:#64748b;font-size:13px;white-space:pre-wrap;line-height:1.6;">${signature.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`
         : ''
+      // Convert URLs to hyperlinks and escape HTML safely
+      const formatBody = (text) => {
+        return text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(
+            /(https?:\/\/[^\s<>"']+)/g,
+            '<a href="$1" style="color:#f59e0b;word-break:break-all;">$1</a>'
+          )
+          .replace(/\n/g, '<br/>')
+      }
+
       const html = `
 <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;">
   <div style="background:#0f172a;padding:20px 24px;border-radius:10px 10px 0 0;">
@@ -999,12 +1026,12 @@ export default function TicketDetailClient() {
     <p style="color:#94a3b8;margin:6px 0 0;font-size:13px;">${t.title}</p>
   </div>
   <div style="background:#ffffff;padding:24px;border-radius:0 0 10px 10px;border:1px solid #e2e8f0;border-top:none;">
-    <p style="color:#1e293b;font-size:14px;line-height:1.6;white-space:pre-wrap;">${bodyText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+    <div style="color:#1e293b;font-size:14px;line-height:1.7;">${formatBody(bodyText)}</div>
     ${attachment_url ? `<p style="margin-top:16px;"><a href="${attachment_url}" style="color:#f59e0b;">${attachment_name || 'Attachment'}</a></p>` : ''}
     ${signatureHtml}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
     <p style="color:#94a3b8;font-size:12px;margin:0;">
-      Reply to this email to respond. Your message will be added to your support ticket automatically.
+      Reply to this email to respond to your support ticket.
     </p>
     <!-- TICKET_ID:${currentId} -->
   </div>

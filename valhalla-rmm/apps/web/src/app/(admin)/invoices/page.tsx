@@ -403,7 +403,7 @@ function ViewDialog({ inv, onClose, orgId, loadAll }) {
   )
 }
 
-function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, timeEntries }) {
+function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, timeEntries, prefillEntries }) {
   const supabase = createSupabaseBrowserClient()
   const today = new Date().toISOString().split('T')[0]
   const blank = {
@@ -419,6 +419,31 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
 
   useEffect(() => {
     if (!open) return
+    // Pre-populate from bulk time entry selection
+    if (prefillEntries?.length > 0 && !editing) {
+      const firstEntry = prefillEntries[0]
+      const cust = customers.find(c => c.id === firstEntry.customer_id)
+      const lines = prefillEntries.map(e => {
+        const hours = (e.minutes || 0) / 60
+        const rate  = e.hourly_rate || cust?.hourly_rate || 0
+        const total = hours * rate
+        return {
+          description: `${e.ticket_title || e.description || 'Support time'} (${hours.toFixed(2)}h @ $${rate}/hr)`,
+          quantity:    '1',
+          unit_price:  total.toFixed(2),
+          _time_entry_id: e.id,
+        }
+      })
+      const subtotal = lines.reduce((s, l) => s + parseFloat(l.unit_price), 0)
+      setForm(f => ({
+        ...f,
+        customer_id: firstEntry.customer_id || '',
+        line_items:  lines,
+        subtotal:    subtotal.toFixed(2),
+        total:       subtotal.toFixed(2),
+      }))
+      return
+    }
     if (editing) {
       const items = Array.isArray(editing.line_items) && editing.line_items.length
         ? editing.line_items.map(i => ({ ...i, quantity: String(i.quantity ?? 1), unit_price: String(i.unit_price ?? '') }))
@@ -856,6 +881,8 @@ export default function InvoicesPage() {
   const [orgId,         setOrgId]         = useState(null)
   const [org,           setOrg]           = useState({})
   const [dialogOpen,    setDialogOpen]    = useState(false)
+  const [prefillEntries, setPrefillEntries] = useState(null)
+  const searchParams = useSearchParams()
   const [editing,       setEditing]       = useState(null)
   const [viewing,       setViewing]       = useState(null)
   const [payingInv,     setPayingInv]     = useState(null)
@@ -904,6 +931,19 @@ export default function InvoicesPage() {
   }
 
   useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
+
+  // Handle prefill_entries query param from time tracking bulk invoice
+  useEffect(() => {
+    const ids = searchParams?.get('prefill_entries')
+    if (ids && timeEntries.length > 0) {
+      const entryIds = ids.split(',').filter(Boolean)
+      const entries  = timeEntries.filter(e => entryIds.includes(e.id))
+      if (entries.length > 0) {
+        setPrefillEntries(entries)
+        setDialogOpen(true)
+      }
+    }
+  }, [searchParams, timeEntries])
 
 
   const markStatus = async (inv, status) => {
@@ -1083,7 +1123,7 @@ export default function InvoicesPage() {
           </div>
         )}
       </div>
-      <InvoiceDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditing(null) }} onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }} editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries} />
+      <InvoiceDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditing(null); setPrefillEntries(null) }} onSaved={() => { setDialogOpen(false); setEditing(null); setPrefillEntries(null); loadAll() }} editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries} prefillEntries={prefillEntries} />
       {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} orgId={orgId} loadAll={loadAll} />}
       {payingInv && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
       {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
