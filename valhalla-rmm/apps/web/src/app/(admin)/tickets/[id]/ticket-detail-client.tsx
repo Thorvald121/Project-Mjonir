@@ -1072,34 +1072,21 @@ export default function TicketDetailClient() {
     setAiOpen(true)
     setAiSuggestions([])
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{
-            role: 'user',
-            content: `You are helping a managed IT service provider named Valhalla IT rewrite a support ticket reply. Rewrite the following reply in 4 different tones. Return ONLY valid JSON with no markdown, no backticks, no preamble — just the raw JSON array.
-
-Format:
-[
-  {"tone": "Professional", "text": "..."},
-  {"tone": "Formal", "text": "..."},
-  {"tone": "Direct", "text": "..."},
-  {"tone": "Friendly", "text": "..."}
-]
-
-Original reply:
-${noteText.trim()}`
-          }]
-        })
-      })
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/rewrite-reply`,
+        {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ text: noteText.trim() }),
+        }
+      )
       const data = await res.json()
-      const raw = data.content?.[0]?.text || '[]'
-      const clean = raw.replace(/^```json\s*/,'').replace(/\s*```$/,'').trim()
-      const suggestions = JSON.parse(clean)
-      setAiSuggestions(suggestions)
+      if (!res.ok || data.error) throw new Error(data.error || 'Request failed')
+      setAiSuggestions(data.suggestions || [])
     } catch (e) {
       console.error('AI rewrite error:', e)
       setAiSuggestions([{ tone: 'Error', text: 'Failed to generate suggestions. Please try again.' }])
