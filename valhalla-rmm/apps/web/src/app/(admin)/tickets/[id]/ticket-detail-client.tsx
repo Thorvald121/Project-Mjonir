@@ -788,6 +788,9 @@ export default function TicketDetailClient() {
   const [updating,    setUpdating]    = useState(false)
   const [noteMode,    setNoteMode]    = useState('internal')
   const [noteText,    setNoteText]    = useState('')
+  const [aiOpen,      setAiOpen]      = useState(false)
+  const [aiLoading,   setAiLoading]   = useState(false)
+  const [aiSuggestions, setAiSuggestions] = useState<{tone: string, text: string}[]>([])
   const [submitting,  setSubmitting]  = useState(false)
   const [attachment,  setAttachment]  = useState(null)
   const [signature,   setSignature]   = useState('')
@@ -1015,11 +1018,16 @@ export default function TicketDetailClient() {
         attachment_url ? `\nAttachment: ${attachment_url}` : '',
       ].filter(Boolean).join('\n')
 
+      const ccList = Array.isArray(t.watchers) && t.watchers.length > 0
+        ? t.watchers.filter((w: string) => w !== t.contact_email)
+        : []
+
       await supabase.functions.invoke('send-invoice-email', {
         body: {
           from:     'Valhalla IT Support <support@valhalla-it.net>',
           reply_to: `support+${currentId}@valhalla-rmm.com`,
           to:       t.contact_email,
+          cc:       ccList.length > 0 ? ccList : undefined,
           subject,
           text:     textBody,
         }
@@ -1057,6 +1065,47 @@ export default function TicketDetailClient() {
       <button onClick={() => router.push('/tickets')} className="text-amber-500 hover:underline text-sm">← Back to Tickets</button>
     </div>
   )
+
+  const handleAiRewrite = async () => {
+    if (!noteText.trim()) return
+    setAiLoading(true)
+    setAiOpen(true)
+    setAiSuggestions([])
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{
+            role: 'user',
+            content: `You are helping a managed IT service provider named Valhalla IT rewrite a support ticket reply. Rewrite the following reply in 4 different tones. Return ONLY valid JSON with no markdown, no backticks, no preamble — just the raw JSON array.
+
+Format:
+[
+  {"tone": "Professional", "text": "..."},
+  {"tone": "Formal", "text": "..."},
+  {"tone": "Direct", "text": "..."},
+  {"tone": "Friendly", "text": "..."}
+]
+
+Original reply:
+${noteText.trim()}`
+          }]
+        })
+      })
+      const data = await res.json()
+      const raw = data.content?.[0]?.text || '[]'
+      const clean = raw.replace(/^```json\s*/,'').replace(/\s*```$/,'').trim()
+      const suggestions = JSON.parse(clean)
+      setAiSuggestions(suggestions)
+    } catch (e) {
+      console.error('AI rewrite error:', e)
+      setAiSuggestions([{ tone: 'Error', text: 'Failed to generate suggestions. Please try again.' }])
+    }
+    setAiLoading(false)
+  }
 
   const canEmailClient = !!ticket.contact_email
   const filteredTechs  = techUsers.filter(t => {
@@ -1251,7 +1300,12 @@ export default function TicketDetailClient() {
                     <p className="text-xs text-rose-600 bg-rose-50 px-3 py-2 rounded border border-rose-200">No contact email — add one in the sidebar.</p>
                   )}
                   {noteMode === 'reply' && canEmailClient && (
-                    <p className="text-xs text-blue-600">Will be emailed to <strong>{ticket.contact_email}</strong></p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-xs text-blue-600">Will be emailed to <strong>{ticket.contact_email}</strong></p>
+                      {Array.isArray(ticket.watchers) && ticket.watchers.length > 0 && (
+                        <p className="text-xs text-slate-400">CC: {ticket.watchers.join(', ')}</p>
+                      )}
+                    </div>
                   )}
                   {noteMode === 'reply' && canEmailClient && /https?:\/\//.test(noteText) && (
                     <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-700 dark:text-amber-400">
@@ -1281,7 +1335,43 @@ export default function TicketDetailClient() {
                       </button>
                       {attachment && <button onClick={() => setAttachment(null)} className="text-[11px] text-rose-500 hover:underline">Remove</button>}
                       <CannedRepliesPicker ticket={ticket} onSelect={(body) => setNoteText(body)} />
+                      {noteMode === 'reply' && noteText.trim().length > 10 && (
+                        <button type="button" onClick={handleAiRewrite}
+                          className="flex items-center gap-1 h-7 px-2 text-xs text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20 rounded transition-colors font-medium border border-purple-200 dark:border-purple-800">
+                          <Sparkles className="w-3 h-3" />
+                          Improve
+                        </button>
+                      )}
                     </div>
+                    {aiOpen && noteMode === 'reply' && (
+                      <div className="w-full">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3" />
+                            {aiLoading ? 'Generating suggestions…' : 'AI suggestions — click to use'}
+                          </p>
+                          <button onClick={() => { setAiOpen(false); setAiSuggestions([]) }} className="text-slate-400 hover:text-slate-600 p-0.5">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        {aiLoading ? (
+                          <div className="flex items-center gap-2 py-4 justify-center">
+                            <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                            <span className="text-xs text-slate-400">Rewriting in 4 tones…</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            {aiSuggestions.map((s, i) => (
+                              <button key={i} onClick={() => { setNoteText(s.text); setAiOpen(false); setAiSuggestions([]) }}
+                                className="text-left p-2.5 rounded-lg border border-purple-200 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition-colors group">
+                                <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wide mb-1">{s.tone}</p>
+                                <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 group-hover:text-slate-900 dark:group-hover:text-white">{s.text}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <button onClick={submitNote}
                       disabled={!noteText.trim() || submitting || (noteMode === 'reply' && !canEmailClient)}
                       className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-colors ${noteMode === 'internal' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>

@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { to, subject, html, text, from, reply_to } = await req.json()
+    const { to, subject, html, text, from, reply_to, cc } = await req.json()
 
     if (!to || !subject || (!html && !text)) {
       return new Response(JSON.stringify({ error: 'Missing to, subject, or html/text' }), {
@@ -38,6 +38,7 @@ serve(async (req) => {
     if (html)     payload.html     = html
     if (text)     payload.text     = text
     if (reply_to) payload.reply_to = reply_to
+    if (cc && Array.isArray(cc) && cc.length > 0) payload.cc = cc
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
