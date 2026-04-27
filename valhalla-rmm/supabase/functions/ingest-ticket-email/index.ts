@@ -19,10 +19,12 @@ serve(async (req) => {
     console.log('Received payload keys:', Object.keys(payload).join(', '))
 
     // Parse from raw email if provided, otherwise use direct fields
-    let subject     = subjectDirect || ''
-    let textBody    = bodyDirect    || ''
-    let htmlBody    = ''
-    let replyTo     = null
+    let subject      = subjectDirect || ''
+    let textBody     = bodyDirect    || ''
+    let htmlBody     = ''
+    let replyTo      = null
+    let inReplyTo    = null
+    let references   = null
     let originalFrom = null
 
     if (raw_email) {
@@ -32,6 +34,8 @@ serve(async (req) => {
       textBody     = parsed.textBody     || bodyDirect    || ''
       htmlBody     = parsed.htmlBody     || ''
       replyTo      = parsed.replyTo      || null
+      inReplyTo    = parsed.inReplyTo    || null
+      references   = parsed.references   || null
       originalFrom = parsed.originalFrom || null
       console.log('Parsed subject:', subject)
       console.log('Parsed replyTo:', replyTo)
@@ -83,17 +87,41 @@ serve(async (req) => {
       if (m) { ticketId = m[1]; console.log('Strategy 4 (text body):', ticketId) }
     }
 
-    // 5. Match by sender email
-    if (!ticketId && senderEmail) {
-      console.log('Strategy 5: searching by sender email:', senderEmail)
+    // 5. Match by sender email — ONLY if the email looks like a reply
+    // A fresh subject with no Re:/Fwd: prefix always creates a new ticket
+    // This prevents new issues from being threaded into unrelated open tickets
+    const isReply = /^re:/i.test(subject?.trim() || '') ||
+                    /^fwd:/i.test(subject?.trim() || '') ||
+                    !!inReplyTo ||
+                    !!references
+    if (!ticketId && senderEmail && isReply) {
+      console.log('Strategy 5: reply detected, searching by sender email:', senderEmail)
       const { data: matched } = await supabase
         .from('tickets')
-        .select('id,status')
+        .select('id,status,title')
         .eq('contact_email', senderEmail)
         .not('status', 'in', '("closed","resolved")')
-        .order('created_at', { ascending: false })
+        .order('updated_at', { ascending: false })
         .limit(1)
-      if (matched?.length > 0) { ticketId = matched[0].id; console.log('Strategy 5 matched:', ticketId) }
+      if (matched?.length > 0) {
+        // Extra check: subject should loosely match the ticket title (strips Re: prefix)
+        const cleanSubject = subject?.replace(/^re:\s*/i, '').trim().toLowerCase()
+        const cleanTitle   = matched[0].title?.trim().toLowerCase()
+        // Only thread if subjects match somewhat, or subject is very short (generic reply)
+        const subjectMatches = cleanSubject && cleanTitle && (
+          cleanTitle.includes(cleanSubject) ||
+          cleanSubject.includes(cleanTitle) ||
+          cleanSubject.length < 20  // very short/generic reply subject
+        )
+        if (subjectMatches) {
+          ticketId = matched[0].id
+          console.log('Strategy 5 matched:', ticketId)
+        } else {
+          console.log('Strategy 5: subject mismatch, will create new ticket. Subject:', cleanSubject, 'Title:', cleanTitle)
+        }
+      }
+    } else if (!ticketId && senderEmail && !isReply) {
+      console.log('Strategy 5 skipped: fresh email subject, creating new ticket for:', senderEmail)
     }
 
     // ── No match — create new ticket ──────────────────────────────────────
@@ -277,8 +305,10 @@ function parseRawEmail(raw) {
     i++
   }
 
-  const subject    = decodeHeader(headers['subject']         || '')
-  const replyTo    = headers['reply-to']                     || null
+  const subject      = decodeHeader(headers['subject']       || '')
+  const replyTo      = headers['reply-to']                   || null
+  const inReplyTo    = headers['in-reply-to']                || null
+  const references   = headers['references']                 || null
   const originalFrom = headers['x-original-from']
     || headers['x-forwarded-from']
     || headers['x-original-sender']
@@ -324,7 +354,7 @@ function parseRawEmail(raw) {
     console.log('Single part, textBody length:', textBody.length, 'htmlBody length:', htmlBody.length)
   }
 
-  return { subject, replyTo, originalFrom, textBody, htmlBody }
+  return { subject, replyTo, inReplyTo, references, originalFrom, textBody, htmlBody }
 }
 
 function extractBoundary(ct) {
