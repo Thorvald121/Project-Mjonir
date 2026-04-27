@@ -1,7 +1,8 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
@@ -872,7 +873,7 @@ function AgingReport({ invoices }) {
   )
 }
 
-export default function InvoicesPage() {
+function InvoicesPageInner() {
   const supabase = createSupabaseBrowserClient()
   const [invoices,      setInvoices]      = useState([])
   const [customers,     setCustomers]     = useState([])
@@ -1128,5 +1129,13 @@ export default function InvoicesPage() {
       {payingInv && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
       {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
     </div>
+  )
+}
+
+export default function InvoicesPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-slate-400 text-sm">Loading…</div>}>
+      <InvoicesPageInner />
+    </Suspense>
   )
 }
