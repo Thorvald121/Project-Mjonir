@@ -109,20 +109,38 @@ const CSV_FIELDS = [
   { key:'notes',           label:'Notes'                          },
 ]
 const CSV_ALIASES = {
-  name:['name','item name','asset name','device name','product','title'],
-  serial_number:['serial','serial number','sn','s/n','serialno'],
-  asset_tag:['asset tag','asset#','tag','asset id','asset number'],
-  status:['status','state','condition'],
-  category:['category','type','item type','asset type'],
-  vendor:['vendor','manufacturer','make','brand'],
-  model:['model','model number','part number','sku'],
-  quantity:['quantity','qty','count'],
-  unit_cost:['cost','unit cost','price','value'],
-  customer_name:['customer','customer name','client','assigned to','company'],
-  location:['location','site','room','place'],
-  purchase_date:['purchase date','purchased','buy date','date purchased'],
-  warranty_expiry:['warranty expiry','warranty end','warranty expires','expiry'],
-  notes:['notes','comments','remarks','description'],
+  name:            ['name','item name','asset name','device name','product','title'],
+  serial_number:   ['serial','serial number','sn','s/n','serialno','serial number'],
+  asset_tag:       ['asset tag','asset#','tag','asset id','asset number'],
+  status:          ['status','state','condition','device status'],
+  category:        ['category','type','item type','asset type','os','os name'],
+  vendor:          ['vendor','manufacturer','make','brand','system manufacturer'],
+  model:           ['model','model number','part number','sku','system model'],
+  quantity:        ['quantity','qty','count'],
+  unit_cost:       ['cost','unit cost','price','value'],
+  customer_name:   ['customer','customer name','client','assigned to','company'],
+  location:        ['location','site','room','place','device group'],
+  purchase_date:   ['purchase date','purchased','buy date','date purchased','registered'],
+  warranty_expiry: ['warranty expiry','warranty end','warranty expires','expiry'],
+  os:              ['os version','os name','os'],
+  ip_address:      ['internal ip','ip address','ip'],
+  external_ip:     ['external ip'],
+  last_seen:       ['last activity','last seen','last active'],
+  notes:           ['notes','comments','remarks','description'],
+}
+
+// Detect if this is an ITarian/Xcitium CSV export
+function isItarianCsv(headers) {
+  const h = headers.map(x => x.toLowerCase())
+  return h.includes('device status') && h.includes('customer') && h.includes('last activity') && h.includes('ccc version')
+}
+
+// Map ITarian device status to our inventory status
+function normaliseItarianStatus(v) {
+  const s = (v||'').toLowerCase().trim()
+  if (s === 'online' || s === 'connected') return 'deployed'
+  if (s === 'offline' || s === 'disconnected') return 'deployed' // still deployed, just offline
+  return 'deployed'
 }
 
 function normaliseStatus(v) {
@@ -175,14 +193,37 @@ function CsvImportDialog({ open, onClose, onImported, orgId, customers }) {
         return obj
       }).filter(r => Object.values(r).some(v => v))
       setHeaders(hdrs); setRows(data)
-      // Auto-map
+
+      // Auto-map — with special handling for ITarian CSV format
       const autoMap = {}
-      hdrs.forEach(h => {
-        const hl = h.toLowerCase().trim()
-        for (const [field, aliases] of Object.entries(CSV_ALIASES)) {
-          if (aliases.some(a => hl === a || hl.includes(a))) { autoMap[field] = h; break }
+      if (isItarianCsv(hdrs)) {
+        // ITarian column → our field, direct mapping
+        const itarianMap = {
+          'Name':           'name',
+          'Serial Number':  'serial_number',
+          'Device status':  'status',
+          'Customer':       'customer_name',
+          'OS name':        'category',
+          'Model':          'model',
+          'System Manufacturer': 'vendor',
+          'Internal IP':    'ip_address',
+          'External IP':    'external_ip',
+          'Last Activity':  'last_seen',
+          'OS version':     'os',
+          'Device Group':   'location',
+          'Registered':     'purchase_date',
+          'Notes':          'notes',
         }
-      })
+        hdrs.forEach(h => { if (itarianMap[h]) autoMap[itarianMap[h]] = h })
+        autoMap._itarian = true  // flag for special import handling
+      } else {
+        hdrs.forEach(h => {
+          const hl = h.toLowerCase().trim()
+          for (const [field, aliases] of Object.entries(CSV_ALIASES)) {
+            if (aliases.some(a => hl === a || hl.includes(a))) { autoMap[field] = h; break }
+          }
+        })
+      }
       setMapping(autoMap)
     }
     reader.readAsText(file)
@@ -207,30 +248,77 @@ function CsvImportDialog({ open, onClose, onImported, orgId, customers }) {
   const handleImport = async () => {
     setImporting(true)
     let count = 0
+    const isItarian = !!mapping._itarian
+
     for (const row of rows) {
       const name = mapping.name ? row[mapping.name]?.trim() : ''
       if (!name) continue
-      const custName = mapping.customer_name ? row[mapping.customer_name]?.trim() : ''
-      const cust = custName ? customers.find(c => c.name.toLowerCase() === custName.toLowerCase()) : null
-      await supabase.from('inventory_items').insert({
+
+      const custName  = mapping.customer_name ? row[mapping.customer_name]?.trim() : ''
+      const cust      = custName ? customers.find(c => c.name.toLowerCase() === custName.toLowerCase()) : null
+      const serial    = mapping.serial_number ? row[mapping.serial_number]?.trim() : null
+      const lastSeen  = mapping.last_seen     ? row[mapping.last_seen]?.trim()     : null
+
+      // Parse last activity date from ITarian format: "2026/04/27 03:35:20 PM"
+      let lastSeenAt = null
+      if (lastSeen) {
+        try { lastSeenAt = new Date(lastSeen).toISOString() } catch {}
+      }
+
+      // For ITarian: determine online status from Device status column
+      const deviceStatus = isItarian && mapping.status ? row[mapping.status]?.trim() : null
+      const isOnline = deviceStatus ? ['Online','Connected'].includes(deviceStatus) : null
+
+      // Category from OS for ITarian
+      let category = 'hardware'
+      if (isItarian && mapping.category) {
+        const os = row[mapping.category]?.toLowerCase() || ''
+        if (os.includes('windows'))    category = 'hardware'
+        else if (os.includes('macos')) category = 'hardware'
+        else if (os.includes('linux')) category = 'hardware'
+        else if (os.includes('ios') || os.includes('android')) category = 'other'
+      } else if (mapping.category) {
+        category = normaliseCategory(row[mapping.category])
+      }
+
+      const payload = {
         organization_id: orgId,
         name,
-        description:     mapping.description    ? row[mapping.description]    : null,
-        category:        mapping.category       ? normaliseCategory(row[mapping.category]) : 'hardware',
-        status:          mapping.status         ? normaliseStatus(row[mapping.status])     : 'in_stock',
-        quantity:        mapping.quantity       ? parseInt(row[mapping.quantity])||1        : 1,
-        unit_cost:       mapping.unit_cost      ? parseFloat(row[mapping.unit_cost])||null : null,
-        vendor:          mapping.vendor         ? row[mapping.vendor]?.trim()||null        : null,
-        model:           mapping.model          ? row[mapping.model]?.trim()||null         : null,
-        serial_number:   mapping.serial_number  ? row[mapping.serial_number]?.trim()||null : null,
-        asset_tag:       mapping.asset_tag      ? row[mapping.asset_tag]?.trim()||null     : null,
+        category,
+        status:          isItarian ? 'deployed' : (mapping.status ? normaliseStatus(row[mapping.status]) : 'in_stock'),
+        quantity:        1,
+        vendor:          mapping.vendor         ? row[mapping.vendor]?.trim()||null         : null,
+        model:           mapping.model          ? row[mapping.model]?.trim()||null          : null,
+        serial_number:   serial                 || null,
         customer_id:     cust?.id               || null,
         customer_name:   custName               || null,
-        location:        mapping.location       ? row[mapping.location]?.trim()||null      : null,
-        purchase_date:   mapping.purchase_date  ? row[mapping.purchase_date]?.trim()||null : null,
-        warranty_expiry: mapping.warranty_expiry? row[mapping.warranty_expiry]?.trim()||null:null,
-        notes:           mapping.notes          ? row[mapping.notes]?.trim()||null         : null,
-      })
+        location:        mapping.location       ? row[mapping.location]?.trim()||null       : null,
+        purchase_date:   mapping.purchase_date  ? row[mapping.purchase_date]?.trim()||null  : null,
+        notes:           mapping.notes          ? row[mapping.notes]?.trim()||null          : null,
+        // ITarian-specific enrichment fields
+        ip_address:      mapping.ip_address     ? row[mapping.ip_address]?.trim()||null     : null,
+        last_seen_at:    lastSeenAt             || null,
+        os:              mapping.os             ? row[mapping.os]?.trim()||null             : null,
+        online:          isOnline,
+        source:          isItarian ? 'xcitium' : 'manual',
+      }
+
+      // Upsert by serial number if available, otherwise by name + customer
+      if (serial) {
+        const { data: existing } = await supabase
+          .from('inventory_items')
+          .select('id')
+          .eq('organization_id', orgId)
+          .eq('serial_number', serial)
+          .single()
+        if (existing) {
+          await supabase.from('inventory_items').update(payload).eq('id', existing.id)
+        } else {
+          await supabase.from('inventory_items').insert(payload)
+        }
+      } else {
+        await supabase.from('inventory_items').insert(payload)
+      }
       count++
     }
     setImported(count); setDone(true); setImporting(false)
@@ -672,7 +760,7 @@ export default function InventoryPage() {
               <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs text-emerald-400 break-all select-all">
                 {`$action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-NonInteractive -File C:\valhalla-agent\register-windows.ps1 -OrgId \"${orgId}\" -ApiKey \"YOUR_ANON_KEY\""
 $trigger = New-ScheduledTaskTrigger -Daily -At 8am
-Register-ScheduledTask -TaskName "Valhalla RMM Agent" -Action $action -Trigger $trigger -RunLevel Highest`}
+Register-ScheduledTask -TaskName "Valhalla IT Agent" -Action $action -Trigger $trigger -RunLevel Highest`}
               </div>
             </div>
             <div>
