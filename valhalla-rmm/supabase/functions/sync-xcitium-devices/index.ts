@@ -7,7 +7,7 @@ const XCITIUM_BASE = 'https://api-gw.itsm-us1.comodo.com/api/v2/itsm'
 const PAGE_SIZE    = 100
 
 // ── OS type int → readable string ─────────────────────────────────────────────
-// Confirmed from live API response: MacBook Air = os_type 4
+// Confirmed from live API: MacBook Air = os_type 4 = macos
 function parseOsType(v: number | undefined): string {
   const map: Record<number, string> = {
     1: 'windows',
@@ -21,7 +21,6 @@ function parseOsType(v: number | undefined): string {
 }
 
 // ── AV state from active_components.AV ────────────────────────────────────────
-// active_components.AV is an int — 1 = active, 3 = active (observed), 0 = inactive
 function parseAvState(v: number | string | undefined): string {
   if (v === null || v === undefined) return 'unknown'
   const n = Number(v)
@@ -76,8 +75,6 @@ async function fetchAllDevices(token: string): Promise<unknown[]> {
 
     if (items.length < PAGE_SIZE) break
     page++
-
-    // Hard cap
     if (all.length >= 10_000) break
   }
 
@@ -119,15 +116,16 @@ serve(async (req) => {
 
   const orgId = org.id
 
-  // Build customer name → id lookup from our DB
+  // Build customer name → { id, name } lookup from our own DB
   const { data: customers } = await supabase
     .from('customers')
     .select('id, name')
     .eq('organization_id', orgId)
 
-  const customerMap = new Map<string, string>()
+  // Map by lowercase name for case-insensitive matching
+  const customerMap = new Map<string, { id: string; name: string }>()
   for (const c of customers ?? []) {
-    customerMap.set((c.name as string).toLowerCase().trim(), c.id as string)
+    customerMap.set((c.name as string).toLowerCase().trim(), { id: c.id as string, name: c.name as string })
   }
 
   try {
@@ -146,7 +144,9 @@ serve(async (req) => {
       // Company is a nested object: { name, id, email, ... }
       const company    = d.company as Record<string, unknown> | undefined
       const xcCompany  = (company?.name ?? '') as string
-      const customerId = customerMap.get(xcCompany.toLowerCase().trim()) ?? null
+      const matched    = customerMap.get(xcCompany.toLowerCase().trim()) ?? null
+      const customerId = matched?.id   ?? null
+      const customerName = matched?.name ?? null  // ← now written to DB
 
       const deviceName = (d.friendly_name ?? d.name ?? 'Unknown Device') as string
       const osType     = parseOsType(d.os_type as number)
@@ -156,7 +156,7 @@ serve(async (req) => {
         : osType === 'ios'   || osType === 'android'                     ? 'mobile'
         : 'other'
 
-      // Serial number is nested under hardware: { serial_number, ... }
+      // Serial number — nested under hardware.serial_number
       const hardware     = d.hardware as Record<string, unknown> | undefined
       const serialNumber = (hardware?.serial_number ?? xcitiumId) as string
 
@@ -166,10 +166,10 @@ serve(async (req) => {
         ? new Date(wasActiveAt * 1000).toISOString()
         : null
 
-      // is_online is a direct boolean from the API
+      // is_online is a direct boolean
       const onlineStatus = d.is_online === true ? 'online' : 'offline'
 
-      // AV state is nested under active_components: { AV: int, AG: int, ... }
+      // AV state is nested under active_components.AV
       const activeComponents = d.active_components as Record<string, unknown> | undefined
       const avState          = parseAvState(activeComponents?.AV as number)
 
@@ -178,6 +178,7 @@ serve(async (req) => {
       const payload = {
         organization_id:   orgId,
         customer_id:       customerId,
+        customer_name:     customerName,      // ← now populated
         xcitium_device_id: String(xcitiumId),
         name:              deviceName,
         serial_number:     serialNumber,
