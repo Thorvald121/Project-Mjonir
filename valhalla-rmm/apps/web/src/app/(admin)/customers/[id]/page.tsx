@@ -10,6 +10,7 @@ import {
   CheckCircle2, AlertTriangle, Loader2, Save, Users,
   Heart, TrendingDown, Minus, Star, RefreshCw, Terminal,
   StickyNote, Trash2, Key, Calendar, ExternalLink,
+  FileSignature, MessageSquare,
 } from 'lucide-react'
 
 
@@ -28,12 +29,23 @@ function getLicStatus(l) {
   if (days <= 30) return 'expiring'
   return 'active'
 }
+
+// ── MRR helper ────────────────────────────────────────────────────────────────
+function calcMrr(contract) {
+  if (!contract || !contract.value) return 0
+  const v = Number(contract.value)
+  if (contract.billing_cycle === 'monthly')   return v
+  if (contract.billing_cycle === 'quarterly') return v / 3
+  if (contract.billing_cycle === 'annual' || contract.billing_cycle === 'yearly') return v / 12
+  return v
+}
+
 // ── Sticky Notes ──────────────────────────────────────────────────────────────
 function StickyNotes({ customerId, orgId }) {
   const supabase = createSupabaseBrowserClient()
-  const [notes,   setNotes]   = useState([])
-  const [text,    setText]    = useState('')
-  const [saving,  setSaving]  = useState(false)
+  const [notes,  setNotes]  = useState([])
+  const [text,   setText]   = useState('')
+  const [saving, setSaving] = useState(false)
 
   const load = async () => {
     const { data } = await supabase.from('customer_notes')
@@ -121,15 +133,15 @@ function computeHealth({ tickets, invoices, csatResponses }) {
   const breached = open.filter(t => t.sla_due_date && new Date(t.sla_due_date) < new Date())
   const overdue  = invoices.filter(i => i.status === 'overdue')
 
-  if (open.length)     { const p = Math.min(32, open.length * 8);     score -= p; factors.push({ label: `${open.length} open ticket${open.length > 1 ? 's' : ''}`,       impact: -p, icon: AlertTriangle }) }
+  if (open.length)     { const p = Math.min(32, open.length * 8);     score -= p; factors.push({ label: `${open.length} open ticket${open.length > 1 ? 's' : ''}`,             impact: -p, icon: AlertTriangle }) }
   if (critical.length) { const p = Math.min(30, critical.length * 15); score -= p; factors.push({ label: `${critical.length} critical ticket${critical.length > 1 ? 's' : ''}`, impact: -p, icon: AlertTriangle }) }
-  if (breached.length) { const p = Math.min(40, breached.length * 20); score -= p; factors.push({ label: `${breached.length} SLA breach${breached.length > 1 ? 'es' : ''}`,        impact: -p, icon: Clock }) }
+  if (breached.length) { const p = Math.min(40, breached.length * 20); score -= p; factors.push({ label: `${breached.length} SLA breach${breached.length > 1 ? 'es' : ''}`,      impact: -p, icon: Clock }) }
   if (overdue.length)  { const p = Math.min(30, overdue.length * 15);  score -= p; factors.push({ label: `${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`,    impact: -p, icon: DollarSign }) }
 
   if (csatResponses.length >= 2) {
     const avg = csatResponses.reduce((s, r) => s + (r.score || 0), 0) / csatResponses.length
-    if (avg >= 4.5)      { score += 10; factors.push({ label: `CSAT avg ${avg.toFixed(1)} ⭐`, impact: +10, icon: Star }) }
-    else if (avg < 3)    { score -= 15; factors.push({ label: `Low CSAT avg ${avg.toFixed(1)}`, impact: -15, icon: Star }) }
+    if (avg >= 4.5)   { score += 10; factors.push({ label: `CSAT avg ${avg.toFixed(1)} ⭐`, impact: +10, icon: Star }) }
+    else if (avg < 3) { score -= 15; factors.push({ label: `Low CSAT avg ${avg.toFixed(1)}`, impact: -15, icon: Star }) }
   }
 
   score = Math.max(0, Math.min(100, Math.round(score)))
@@ -208,8 +220,8 @@ function BlockHoursBurnDown({ customer, timeEntries }) {
   const isOver         = consumedHours > purchased
   const isWarning      = !isOver && pct >= 75
 
-  const barColor   = isOver ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
-  const statusCls  = isOver ? 'bg-rose-100 text-rose-700'    : isWarning ? 'bg-amber-100 text-amber-700'    : 'bg-emerald-100 text-emerald-700'
+  const barColor    = isOver ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+  const statusCls   = isOver ? 'bg-rose-100 text-rose-700' : isWarning ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
   const statusLabel = isOver ? 'Over Budget' : isWarning ? 'Running Low' : 'On Track'
 
   return (
@@ -226,9 +238,11 @@ function BlockHoursBurnDown({ customer, timeEntries }) {
       </div>
       <div className="grid grid-cols-3 gap-2 text-center">
         {[
-          { label: 'Purchased', value: purchased, cls: 'text-slate-900 dark:text-white' },
-          { label: 'Consumed',  value: consumedHours.toFixed(1), cls: isOver ? 'text-rose-600' : 'text-slate-900 dark:text-white' },
-          { label: isOver ? 'Over' : 'Remaining', value: isOver ? `+${(consumedHours - purchased).toFixed(1)}` : remainingHours.toFixed(1), cls: isOver ? 'text-rose-600' : remainingHours < purchased * 0.25 ? 'text-amber-600' : 'text-emerald-600' },
+          { label: 'Purchased', value: purchased,                  cls: 'text-slate-900 dark:text-white' },
+          { label: 'Consumed',  value: consumedHours.toFixed(1),   cls: isOver ? 'text-rose-600' : 'text-slate-900 dark:text-white' },
+          { label: isOver ? 'Over' : 'Remaining',
+            value: isOver ? `+${(consumedHours - purchased).toFixed(1)}` : remainingHours.toFixed(1),
+            cls: isOver ? 'text-rose-600' : remainingHours < purchased * 0.25 ? 'text-amber-600' : 'text-emerald-600' },
         ].map(({ label, value, cls }) => (
           <div key={label} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-2.5">
             <p className={`text-xl font-bold ${cls}`}>{value}</p>
@@ -251,6 +265,78 @@ function BlockHoursBurnDown({ customer, timeEntries }) {
         <div className="flex items-center gap-1.5 text-xs text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
           <RefreshCw className="w-3 h-3" />
           Period started: <span className="font-medium text-slate-600 dark:text-slate-300">{periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Active Contract Card ──────────────────────────────────────────────────────
+function ActiveContractCard({ contract }) {
+  if (!contract) return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 flex flex-col items-center justify-center gap-2 min-h-[140px]">
+      <FileSignature className="w-8 h-8 text-slate-300 dark:text-slate-700" />
+      <p className="text-sm text-slate-400">No active contract</p>
+    </div>
+  )
+
+  const mrr       = calcMrr(contract)
+  const daysToEnd = contract.end_date
+    ? Math.ceil((new Date(contract.end_date).getTime() - Date.now()) / 86400000)
+    : null
+  const isExpiring = daysToEnd !== null && daysToEnd <= 60 && daysToEnd >= 0
+  const isExpired  = daysToEnd !== null && daysToEnd < 0
+
+  const borderCls = isExpired  ? 'border-rose-200 dark:border-rose-800'
+                  : isExpiring ? 'border-amber-200 dark:border-amber-800'
+                  : 'border-emerald-200 dark:border-emerald-800'
+  const bgCls     = isExpired  ? 'bg-rose-50 dark:bg-rose-950/20'
+                  : isExpiring ? 'bg-amber-50 dark:bg-amber-950/20'
+                  : 'bg-emerald-50 dark:bg-emerald-950/20'
+
+  const fmtD = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+
+  return (
+    <div className={`rounded-xl border ${borderCls} ${bgCls} p-4`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <FileSignature className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">Active Contract</span>
+        </div>
+        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full capitalize">
+          {contract.status}
+        </span>
+      </div>
+
+      <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 truncate">{contract.title}</p>
+
+      <div className="space-y-1.5">
+        {[
+          { label: 'MRR',        value: mrr > 0 ? `$${mrr.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' },
+          { label: 'Billing',    value: contract.billing_cycle ? contract.billing_cycle.charAt(0).toUpperCase() + contract.billing_cycle.slice(1) : '—' },
+          { label: 'Start date', value: fmtD(contract.start_date) },
+          { label: 'Renewal',    value: contract.end_date ? fmtD(contract.end_date) : 'Ongoing' },
+          { label: 'Auto-renew', value: contract.auto_renew ? 'Yes' : 'No' },
+        ].map(r => (
+          <div key={r.label} className="flex items-center justify-between text-xs">
+            <span className="text-slate-500">{r.label}</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">{r.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {isExpiring && (
+        <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-800 flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+          <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+            Renews in {daysToEnd} day{daysToEnd !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
+      {isExpired && (
+        <div className="mt-3 pt-3 border-t border-rose-200 dark:border-rose-800 flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+          <span className="text-xs font-semibold text-rose-700 dark:text-rose-400">Contract has expired</span>
         </div>
       )}
     </div>
@@ -286,7 +372,6 @@ const INV_STATUS_CLS = {
   overdue: 'bg-rose-100 text-rose-700',
   void:    'bg-slate-100 text-slate-400',
 }
-
 const CONTRACT_LABELS = {
   managed:            'Managed Services',
   time_and_materials: 'Time & Materials',
@@ -294,8 +379,8 @@ const CONTRACT_LABELS = {
   project:            'Project',
 }
 
-const lbl  = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
-const fmtDate = (d) => { if (!d) return '—'; try { return new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
+const lbl         = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
+const fmtDate     = (d) => { if (!d) return '—'; try { return new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
 const fmtCurrency = (n) => n != null ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
@@ -310,22 +395,6 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-amber-500', bg 
         <p className="text-xs text-slate-400">{label}</p>
         {sub && <p className="text-[11px] text-slate-400">{sub}</p>}
       </div>
-    </div>
-  )
-}
-
-// ── Section card ──────────────────────────────────────────────────────────────
-function Section({ title, icon: Icon, action, children }) {
-  return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-slate-400" />
-          <h3 className="font-semibold text-sm text-slate-900 dark:text-white">{title}</h3>
-        </div>
-        {action}
-      </div>
-      <div className="p-5">{children}</div>
     </div>
   )
 }
@@ -681,8 +750,6 @@ function ContactDialog({ open, onClose, onSaved, contact, customerId, orgId }) {
   )
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-
 // ── License Dialog ────────────────────────────────────────────────────────────
 const LIC_BLANK = {
   name: '', vendor: '', category: 'software', status: 'active',
@@ -816,6 +883,7 @@ function LicenseDialog({ open, onClose, onSaved, editing, customerId, customerNa
   )
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function CustomerDetailPage() {
   const params   = useParams()
   const router   = useRouter()
@@ -823,29 +891,31 @@ export default function CustomerDetailPage() {
   const idRef    = useRef(null)
   idRef.current  = params?.id
 
-  const [customer,    setCustomer]    = useState(null)
-  const [tickets,     setTickets]     = useState([])
-  const [invoices,    setInvoices]    = useState([])
-  const [timeEntries, setTimeEntries] = useState([])
-  const [inventory,   setInventory]   = useState([])
-  const [contacts,    setContacts]    = useState([])
+  const [customer,      setCustomer]      = useState(null)
+  const [tickets,       setTickets]       = useState([])
+  const [invoices,      setInvoices]      = useState([])
+  const [timeEntries,   setTimeEntries]   = useState([])
+  const [inventory,     setInventory]     = useState([])
+  const [contacts,      setContacts]      = useState([])
   const [csatResponses, setCsatResponses] = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [error,       setError]       = useState(null)
-  const [orgId,       setOrgId]       = useState(null)
-  const [editOpen,    setEditOpen]    = useState(false)
-  const [ticketOpen,  setTicketOpen]  = useState(false)
-  const [activeTab,   setActiveTab]   = useState('tickets')
-  const [contactOpen, setContactOpen] = useState(false)
-  const [editingContact, setEditingContact] = useState(null)
-  const [licenses,    setLicenses]    = useState([])
-  const [licOpen,     setLicOpen]     = useState(false)
-  const [licEditing,  setLicEditing]  = useState(null)
+  const [contract,      setContract]      = useState(null)   // ← NEW
+  const [activity,      setActivity]      = useState([])     // ← NEW
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState(null)
+  const [orgId,         setOrgId]         = useState(null)
+  const [editOpen,      setEditOpen]      = useState(false)
+  const [ticketOpen,    setTicketOpen]    = useState(false)
+  const [activeTab,     setActiveTab]     = useState('tickets')
+  const [contactOpen,   setContactOpen]   = useState(false)
+  const [editingContact,setEditingContact]= useState(null)
+  const [licenses,      setLicenses]      = useState([])
+  const [licOpen,       setLicOpen]       = useState(false)
+  const [licEditing,    setLicEditing]    = useState(null)
 
   const loadAll = useCallback(async () => {
     const id = idRef.current
     if (!id) return
-    const [cust, t, inv, te, items, ctcts, csat, lic] = await Promise.all([
+    const [cust, t, inv, te, items, ctcts, csat, lic, cont] = await Promise.all([
       supabase.from('customers').select('*').eq('id', id).single(),
       supabase.from('tickets').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
       supabase.from('invoices').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
@@ -854,7 +924,16 @@ export default function CustomerDetailPage() {
       supabase.from('customer_contacts').select('*').eq('customer_id', id).order('is_primary', { ascending: false }).order('name'),
       supabase.from('csat_responses').select('score,submitted_at').eq('customer_name', id).limit(50),
       supabase.from('vendor_licenses').select('*').eq('customer_id', id).order('renewal_date', { ascending: true, nullsFirst: false }),
+      // ── NEW: most recent active/signed contract ──────────────────────────
+      supabase.from('contracts')
+        .select('id, title, value, billing_cycle, status, start_date, end_date, auto_renew')
+        .eq('customer_id', id)
+        .in('status', ['active', 'signed'])
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
+
     setLicenses(lic.data ?? [])
     if (cust.error) { setError('Customer not found'); setLoading(false); return }
     setCustomer(cust.data)
@@ -863,12 +942,31 @@ export default function CustomerDetailPage() {
     setTimeEntries(te.data ?? [])
     setInventory(items.data ?? [])
     setContacts(ctcts.data ?? [])
-    // Also fetch CSAT by ticket customer_name match and contact_email
+    setContract(cont.data ?? null)  // ← NEW
+
+    // CSAT by customer name
     const { data: csatData } = await supabase.from('csat_responses')
       .select('score,submitted_at')
       .eq('customer_name', cust.data?.name)
       .limit(50)
     setCsatResponses(csatData ?? [])
+
+    // ── NEW: recent activity (last 8 comments across all this customer's tickets) ──
+    const ticketIds = (t.data ?? []).map(tk => tk.id)
+    if (ticketIds.length > 0) {
+      const titleMap = {}
+      ;(t.data ?? []).forEach(tk => { titleMap[tk.id] = tk.title })
+      const { data: comments } = await supabase
+        .from('ticket_comments')
+        .select('id, ticket_id, author_name, author_email, content, created_at, is_staff, source')
+        .in('ticket_id', ticketIds)
+        .order('created_at', { ascending: false })
+        .limit(8)
+      setActivity((comments ?? []).map(c => ({ ...c, ticket_title: titleMap[c.ticket_id] ?? 'Unknown Ticket' })))
+    } else {
+      setActivity([])
+    }
+
     setLoading(false)
   }, [])
 
@@ -884,27 +982,25 @@ export default function CustomerDetailPage() {
   }, [params?.id])
 
   // ── Computed stats ────────────────────────────────────────────────────────
-  const openTickets    = tickets.filter(t => !['resolved','closed'].includes(t.status))
-  const totalRevenue   = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
-  const outstanding    = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + Math.max(0, (i.total || 0) - (i.amount_paid || 0)), 0)
-  const billableHours  = Math.round(timeEntries.filter(e => e.billable).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
-  const unbilledHours  = Math.round(timeEntries.filter(e => e.billable && !e.invoice_id).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
+  const openTickets   = tickets.filter(t => !['resolved','closed'].includes(t.status))
+  const totalRevenue  = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
+  const outstanding   = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + Math.max(0, (i.total || 0) - (i.amount_paid || 0)), 0)
+  const billableHours = Math.round(timeEntries.filter(e => e.billable).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
+  const unbilledHours = Math.round(timeEntries.filter(e => e.billable && !e.invoice_id).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
 
-  // Block hours tracking
   const blockTotal     = customer?.block_hours_total || 0
-  const blockUsed      = blockTotal > 0
-    ? Math.round(timeEntries.filter(e => !e.invoice_id).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
-    : 0
+  const blockUsed      = blockTotal > 0 ? Math.round(timeEntries.filter(e => !e.invoice_id).reduce((s, e) => s + (e.minutes || 0), 0) / 60) : 0
   const blockRemaining = Math.max(0, blockTotal - blockUsed)
   const blockPct       = blockTotal > 0 ? Math.min(100, Math.round((blockUsed / blockTotal) * 100)) : 0
 
   const TABS = [
-    { id: 'tickets',  label: 'Tickets',    count: tickets.length },
-    { id: 'contacts', label: 'Contacts',   count: contacts.length },
-    { id: 'invoices', label: 'Invoices',   count: invoices.length },
+    { id: 'tickets',  label: 'Tickets',      count: tickets.length },
+    { id: 'contacts', label: 'Contacts',     count: contacts.length },
+    { id: 'invoices', label: 'Invoices',     count: invoices.length },
     { id: 'time',     label: 'Time Entries', count: timeEntries.length },
-    { id: 'assets',   label: 'Assets',     count: inventory.length },
-    { id: 'licenses', label: 'Licenses',   count: licenses.length },
+    { id: 'assets',   label: 'Assets',       count: inventory.length },
+    { id: 'licenses', label: 'Licenses',     count: licenses.length },
+    { id: 'activity', label: 'Activity',     count: activity.length },  // ← NEW
   ]
 
   if (loading) return (
@@ -1001,25 +1097,30 @@ export default function CustomerDetailPage() {
         )}
       </div>
 
-      {/* Account Health Score */}
-      <CustomerHealthScore tickets={tickets} invoices={invoices} csatResponses={csatResponses} />
+      {/* ── NEW: Account Health + Active Contract side by side ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <CustomerHealthScore tickets={tickets} invoices={invoices} csatResponses={csatResponses} />
+        <ActiveContractCard contract={contract} />
+      </div>
+
+      {/* Sticky Notes */}
       <StickyNotes customerId={customer?.id} orgId={orgId} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Ticket}     label="Open Tickets"   value={openTickets.length}          color="text-amber-500"   bg="bg-amber-50 dark:bg-amber-950/30"   sub={`${tickets.length} total`} />
-        <StatCard icon={DollarSign} label="Total Revenue"  value={fmtCurrency(totalRevenue)}   color="text-emerald-500" bg="bg-emerald-50 dark:bg-emerald-950/30" sub={outstanding > 0 ? `${fmtCurrency(outstanding)} outstanding` : undefined} />
-        <StatCard icon={Clock}      label="Billable Hours" value={billableHours + 'h'}          color="text-violet-500"  bg="bg-violet-50 dark:bg-violet-950/30"  sub={unbilledHours > 0 ? `${unbilledHours}h unbilled` : undefined} />
-        <StatCard icon={Package}    label="Assets"         value={inventory.length}             color="text-blue-500"    bg="bg-blue-50 dark:bg-blue-950/30" />
+        <StatCard icon={Ticket}     label="Open Tickets"   value={openTickets.length}        color="text-amber-500"   bg="bg-amber-50 dark:bg-amber-950/30"    sub={`${tickets.length} total`} />
+        <StatCard icon={DollarSign} label="Total Revenue"  value={fmtCurrency(totalRevenue)} color="text-emerald-500" bg="bg-emerald-50 dark:bg-emerald-950/30" sub={outstanding > 0 ? `${fmtCurrency(outstanding)} outstanding` : undefined} />
+        <StatCard icon={Clock}      label="Billable Hours" value={billableHours + 'h'}        color="text-violet-500"  bg="bg-violet-50 dark:bg-violet-950/30"   sub={unbilledHours > 0 ? `${unbilledHours}h unbilled` : undefined} />
+        <StatCard icon={Package}    label="Assets"         value={inventory.length}           color="text-blue-500"    bg="bg-blue-50 dark:bg-blue-950/30" />
       </div>
 
       {/* Tabs */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        {/* Tab bar */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800">
+        {/* Tab bar — overflow-x-auto so it scrolls on narrow screens */}
+        <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
           {TABS.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab.id ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}>
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${activeTab === tab.id ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}>
               {tab.label}
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeTab === tab.id ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>{tab.count}</span>
             </button>
@@ -1206,6 +1307,7 @@ export default function CustomerDetailPage() {
           </div>
         )}
 
+        {/* Licenses tab */}
         {activeTab === 'licenses' && (
           <div>
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
@@ -1223,8 +1325,8 @@ export default function CustomerDetailPage() {
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {licenses.map(l => {
-                  const st   = getLicStatus(l)
-                  const cfg  = LIC_STATUS_CFG[st]
+                  const st  = getLicStatus(l)
+                  const cfg = LIC_STATUS_CFG[st]
                   const days = l.renewal_date ? Math.ceil((new Date(l.renewal_date + 'T00:00:00').getTime() - Date.now()) / 86400000) : null
                   return (
                     <div key={l.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
@@ -1246,7 +1348,7 @@ export default function CustomerDetailPage() {
                               {days !== null && days >= 0 && days <= 60 && ` (${days}d)`}
                             </span>
                           )}
-                          {l.cost && <span className="text-xs text-slate-400">${Number(l.cost).toLocaleString()} / {l.billing_cycle || 'year'}</span>}
+                          {l.cost  && <span className="text-xs text-slate-400">${Number(l.cost).toLocaleString()} / {l.billing_cycle || 'year'}</span>}
                           {l.seats && <span className="text-xs text-slate-400">{l.seats} seats</span>}
                         </div>
                         {l.notes && <p className="text-xs text-slate-400 italic mt-1">{l.notes}</p>}
@@ -1275,8 +1377,6 @@ export default function CustomerDetailPage() {
                 })}
               </div>
             )}
-
-            {/* Inline add/edit license dialog */}
             {licOpen && (
               <LicenseDialog
                 open={licOpen}
@@ -1294,8 +1394,71 @@ export default function CustomerDetailPage() {
             )}
           </div>
         )}
+
+        {/* ── NEW: Activity tab ─────────────────────────────────────────────── */}
+        {activeTab === 'activity' && (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {activity.length === 0 ? (
+              <div className="p-12 text-center">
+                <MessageSquare className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">No recent activity</p>
+              </div>
+            ) : activity.map(comment => {
+              const s = Math.round((Date.now() - new Date(comment.created_at).getTime()) / 1000)
+              const ago = s < 3600 ? `${Math.floor(s / 60)}m ago`
+                        : s < 86400 ? `${Math.floor(s / 3600)}h ago`
+                        : new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              const initial = (comment.author_name || comment.author_email || '?')[0].toUpperCase()
+              return (
+                <div key={comment.id}
+                  onClick={() => router.push(`/tickets/${comment.ticket_id}`)}
+                  className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer transition-colors">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold border ${
+                    comment.is_staff
+                      ? 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
+                      : 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
+                  }`}>
+                    {initial}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                        {comment.author_name || comment.author_email}
+                      </span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        comment.is_staff
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
+                      }`}>
+                        {comment.is_staff ? 'Staff' : 'Client'}
+                      </span>
+                      {comment.source === 'internal' && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          Internal note
+                        </span>
+                      )}
+                      <span className="text-xs text-slate-400 ml-auto">{ago}</span>
+                    </div>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                      {comment.content}
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 font-medium truncate">
+                      ↳ {comment.ticket_title}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+            {activity.length > 0 && (
+              <div className="px-4 py-3 text-xs text-slate-400 text-center">
+                Showing last {activity.length} comment{activity.length !== 1 ? 's' : ''} across all tickets
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Dialogs */}
       <EditDialog
         open={editOpen}
         onClose={() => setEditOpen(false)}
