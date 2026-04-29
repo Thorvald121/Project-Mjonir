@@ -51,7 +51,7 @@ async function xcitiumPost(path: string, body: unknown, token: string) {
     method: 'POST',
     headers: {
       'Content-Type':  'application/json',
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `CONESSO ${token}`,
     },
     body: JSON.stringify(body),
   })
@@ -125,7 +125,6 @@ serve(async (req) => {
   const orgId = org.id
 
   // Build a lookup map of customer name → customer id from our own DB
-  // This is used to match Xcitium's company name to one of your customers
   const { data: customers } = await supabase
     .from('customers')
     .select('id, name')
@@ -167,7 +166,7 @@ serve(async (req) => {
         ? new Date(lastSeenRaw as string | number).toISOString()
         : null
 
-      // Serial number — fall back to the Xcitium device ID so it is never blank
+      // Serial number — fall back to xcitiumId so the column is never blank
       const serialNumber = (d.serialNumber ?? d.serial_number ?? d.sn ?? xcitiumId) as string
 
       const payload = {
