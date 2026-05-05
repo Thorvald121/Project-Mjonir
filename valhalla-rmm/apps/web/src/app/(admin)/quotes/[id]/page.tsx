@@ -6,9 +6,9 @@ import { useParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import QuoteAttachments from '@/components/QuoteAttachments'
 import {
-  ArrowLeft, FileText, Send, CheckCircle2, RotateCcw,
-  Trash2, Edit, Clock, DollarSign, Paperclip, X,
-  Loader2, Eye, Calendar, User, Mail, Hash,
+  ArrowLeft, Send, CheckCircle2, RotateCcw,
+  Trash2, Edit, Clock, DollarSign, Paperclip,
+  Loader2, Eye, Calendar, User, Mail,
 } from 'lucide-react'
 
 const STATUS_CFG = {
@@ -23,10 +23,8 @@ const STATUS_CFG = {
 
 function fmt(d) {
   if (!d) return '—'
-  try {
-    const dt = new Date(d.includes('T') ? d : d + 'T00:00:00')
-    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  } catch { return d }
+  try { return new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
+  catch { return d }
 }
 
 function fmtCur(n) {
@@ -38,28 +36,19 @@ export default function QuoteDetailPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
-  const [quote,      setQuote]      = useState(null)
-  const [orgId,      setOrgId]      = useState(null)
-  const [loading,    setLoading]    = useState(true)
-  const [converting, setConverting] = useState(false)
-  const [activeTab,  setActiveTab]  = useState('details')
+  const [quote,     setQuote]     = useState(null)
+  const [orgId,     setOrgId]     = useState(null)
+  const [loading,   setLoading]   = useState(true)
+  const [converting,setConverting]= useState(false)
+  const [activeTab, setActiveTab] = useState('details')
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .single()
+      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) setOrgId(member.organization_id)
-
-      const { data } = await supabase
-        .from('quotes')
-        .select('*')
-        .eq('id', params.id)
-        .single()
+      const { data } = await supabase.from('quotes').select('*').eq('id', params.id).single()
       setQuote(data)
       setLoading(false)
     }
@@ -78,24 +67,14 @@ export default function QuoteDetailPage() {
     const today   = new Date().toISOString().split('T')[0]
     const dueDate = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })()
     const { error } = await supabase.from('invoices').insert({
-      organization_id: orgId,
-      invoice_number:  `INV-${Date.now().toString().slice(-6)}`,
-      customer_id:     quote.customer_id,
-      customer_name:   quote.customer_name,
-      contact_email:   quote.contact_email || null,
-      status:          'draft',
-      payment_terms:   'net_30',
-      issue_date:      today,
-      due_date:        dueDate,
-      line_items:      quote.line_items || [],
-      subtotal:        quote.subtotal || 0,
-      discount_amount: quote.discount_amount || 0,
-      discount_percent:quote.discount_percent || 0,
-      tax_rate:        quote.tax_rate || 0,
-      tax_amount:      quote.tax_amount || 0,
-      total:           quote.total || 0,
-      amount_paid:     0,
-      notes:           quote.notes || null,
+      organization_id: orgId, invoice_number: `INV-${Date.now().toString().slice(-6)}`,
+      customer_id: quote.customer_id, customer_name: quote.customer_name,
+      contact_email: quote.contact_email || null, status: 'draft', payment_terms: 'net_30',
+      issue_date: today, due_date: dueDate, line_items: quote.line_items || [],
+      subtotal: quote.subtotal || 0, discount_amount: quote.discount_amount || 0,
+      discount_percent: quote.discount_percent || 0, tax_rate: quote.tax_rate || 0,
+      tax_amount: quote.tax_amount || 0, total: quote.total || 0, amount_paid: 0,
+      notes: quote.notes || null,
     })
     if (!error) {
       await supabase.from('quotes').update({ status: 'converted' }).eq('id', quote.id)
@@ -107,7 +86,7 @@ export default function QuoteDetailPage() {
   if (loading) return (
     <div className="max-w-4xl space-y-4 animate-pulse">
       <div className="h-5 w-32 bg-slate-100 dark:bg-slate-800 rounded" />
-      <div className="h-32 bg-slate-100 dark:bg-slate-800 rounded-xl" />
+      <div className="h-40 bg-slate-100 dark:bg-slate-800 rounded-xl" />
       <div className="h-64 bg-slate-100 dark:bg-slate-800 rounded-xl" />
     </div>
   )
@@ -124,11 +103,6 @@ export default function QuoteDetailPage() {
   const isExpired = quote.expiry_date && new Date(quote.expiry_date) < new Date() && !['approved', 'converted', 'rejected'].includes(quote.status)
   const appUrl    = typeof window !== 'undefined' ? window.location.origin : ''
 
-  const TABS = [
-    { id: 'details',     label: 'Details' },
-    { id: 'attachments', label: 'Attachments' },
-  ]
-
   return (
     <div className="max-w-4xl space-y-5">
 
@@ -138,7 +112,7 @@ export default function QuoteDetailPage() {
         <ArrowLeft className="w-4 h-4" /> Back to Quotes
       </button>
 
-      {/* Header card */}
+      {/* Header */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
@@ -156,7 +130,7 @@ export default function QuoteDetailPage() {
           <p className="text-2xl font-bold text-slate-900 dark:text-white">{fmtCur(quote.total)}</p>
         </div>
 
-        {/* Meta grid */}
+        {/* Meta */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
           {[
             { icon: User,     label: 'Client',  value: quote.customer_name },
@@ -175,18 +149,17 @@ export default function QuoteDetailPage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-wrap mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-          {quote.approval_token && (
-            <button
-              onClick={() => window.open(`${appUrl}/quote-approval?token=${quote.approval_token}`, '_blank')}
-              className="flex items-center gap-2 px-3 py-2 border border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400 rounded-lg text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-colors">
-              <Eye className="w-4 h-4" /> Preview Client View
+          {/* Edit → full edit page */}
+          {!['approved', 'converted'].includes(quote.status) && (
+            <button onClick={() => router.push(`/quotes/${quote.id}/edit`)}
+              className="flex items-center gap-2 px-3 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              <Edit className="w-4 h-4" /> Edit Quote
             </button>
           )}
-          {['draft', 'sent'].includes(quote.status) && (
-            <button
-              onClick={() => router.push(`/quotes?send=${quote.id}`)}
-              className="flex items-center gap-2 px-3 py-2 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors">
-              <Send className="w-4 h-4" /> Send to Client
+          {quote.approval_token && (
+            <button onClick={() => window.open(`${appUrl}/quote-approval?token=${quote.approval_token}`, '_blank')}
+              className="flex items-center gap-2 px-3 py-2 border border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400 rounded-lg text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-colors">
+              <Eye className="w-4 h-4" /> Preview Client View
             </button>
           )}
           {quote.status === 'approved' && (
@@ -194,13 +167,6 @@ export default function QuoteDetailPage() {
               className="flex items-center gap-2 px-3 py-2 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-lg text-sm font-medium hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors disabled:opacity-50">
               {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
               Convert to Invoice
-            </button>
-          )}
-          {!['approved', 'converted'].includes(quote.status) && (
-            <button
-              onClick={() => router.push(`/quotes?edit=${quote.id}`)}
-              className="flex items-center gap-2 px-3 py-2 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <Edit className="w-4 h-4" /> Edit Quote
             </button>
           )}
           {quote.status !== 'converted' && (
@@ -215,13 +181,9 @@ export default function QuoteDetailPage() {
       {/* Tabs */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="flex border-b border-slate-200 dark:border-slate-800">
-          {TABS.map(tab => (
+          {[{ id: 'details', label: 'Details' }, { id: 'attachments', label: 'Attachments' }].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}>
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab.id ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}>
               {tab.id === 'attachments' && <Paperclip className="w-3.5 h-3.5" />}
               {tab.label}
             </button>
@@ -231,8 +193,6 @@ export default function QuoteDetailPage() {
         {/* Details tab */}
         {activeTab === 'details' && (
           <div className="p-5 space-y-5">
-
-            {/* Message to client */}
             {quote.message_to_client && (
               <div>
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Message to Client</p>
@@ -240,15 +200,11 @@ export default function QuoteDetailPage() {
               </div>
             )}
 
-            {/* Line items */}
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Line Items</p>
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <div className="grid grid-cols-[1fr_60px_90px_90px] gap-3 px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                  <div>Description</div>
-                  <div className="text-right">Qty</div>
-                  <div className="text-right">Rate</div>
-                  <div className="text-right">Total</div>
+                  <div>Description</div><div className="text-right">Qty</div><div className="text-right">Rate</div><div className="text-right">Total</div>
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {lineItems.map((item, i) => (
@@ -266,31 +222,13 @@ export default function QuoteDetailPage() {
               </div>
             </div>
 
-            {/* Totals */}
             <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 space-y-2 text-sm max-w-xs ml-auto">
-              <div className="flex justify-between text-slate-500">
-                <span>Subtotal</span>
-                <span>{fmtCur(quote.subtotal)}</span>
-              </div>
-              {Number(quote.discount_amount) > 0 && (
-                <div className="flex justify-between text-emerald-600">
-                  <span>Discount</span>
-                  <span>-{fmtCur(quote.discount_amount)}</span>
-                </div>
-              )}
-              {Number(quote.tax_rate) > 0 && (
-                <div className="flex justify-between text-slate-500">
-                  <span>Tax ({quote.tax_rate}%)</span>
-                  <span>{fmtCur(quote.tax_amount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-2">
-                <span>Total</span>
-                <span>{fmtCur(quote.total)}</span>
-              </div>
+              <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{fmtCur(quote.subtotal)}</span></div>
+              {Number(quote.discount_amount) > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-{fmtCur(quote.discount_amount)}</span></div>}
+              {Number(quote.tax_rate) > 0 && <div className="flex justify-between text-slate-500"><span>Tax ({quote.tax_rate}%)</span><span>{fmtCur(quote.tax_amount)}</span></div>}
+              <div className="flex justify-between font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 pt-2"><span>Total</span><span>{fmtCur(quote.total)}</span></div>
             </div>
 
-            {/* Internal notes */}
             {quote.notes && (
               <div>
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Internal Notes</p>
@@ -306,11 +244,11 @@ export default function QuoteDetailPage() {
             <div className="flex gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs text-slate-500">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                <strong>Client visible</strong> — shown on the quote approval page
+                <strong>Client visible</strong> — shown on the approval page
               </div>
               <div className="flex items-center gap-1.5 ml-4">
                 <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
-                <strong>Internal only</strong> — visible to you, never sent to the client
+                <strong>Internal only</strong> — never sent to client
               </div>
             </div>
             <QuoteAttachments quoteId={quote.id} orgId={orgId} />
