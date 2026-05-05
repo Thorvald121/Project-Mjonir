@@ -8,8 +8,9 @@ import {
   ArrowLeft, Plus, Trash2, Save, Loader2, CheckCircle2,
   AlertTriangle, DollarSign, Users, Monitor, Eye, EyeOff,
   LayoutList, Layers, AlignJustify, ChevronDown, Edit3,
-  Shield, Package, Clock, RefreshCw, X,
+  Shield, Package, Clock, RefreshCw, X, Paperclip,
 } from 'lucide-react'
+import QuoteAttachments from '@/components/QuoteAttachments'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 const SECTIONS = {
@@ -22,22 +23,21 @@ const SECTIONS = {
 const PLAN_LABELS = { core: 'Core', advanced: 'Advanced', elite: 'Elite', flex: 'Flex' }
 
 const MULTIPLIERS = [
-  { value: 1.00, label: 'Simple (1.00×)',        sub: 'Email, standard PCs, basic router' },
-  { value: 1.15, label: 'Moderate (1.15×)',       sub: 'Cloud SaaS mix, multi-site, more admin' },
-  { value: 1.30, label: 'Complex (1.30×)',        sub: 'Servers, compliance, legacy systems' },
+  { value: 1.00, label: 'Simple (1.00×)',         sub: 'Email, standard PCs, basic router' },
+  { value: 1.15, label: 'Moderate (1.15×)',        sub: 'Cloud SaaS mix, multi-site, more admin' },
+  { value: 1.30, label: 'Complex (1.30×)',         sub: 'Servers, compliance, legacy systems' },
   { value: 1.45, label: 'High complexity (1.45×)', sub: 'Regulated, high ticket volume' },
   { value: 1.60, label: 'High complexity (1.60×)', sub: 'Multi-server, complex integrations' },
 ]
 
 const DISPLAY_MODES = [
-  { value: 'full',      icon: LayoutList,    label: 'Full Detail',   sub: 'Every line item shown' },
-  { value: 'sectioned', icon: Layers,        label: 'Sectioned',     sub: 'Grouped by category' },
-  { value: 'summary',   icon: AlignJustify,  label: 'Summary',       sub: 'Section totals only' },
+  { value: 'full',      icon: LayoutList,   label: 'Full Detail', sub: 'Every line item shown' },
+  { value: 'sectioned', icon: Layers,       label: 'Sectioned',   sub: 'Grouped by category' },
+  { value: 'summary',   icon: AlignJustify, label: 'Summary',     sub: 'Section totals only' },
 ]
 
-const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-const fmtCur = (n) => n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const inp     = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+const fmtCur  = (n) => n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 // ── Quote Preview ─────────────────────────────────────────────────────────────
 function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMargin }) {
@@ -50,13 +50,13 @@ function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMar
     return map
   }, [lineItems])
 
-  const recurringItems   = lineItems.filter(i => !i.is_one_time)
-  const oneTimeItems     = lineItems.filter(i => i.is_one_time)
-  const recurringTotal   = recurringItems.reduce((s, i) => s + i.total, 0)
-  const oneTimeTotal     = oneTimeItems.reduce((s, i) => s + i.total, 0)
-  const totalCost        = lineItems.reduce((s, i) => s + (i.internal_cost_total || 0), 0)
-  const grossMargin      = recurringTotal - totalCost
-  const marginPct        = recurringTotal > 0 ? (grossMargin / recurringTotal) * 100 : 0
+  const recurringItems = lineItems.filter(i => !i.is_one_time)
+  const oneTimeItems   = lineItems.filter(i => i.is_one_time)
+  const recurringTotal = recurringItems.reduce((s, i) => s + i.total, 0)
+  const oneTimeTotal   = oneTimeItems.reduce((s, i) => s + i.total, 0)
+  const totalCost      = lineItems.reduce((s, i) => s + (i.internal_cost_total || 0), 0)
+  const grossMargin    = recurringTotal - totalCost
+  const marginPct      = recurringTotal > 0 ? (grossMargin / recurringTotal) * 100 : 0
 
   if (lineItems.length === 0) {
     return (
@@ -69,7 +69,6 @@ function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMar
 
   return (
     <div className="space-y-4">
-      {/* Quote header */}
       <div className="border-b border-slate-200 dark:border-slate-700 pb-4">
         <div className="flex items-start justify-between">
           <div>
@@ -87,7 +86,7 @@ function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMar
         </div>
       </div>
 
-      {/* ── FULL mode ── */}
+      {/* Full mode */}
       {displayMode === 'full' && (
         <div className="space-y-1">
           <div className="grid grid-cols-[1fr_60px_80px_80px] gap-2 px-2 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
@@ -120,14 +119,13 @@ function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMar
         </div>
       )}
 
-      {/* ── SECTIONED mode ── */}
+      {/* Sectioned mode */}
       {displayMode === 'sectioned' && (
         <div className="space-y-3">
           {Object.entries(sections).map(([sectionKey, items]) => {
             const cfg      = SECTIONS[sectionKey] ?? SECTIONS.other
-            const recurring = items.filter(i => !i.is_one_time)
-            const oneTime   = items.filter(i => i.is_one_time)
-            const total     = items.reduce((s, i) => s + i.total, 0)
+            const oneTime  = items.filter(i => i.is_one_time)
+            const total    = items.reduce((s, i) => s + i.total, 0)
             return (
               <div key={sectionKey} className={`rounded-xl border ${cfg.border} ${cfg.bg} overflow-hidden`}>
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-current border-opacity-20">
@@ -150,7 +148,7 @@ function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMar
         </div>
       )}
 
-      {/* ── SUMMARY mode ── */}
+      {/* Summary mode */}
       {displayMode === 'summary' && (
         <div className="space-y-2">
           {Object.entries(sections).map(([sectionKey, items]) => {
@@ -186,7 +184,7 @@ function QuotePreview({ lineItems, displayMode, clientName, quoteNumber, showMar
         )}
       </div>
 
-      {/* Internal margin (hidden from client) */}
+      {/* Internal margin */}
       {showMargin && totalCost > 0 && (
         <div className="border-t border-dashed border-amber-300 dark:border-amber-700 pt-3 space-y-1.5">
           <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wide">Internal — not shown to client</p>
@@ -211,7 +209,6 @@ export default function QuoteBuilderPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
-  // ── Settings & org
   const [settings,   setSettings]   = useState(null)
   const [orgId,      setOrgId]      = useState(null)
   const [customers,  setCustomers]  = useState([])
@@ -219,26 +216,30 @@ export default function QuoteBuilderPage() {
   const [saving,     setSaving]     = useState(false)
   const [err,        setErr]        = useState(null)
 
+  // ── Post-save state: once a quote is saved we hold its ID here
+  // and reveal the attachments panel instead of routing away
+  const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null)
+  const [savedQuoteNumber, setSavedQuoteNumber] = useState<string | null>(null)
+
   // ── Quote meta
-  const [customerId,   setCustomerId]   = useState('')
-  const [clientName,   setClientName]   = useState('')
-  const [contactEmail, setContactEmail] = useState('')
-  const [contactName,  setContactName]  = useState('')
-  const [title,        setTitle]        = useState('')
-  const [validUntil,   setValidUntil]   = useState('')
-  const [notes,        setNotes]        = useState('')
-  const [internalNotes,setInternalNotes]= useState('')
-  const [msgToClient,  setMsgToClient]  = useState('')
+  const [customerId,    setCustomerId]    = useState('')
+  const [clientName,    setClientName]    = useState('')
+  const [contactEmail,  setContactEmail]  = useState('')
+  const [contactName,   setContactName]   = useState('')
+  const [title,         setTitle]         = useState('')
+  const [validUntil,    setValidUntil]    = useState('')
+  const [notes,         setNotes]         = useState('')
+  const [internalNotes, setInternalNotes] = useState('')
+  const [msgToClient,   setMsgToClient]   = useState('')
 
   // ── Quote config
-  const [selectedPlan,  setSelectedPlan]  = useState('advanced')
-  const [userCount,     setUserCount]     = useState(5)
-  const [deviceCount,   setDeviceCount]   = useState(5)
-  const [domainCount,   setDomainCount]   = useState(1)
-  const [multiplier,    setMultiplier]    = useState(1.00)
-  const [includeOnboarding, setIncludeOnboarding] = useState(true)
+  const [selectedPlan,      setSelectedPlan]      = useState('advanced')
+  const [userCount,         setUserCount]          = useState(5)
+  const [deviceCount,       setDeviceCount]        = useState(5)
+  const [domainCount,       setDomainCount]        = useState(1)
+  const [multiplier,        setMultiplier]         = useState(1.00)
+  const [includeOnboarding, setIncludeOnboarding]  = useState(true)
 
-  // ── Add-ons
   const [addons, setAddons] = useState({
     security: { enabled: false, qty: 5 },
     backup:   { enabled: false, qty: 5 },
@@ -248,14 +249,10 @@ export default function QuoteBuilderPage() {
     darkweb:  { enabled: false, qty: 1 },
   })
 
-  // ── Custom line items
   const [customItems, setCustomItems] = useState([])
+  const [displayMode, setDisplayMode] = useState('sectioned')
+  const [showMargin,  setShowMargin]  = useState(false)
 
-  // ── Display
-  const [displayMode,  setDisplayMode]  = useState('sectioned')
-  const [showMargin,   setShowMargin]   = useState(false)
-
-  // ── Load settings and customers
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -276,7 +273,6 @@ export default function QuoteBuilderPage() {
     init()
   }, [])
 
-  // Sync device/user counts into addon quantities when they change
   useEffect(() => {
     setAddons(prev => ({
       ...prev,
@@ -288,7 +284,6 @@ export default function QuoteBuilderPage() {
     }))
   }, [userCount, deviceCount])
 
-  // When customer selected, auto-fill name/email
   const handleCustomerSelect = (id) => {
     setCustomerId(id)
     const c = customers.find(c => c.id === id)
@@ -311,20 +306,13 @@ export default function QuoteBuilderPage() {
     }[selectedPlan]
 
     if (selectedPlan === 'flex') {
-      // Flex: block hours
       const blockRate  = settings.flex_hourly || 150
       const blockHours = settings.flex_block_hours || 10
       items.push({
-        id:          'flex-block',
-        description: `Flex Support — ${blockHours}-Hour Prepaid Block`,
-        sub:         'Business-hours reactive support, remote troubleshooting',
-        quantity:    1,
-        unit_price:  blockRate * blockHours,
-        total:       blockRate * blockHours,
-        section:     'support',
-        type:        'plan',
-        is_one_time: false,
-        internal_cost_total: 0,
+        id: 'flex-block', description: `Flex Support — ${blockHours}-Hour Prepaid Block`,
+        sub: 'Business-hours reactive support, remote troubleshooting',
+        quantity: 1, unit_price: blockRate * blockHours, total: blockRate * blockHours,
+        section: 'support', type: 'plan', is_one_time: false, internal_cost_total: 0,
       })
     } else if (planRateRaw && userCount > 0) {
       const adjustedRate = parseFloat((planRateRaw * multiplier).toFixed(2))
@@ -332,115 +320,77 @@ export default function QuoteBuilderPage() {
       const minFee       = { core: settings.core_monthly_min, advanced: settings.advanced_monthly_min, elite: settings.elite_monthly_min }[selectedPlan] || 0
 
       items.push({
-        id:          'plan',
+        id: 'plan',
         description: `${PLAN_LABELS[selectedPlan]} Managed Services — ${userCount} user${userCount !== 1 ? 's' : ''}`,
-        sub:         multiplier > 1 ? `Base rate ${fmtCur(planRateRaw)} × ${multiplier}× complexity = ${fmtCur(adjustedRate)}/user` : undefined,
-        quantity:    userCount,
-        unit_price:  adjustedRate,
-        total:       Math.max(planTotal, minFee),
-        section:     'support',
-        type:        'plan',
-        is_one_time: false,
-        internal_cost_total: 0,
+        sub: multiplier > 1 ? `Base rate ${fmtCur(planRateRaw)} × ${multiplier}× complexity = ${fmtCur(adjustedRate)}/user` : undefined,
+        quantity: userCount, unit_price: adjustedRate,
+        total: Math.max(planTotal, minFee),
+        section: 'support', type: 'plan', is_one_time: false, internal_cost_total: 0,
       })
 
-      // Monthly minimum adjustment line if needed
       if (planTotal < minFee) {
         items.push({
-          id:          'min-adj',
+          id: 'min-adj',
           description: `Monthly minimum adjustment (${PLAN_LABELS[selectedPlan]} min: ${fmtCur(minFee)})`,
-          quantity:    1,
-          unit_price:  minFee - planTotal,
-          total:       minFee - planTotal,
-          section:     'support',
-          type:        'minimum',
-          is_one_time: false,
-          internal_cost_total: 0,
+          quantity: 1, unit_price: minFee - planTotal, total: minFee - planTotal,
+          section: 'support', type: 'minimum', is_one_time: false, internal_cost_total: 0,
         })
       }
     }
 
-    // ── Security add-ons
     const securityAddons = [
-      { key: 'security', label: 'Endpoint Security (Bitdefender GravityZone)',  sub: 'AV, Advanced Threat Security, EDR — per device/mo', rate: settings.addon_security, unit: 'device', section: 'security', cost: 2.86 },
-      { key: 'dns',      label: 'DNS Filtering & Web Content Control',           sub: 'Per device/mo', rate: settings.addon_dns, unit: 'device', section: 'security', cost: 0 },
-      { key: 'training', label: 'Security Awareness Training',                   sub: 'Per user/year — billed monthly', rate: (settings.addon_training || 0) / 12, unit: 'user', section: 'security', cost: 0 },
-      { key: 'darkweb',  label: 'Dark Web Monitoring',                           sub: 'Per domain/mo', rate: settings.addon_darkweb, unit: 'domain', section: 'security', cost: 0 },
+      { key: 'security', label: 'Endpoint Security (Bitdefender GravityZone)', sub: 'AV, Advanced Threat Security, EDR — per device/mo', rate: settings.addon_security, unit: 'device', section: 'security', cost: 2.86 },
+      { key: 'dns',      label: 'DNS Filtering & Web Content Control',          sub: 'Per device/mo', rate: settings.addon_dns, unit: 'device', section: 'security', cost: 0 },
+      { key: 'training', label: 'Security Awareness Training',                  sub: 'Per user/year — billed monthly', rate: (settings.addon_training || 0) / 12, unit: 'user', section: 'security', cost: 0 },
+      { key: 'darkweb',  label: 'Dark Web Monitoring',                          sub: 'Per domain/mo', rate: settings.addon_darkweb, unit: 'domain', section: 'security', cost: 0 },
     ]
 
     for (const a of securityAddons) {
       if (!addons[a.key]?.enabled) continue
       const qty   = addons[a.key].qty || 1
       const rate  = a.rate || 0
-      const total = qty * rate
       items.push({
-        id:          a.key,
-        description: `${a.label} — ${qty} ${a.unit}${qty !== 1 ? 's' : ''}`,
-        sub:         a.sub,
-        quantity:    qty,
-        unit_price:  parseFloat(rate.toFixed(2)),
-        total:       parseFloat(total.toFixed(2)),
-        section:     a.section,
-        type:        'addon',
-        is_one_time: false,
-        internal_cost_total: a.cost * qty,
+        id: a.key, description: `${a.label} — ${qty} ${a.unit}${qty !== 1 ? 's' : ''}`,
+        sub: a.sub, quantity: qty, unit_price: parseFloat(rate.toFixed(2)),
+        total: parseFloat((qty * rate).toFixed(2)),
+        section: a.section, type: 'addon', is_one_time: false, internal_cost_total: a.cost * qty,
       })
     }
 
-    // ── Other add-ons
     const otherAddons = [
-      { key: 'backup', label: 'Managed Backup Administration', sub: 'Per device/mo — monitoring + restore verification', rate: settings.addon_backup, unit: 'device', section: 'other' },
-      { key: 'm365',   label: 'Microsoft 365 License Management', sub: 'Per user/mo — procurement, admin, lifecycle', rate: settings.addon_m365, unit: 'user', section: 'other' },
+      { key: 'backup', label: 'Managed Backup Administration', sub: 'Per device/mo', rate: settings.addon_backup, unit: 'device', section: 'other' },
+      { key: 'm365',   label: 'Microsoft 365 License Management', sub: 'Per user/mo', rate: settings.addon_m365, unit: 'user', section: 'other' },
     ]
 
     for (const a of otherAddons) {
       if (!addons[a.key]?.enabled) continue
-      const qty   = addons[a.key].qty || 1
-      const rate  = a.rate || 0
-      const total = qty * rate
+      const qty  = addons[a.key].qty || 1
+      const rate = a.rate || 0
       items.push({
-        id:          a.key,
-        description: `${a.label} — ${qty} ${a.unit}${qty !== 1 ? 's' : ''}`,
-        sub:         a.sub,
-        quantity:    qty,
-        unit_price:  parseFloat(rate.toFixed(2)),
-        total:       parseFloat(total.toFixed(2)),
-        section:     a.section,
-        type:        'addon',
-        is_one_time: false,
-        internal_cost_total: 0,
+        id: a.key, description: `${a.label} — ${qty} ${a.unit}${qty !== 1 ? 's' : ''}`,
+        sub: a.sub, quantity: qty, unit_price: parseFloat(rate.toFixed(2)),
+        total: parseFloat((qty * rate).toFixed(2)),
+        section: a.section, type: 'addon', is_one_time: false, internal_cost_total: 0,
       })
     }
 
-    // ── Custom line items
     for (const ci of customItems) {
       if (!ci.description || !ci.total) continue
       items.push({
-        id:          ci.id,
-        description: ci.description,
-        quantity:    ci.quantity || 1,
-        unit_price:  ci.unit_price || ci.total,
-        total:       ci.total,
-        section:     ci.section || 'other',
-        type:        'custom',
-        is_one_time: ci.is_one_time || false,
-        internal_cost_total: 0,
+        id: ci.id, description: ci.description,
+        quantity: ci.quantity || 1, unit_price: ci.unit_price || ci.total, total: ci.total,
+        section: ci.section || 'other', type: 'custom',
+        is_one_time: ci.is_one_time || false, internal_cost_total: 0,
       })
     }
 
-    // ── Onboarding
     if (includeOnboarding) {
       items.push({
-        id:          'onboarding',
-        description: 'Onboarding & Initial Setup',
-        sub:         'Agent deployment, documentation, portal setup, onboarding call',
-        quantity:    1,
-        unit_price:  settings.onboarding_fee_default || 500,
-        total:       settings.onboarding_fee_default || 500,
-        section:     'onboarding',
-        type:        'onboarding',
-        is_one_time: true,
-        internal_cost_total: 0,
+        id: 'onboarding', description: 'Onboarding & Initial Setup',
+        sub: 'Agent deployment, documentation, portal setup, onboarding call',
+        quantity: 1, unit_price: settings.onboarding_fee_default || 500,
+        total: settings.onboarding_fee_default || 500,
+        section: 'onboarding', type: 'onboarding', is_one_time: true, internal_cost_total: 0,
       })
     }
 
@@ -464,60 +414,46 @@ export default function QuoteBuilderPage() {
       if (key === 'quantity' || key === 'unit_price') {
         updated.total = (updated.quantity || 1) * (updated.unit_price || 0)
       }
-      if (key === 'total' && key !== 'unit_price') {
-        updated.unit_price = updated.total / (updated.quantity || 1)
-      }
       return updated
     }))
   }
 
   const removeCustomItem = (id) => setCustomItems(prev => prev.filter(i => i.id !== id))
 
-  // ── Save quote
+  // ── Save
   const handleSave = async (status = 'draft') => {
     if (!orgId) return
     if (!clientName.trim()) { setErr('Client name is required'); return }
-
     setSaving(true); setErr(null)
 
     const { data: latest } = await supabase
-      .from('quotes')
-      .select('quote_number')
+      .from('quotes').select('quote_number')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .limit(1).maybeSingle()
 
-    const lastNum = latest?.quote_number
-      ? parseInt(latest.quote_number.replace(/\D/g, '')) || 0
-      : 0
+    const lastNum    = latest?.quote_number ? parseInt(latest.quote_number.replace(/\D/g, '')) || 0 : 0
     const quoteNumber = `Q-${String(lastNum + 1).padStart(4, '0')}`
 
     const payload = {
-      organization_id: orgId,
-      customer_id:     customerId || null,
-      customer_name:   clientName.trim(),
-      contact_email:   contactEmail || null,
-      contact_name:    contactName || null,
-      quote_number:    quoteNumber,
-      title:           title.trim() || `${PLAN_LABELS[selectedPlan] || 'Managed Services'} — ${clientName}`,
-      status,
-      line_items:      lineItems,
-      subtotal:        grandTotal,
-      total:           grandTotal,
-      display_mode:    displayMode,
-      valid_until:     validUntil || null,
-      expiry_date:     validUntil || null,
-      notes:           notes || null,
-      internal_notes:  internalNotes || null,
-      message_to_client: msgToClient || null,
-      issue_date:      new Date().toISOString().slice(0, 10),
+      organization_id: orgId, customer_id: customerId || null,
+      customer_name: clientName.trim(), contact_email: contactEmail || null,
+      contact_name: contactName || null, quote_number: quoteNumber,
+      title: title.trim() || `${PLAN_LABELS[selectedPlan] || 'Managed Services'} — ${clientName}`,
+      status, line_items: lineItems, subtotal: grandTotal, total: grandTotal,
+      display_mode: displayMode, valid_until: validUntil || null,
+      expiry_date: validUntil || null, notes: notes || null,
+      internal_notes: internalNotes || null, message_to_client: msgToClient || null,
+      issue_date: new Date().toISOString().slice(0, 10),
     }
 
-    const { error } = await supabase.from('quotes').insert(payload)
+    const { data: saved, error } = await supabase.from('quotes').insert(payload).select('id, quote_number').single()
     if (error) { setErr(error.message); setSaving(false); return }
 
-    router.push('/quotes')
+    // Stay on page and reveal attachments panel
+    setSavedQuoteId(saved.id)
+    setSavedQuoteNumber(saved.quote_number)
+    setSaving(false)
   }
 
   if (loading) return (
@@ -542,6 +478,53 @@ export default function QuoteBuilderPage() {
     </div>
   )
 
+  // ── POST-SAVE: show attachments panel ─────────────────────────────────────
+  if (savedQuoteId) {
+    return (
+      <div className="max-w-3xl space-y-5">
+        {/* Success banner */}
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              Quote {savedQuoteNumber} saved for {clientName}
+            </p>
+            <p className="text-xs text-emerald-600 dark:text-emerald-500">
+              Add any supporting documents below, then head to Quotes when done.
+            </p>
+          </div>
+          <button onClick={() => router.push('/quotes')}
+            className="flex-shrink-0 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors">
+            Done → Quotes
+          </button>
+        </div>
+
+        {/* Attachments */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Paperclip className="w-4 h-4 text-slate-400" />
+            <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Attachments</h3>
+            <span className="text-xs text-slate-400 ml-1">— optional supporting documents for this quote</span>
+          </div>
+
+          <div className="flex gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              <strong>Client visible</strong> — shown on the quote approval page
+            </div>
+            <div className="flex items-center gap-1.5 ml-4">
+              <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+              <strong>Internal only</strong> — visible to you, never sent to the client
+            </div>
+          </div>
+
+          <QuoteAttachments quoteId={savedQuoteId} orgId={orgId} />
+        </div>
+      </div>
+    )
+  }
+
+  // ── BUILDER ───────────────────────────────────────────────────────────────
   return (
     <div className="max-w-7xl space-y-5">
 
@@ -593,8 +576,7 @@ export default function QuoteBuilderPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</label>
-                <select value={customerId} onChange={e => handleCustomerSelect(e.target.value)}
-                  className={`mt-1 ${inp}`}>
+                <select value={customerId} onChange={e => handleCustomerSelect(e.target.value)} className={`mt-1 ${inp}`}>
                   <option value="">Select existing or type below</option>
                   {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -631,11 +613,11 @@ export default function QuoteBuilderPage() {
             <h3 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
               <DollarSign className="w-4 h-4 text-slate-400" /> Service Plan
             </h3>
-
-            {/* Plan selector */}
             <div className="grid grid-cols-4 gap-2">
               {Object.entries(PLAN_LABELS).map(([key, label]) => {
-                const rate = key === 'flex' ? `${fmtCur(settings.flex_hourly)}/hr` : `${fmtCur({ core: settings.core_per_user, advanced: settings.advanced_per_user, elite: settings.elite_per_user }[key])}/user`
+                const rate = key === 'flex'
+                  ? `${fmtCur(settings.flex_hourly)}/hr`
+                  : `${fmtCur({ core: settings.core_per_user, advanced: settings.advanced_per_user, elite: settings.elite_per_user }[key])}/user`
                 return (
                   <button key={key} onClick={() => setSelectedPlan(key)}
                     className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${selectedPlan === key ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600'}`}>
@@ -646,7 +628,6 @@ export default function QuoteBuilderPage() {
               })}
             </div>
 
-            {/* User / device counts */}
             {selectedPlan !== 'flex' && (
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -670,7 +651,6 @@ export default function QuoteBuilderPage() {
               </div>
             )}
 
-            {/* Complexity multiplier */}
             {selectedPlan !== 'flex' && (
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Complexity Multiplier</label>
@@ -688,16 +668,15 @@ export default function QuoteBuilderPage() {
             <h3 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
               <Shield className="w-4 h-4 text-slate-400" /> Add-On Services
             </h3>
-
             <div className="space-y-2">
               {[
-                { key: 'security', label: 'Endpoint Security (Bitdefender)', rate: settings.addon_security, unit: 'device', qtyField: deviceCount, section: 'security' },
-                { key: 'dns',      label: 'DNS Filtering',                   rate: settings.addon_dns,      unit: 'device', qtyField: deviceCount, section: 'security' },
-                { key: 'training', label: 'Security Awareness Training',      rate: settings.addon_training / 12, unit: 'user/mo', qtyField: userCount, section: 'security' },
-                { key: 'darkweb',  label: 'Dark Web Monitoring',              rate: settings.addon_darkweb,  unit: 'domain', qtyField: domainCount, section: 'security' },
-                { key: 'backup',   label: 'Managed Backup',                   rate: settings.addon_backup,   unit: 'device', qtyField: deviceCount, section: 'other' },
-                { key: 'm365',     label: 'M365 License Management',          rate: settings.addon_m365,     unit: 'user',   qtyField: userCount,   section: 'other' },
-              ].map(({ key, label, rate, unit, qtyField, section }) => (
+                { key: 'security', label: 'Endpoint Security (Bitdefender)', rate: settings.addon_security, unit: 'device', qtyField: deviceCount },
+                { key: 'dns',      label: 'DNS Filtering',                   rate: settings.addon_dns,      unit: 'device', qtyField: deviceCount },
+                { key: 'training', label: 'Security Awareness Training',      rate: settings.addon_training / 12, unit: 'user/mo', qtyField: userCount },
+                { key: 'darkweb',  label: 'Dark Web Monitoring',              rate: settings.addon_darkweb,  unit: 'domain', qtyField: domainCount },
+                { key: 'backup',   label: 'Managed Backup',                   rate: settings.addon_backup,   unit: 'device', qtyField: deviceCount },
+                { key: 'm365',     label: 'M365 License Management',          rate: settings.addon_m365,     unit: 'user',   qtyField: userCount },
+              ].map(({ key, label, rate, unit, qtyField }) => (
                 <div key={key} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors ${addons[key].enabled ? 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800' : 'border-slate-200 dark:border-slate-700'}`}>
                   <input type="checkbox" checked={addons[key].enabled}
                     onChange={e => setAddons(p => ({ ...p, [key]: { ...p[key], enabled: e.target.checked } }))}
@@ -719,24 +698,20 @@ export default function QuoteBuilderPage() {
             </div>
           </div>
 
-          {/* Onboarding + custom items */}
+          {/* One-time & custom */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
               <Package className="w-4 h-4 text-slate-400" /> One-Time & Custom
             </h3>
 
-            {/* Onboarding toggle */}
             <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors ${includeOnboarding ? 'border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800' : 'border-slate-200 dark:border-slate-700'}`}>
-              <input type="checkbox" checked={includeOnboarding}
-                onChange={e => setIncludeOnboarding(e.target.checked)}
-                className="w-4 h-4 accent-amber-500 flex-shrink-0" />
+              <input type="checkbox" checked={includeOnboarding} onChange={e => setIncludeOnboarding(e.target.checked)} className="w-4 h-4 accent-amber-500 flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-slate-900 dark:text-white">Onboarding & Setup Fee</p>
                 <p className="text-xs text-slate-400">{fmtCur(settings.onboarding_fee_default)} one-time</p>
               </div>
             </div>
 
-            {/* Custom line items */}
             {customItems.map((ci, idx) => (
               <div key={ci.id} className="grid grid-cols-[1fr_70px_80px_90px_32px] gap-2 items-end">
                 <div>
@@ -768,8 +743,7 @@ export default function QuoteBuilderPage() {
               </div>
             ))}
 
-            <button onClick={addCustomItem}
-              className="flex items-center gap-2 text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors">
+            <button onClick={addCustomItem} className="flex items-center gap-2 text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors">
               <Plus className="w-4 h-4" /> Add custom line item
             </button>
           </div>
@@ -777,7 +751,6 @@ export default function QuoteBuilderPage() {
           {/* Display mode + notes */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
             <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Quote Presentation</h3>
-
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">How the client sees this quote</label>
               <div className="grid grid-cols-3 gap-2">
@@ -791,19 +764,14 @@ export default function QuoteBuilderPage() {
                 ))}
               </div>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client-Facing Notes</label>
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-                  placeholder="Notes visible to the client on the quote…"
-                  className={`mt-1 ${inp} resize-none`} />
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Notes visible to the client…" className={`mt-1 ${inp} resize-none`} />
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Internal Notes</label>
-                <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={3}
-                  placeholder="Private notes — never shown to client…"
-                  className={`mt-1 ${inp} resize-none`} />
+                <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={3} placeholder="Private notes — never shown to client…" className={`mt-1 ${inp} resize-none`} />
               </div>
             </div>
           </div>
@@ -825,7 +793,6 @@ export default function QuoteBuilderPage() {
             />
           </div>
 
-          {/* Quick totals card */}
           {lineItems.length > 0 && (
             <div className="bg-slate-900 dark:bg-slate-800 rounded-xl p-4 space-y-2">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Quote Summary</p>
