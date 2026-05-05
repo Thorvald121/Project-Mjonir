@@ -12,7 +12,7 @@ import {
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight, ChevronDown,
   Zap, UsersRound, Moon, Sun, Menu, Activity,
   FileCode2, FileBarChart, FileSignature, Shield, Star, Keyboard, Repeat,
-  Upload, Key,
+  Upload, Key, DollarSign, Plus,
 } from 'lucide-react'
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
@@ -33,39 +33,41 @@ const NAV_GROUPS = [
       { label: 'Invoices',   icon: FileText,      href: '/invoices' },
       { label: 'Contracts',  icon: FileSignature, href: '/contracts' },
       { label: 'Quotes',     icon: ClipboardList, href: '/quotes' },
+      { label: 'New Quote',  icon: Plus,          href: '/quotes/new' },
       { label: 'Pipeline',   icon: TrendingUp,    href: '/pipeline' },
     ],
   },
   {
     label: 'Infrastructure',
     items: [
-      { label: 'Inventory',        icon: Package,     href: '/inventory' },
-      { label: 'Device Health',    icon: Activity,    href: '/device-health' },
-      { label: 'Monitoring',       icon: Activity,    href: '/monitoring' },
-      { label: 'Vendors & Licenses', icon: Key,       href: '/vendors' },
+      { label: 'Inventory',          icon: Package,  href: '/inventory' },
+      { label: 'Device Health',      icon: Activity, href: '/device-health' },
+      { label: 'Monitoring',         icon: Activity, href: '/monitoring' },
+      { label: 'Vendors & Licenses', icon: Key,      href: '/vendors' },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { label: 'Reports',           icon: BarChart2,  href: '/reports' },
+      { label: 'Reports',           icon: BarChart2,   href: '/reports' },
       { label: 'Scheduled Reports', icon: FileBarChart, href: '/scheduled-reports' },
-      { label: 'CSAT',              icon: Star,       href: '/csat-analytics' },
-      { label: 'Tech Dashboard',    icon: UsersRound, href: '/tech-dashboard' },
+      { label: 'CSAT',              icon: Star,        href: '/csat-analytics' },
+      { label: 'Tech Dashboard',    icon: UsersRound,  href: '/tech-dashboard' },
     ],
   },
 ]
 
 const ADMIN_ITEMS = [
-  { label: 'Knowledge Base',     icon: BookOpen,  href: '/knowledge-base' },
-  { label: 'Canned Replies',     icon: BookOpen,  href: '/canned-replies' },
-  { label: 'Ticket Templates',   icon: FileCode2, href: '/ticket-templates' },
-  { label: 'MSP Plans',          icon: Package,   href: '/msp-plans' },
-  { label: 'Email Automations',  icon: Zap,       href: '/email-automations' },
-  { label: 'Ticket Automations', icon: Zap,       href: '/ticket-automations' },
-  { label: 'Audit Log',          icon: Shield,    href: '/audit-log' },
-  { label: 'Import',             icon: Upload,    href: '/import' },
-  { label: 'Settings',           icon: Settings,  href: '/settings' },
+  { label: 'Knowledge Base',     icon: BookOpen,     href: '/knowledge-base' },
+  { label: 'Canned Replies',     icon: BookOpen,     href: '/canned-replies' },
+  { label: 'Ticket Templates',   icon: FileCode2,    href: '/ticket-templates' },
+  { label: 'MSP Plans',          icon: Package,      href: '/msp-plans' },
+  { label: 'Pricing Settings',   icon: DollarSign,   href: '/pricing-settings' },
+  { label: 'Email Automations',  icon: Zap,          href: '/email-automations' },
+  { label: 'Ticket Automations', icon: Zap,          href: '/ticket-automations' },
+  { label: 'Audit Log',          icon: Shield,       href: '/audit-log' },
+  { label: 'Import',             icon: Upload,       href: '/import' },
+  { label: 'Settings',           icon: Settings,     href: '/settings' },
 ]
 
 const REALTIME_TABLES = [
@@ -84,7 +86,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [userEmail,  setUserEmail]  = useState<string | null>(null)
   const { showModal: showShortcuts, setShowModal: setShowShortcuts } = useKeyboardShortcuts()
 
-  // Track which groups are open — all open by default, persisted to localStorage
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [mounted,    setMounted]    = useState(false)
 
@@ -96,7 +97,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     } catch {}
   }, [])
 
-  const isGroupOpen = (label: string) => !mounted ? true : openGroups[label] !== false // default open
+  const isGroupOpen = (label: string) => !mounted ? true : openGroups[label] !== false
 
   const toggleGroup = (label: string) => {
     setOpenGroups(prev => {
@@ -177,11 +178,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Nav */}
       <nav className="flex-1 p-2 overflow-y-auto space-y-1">
         {NAV_GROUPS.map(group => {
-          const open    = isGroupOpen(group.label)
+          const open      = isGroupOpen(group.label)
           const anyActive = group.items.some(i => pathname === i.href || pathname.startsWith(i.href + '/'))
           return (
             <div key={group.label}>
-              {/* Group header — hidden when collapsed */}
               {!collapsed && (
                 <button
                   onClick={() => toggleGroup(group.label)}
@@ -195,9 +195,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <ChevronDown className={`w-3 h-3 transition-transform ${open ? '' : '-rotate-90'}`} />
                 </button>
               )}
-              {/* Items */}
               {(open || collapsed) && (
-                <div className={`space-y-0.5 ${!collapsed ? 'ml-0' : ''}`}>
+                <div className="space-y-0.5">
                   {group.items.map(item => <NavLink key={item.href} item={item} />)}
                 </div>
               )}
