@@ -3,10 +3,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useRouter } from 'next/navigation'
 import {
   Plus, FileText, Send, CheckCircle2, RotateCcw,
   Trash2, Edit, Clock, DollarSign, TrendingUp, X,
-  Loader2, Eye,
+  Loader2, Eye, Paperclip,
 } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
@@ -33,14 +34,20 @@ const STATUS_CFG = {
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
 const BLANK_ITEM = { description: '', quantity: '1', unit_price: '' }
 
-function fmt(d) { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d } }
+function fmt(d) {
+  if (!d) return '—'
+  try {
+    const dt = new Date(d.includes('T') ? d : d + 'T00:00:00')
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch { return d }
+}
 
 function calcTotals(items, taxRate, discountAmt, discountPct) {
-  const sub = items.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unit_price || 0)), 0)
-  const pctDisc = sub * ((Number(discountPct) || 0) / 100)
-  const flat = Number(discountAmt) || 0
-  const taxable = Math.max(0, sub - pctDisc - flat)
-  const tax = taxable * ((Number(taxRate) || 0) / 100)
+  const sub      = items.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unit_price || 0)), 0)
+  const pctDisc  = sub * ((Number(discountPct) || 0) / 100)
+  const flat     = Number(discountAmt) || 0
+  const taxable  = Math.max(0, sub - pctDisc - flat)
+  const tax      = taxable * ((Number(taxRate) || 0) / 100)
   return { subtotal: sub, discount_amount: pctDisc + flat, taxAmount: tax, total: taxable + tax }
 }
 
@@ -56,7 +63,7 @@ function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = 
 function QuoteFormDialog({ open, onClose, onSaved, editing, orgId, customers }) {
   const supabase = createSupabaseBrowserClient()
   const today = new Date().toISOString().split('T')[0]
-  const defaultExpiry = (() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0] })()
+  const defaultExpiry = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })()
   const blank = {
     customer_id: '', customer_name: '', contact_name: '', contact_email: '',
     title: '', issue_date: today, expiry_date: defaultExpiry,
@@ -302,7 +309,8 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
 }
 
 export default function QuotesPage() {
-  const supabase = createSupabaseBrowserClient()
+  const supabase   = createSupabaseBrowserClient()
+  const router     = useRouter()
   const [quotes,     setQuotes]     = useState([])
   const [customers,  setCustomers]  = useState([])
   const [loading,    setLoading]    = useState(true)
@@ -311,6 +319,9 @@ export default function QuotesPage() {
   const [editing,    setEditing]    = useState(null)
   const [sending,    setSending]    = useState(null)
   const [converting, setConverting] = useState(null)
+
+  // Track attachment counts per quote
+  const [attachCounts, setAttachCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     const init = async () => {
@@ -327,15 +338,29 @@ export default function QuotesPage() {
     setLoading(true)
     const [q, c] = await Promise.all([
       supabase.from('quotes').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('customers').select('id,name,contact_email,contact_name').eq('status','active').order('name').limit(200),
+      supabase.from('customers').select('id,name,contact_email,contact_name').eq('status', 'active').order('name').limit(200),
     ])
     setQuotes(q.data ?? [])
     setCustomers(c.data ?? [])
+
+    // Load attachment counts for all quotes
+    if ((q.data ?? []).length > 0) {
+      const ids = (q.data ?? []).map(q => q.id)
+      const { data: atts } = await supabase
+        .from('quote_attachments')
+        .select('quote_id')
+        .in('quote_id', ids)
+      const counts: Record<string, number> = {}
+      for (const a of atts ?? []) {
+        counts[a.quote_id] = (counts[a.quote_id] || 0) + 1
+      }
+      setAttachCounts(counts)
+    }
+
     setLoading(false)
   }
 
   useRealtimeRefresh(['quotes'], loadAll)
-
 
   const handleDelete = async (q) => {
     if (!confirm(`Delete ${q.quote_number}?`)) return
@@ -346,8 +371,8 @@ export default function QuotesPage() {
   const handleConvertToInvoice = async (q) => {
     if (!confirm(`Convert ${q.quote_number} to an invoice?`)) return
     setConverting(q.id)
-    const today = new Date().toISOString().split('T')[0]
-    const dueDate = (() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0] })()
+    const today   = new Date().toISOString().split('T')[0]
+    const dueDate = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })()
     const { error } = await supabase.from('invoices').insert({
       organization_id: orgId, invoice_number: `INV-${Date.now().toString().slice(-6)}`,
       customer_id: q.customer_id, customer_name: q.customer_name,
@@ -361,11 +386,11 @@ export default function QuotesPage() {
     setConverting(null); loadAll()
   }
 
-  const pipelineValue  = quotes.filter(q => !['rejected','expired'].includes(q.status)).reduce((s, q) => s + (q.total || 0), 0)
-  const approvedValue  = quotes.filter(q => ['approved','converted'].includes(q.status)).reduce((s, q) => s + (q.total || 0), 0)
-  const pendingCount   = quotes.filter(q => ['sent','viewed'].includes(q.status)).length
+  const pipelineValue  = quotes.filter(q => !['rejected', 'expired'].includes(q.status)).reduce((s, q) => s + (q.total || 0), 0)
+  const approvedValue  = quotes.filter(q => ['approved', 'converted'].includes(q.status)).reduce((s, q) => s + (q.total || 0), 0)
+  const pendingCount   = quotes.filter(q => ['sent', 'viewed'].includes(q.status)).length
   const sentOrMore     = quotes.filter(q => q.status !== 'draft').length
-  const conversionRate = sentOrMore > 0 ? Math.round((quotes.filter(q => ['approved','converted'].includes(q.status)).length / sentOrMore) * 100) : 0
+  const conversionRate = sentOrMore > 0 ? Math.round((quotes.filter(q => ['approved', 'converted'].includes(q.status)).length / sentOrMore) * 100) : 0
 
   return (
     <div className="space-y-4">
@@ -379,6 +404,8 @@ export default function QuotesPage() {
           <Plus className="w-4 h-4" /> New Quote
         </button>
       </div>
+
+      {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Pipeline Value',    value: `$${pipelineValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: TrendingUp,   color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
@@ -397,6 +424,8 @@ export default function QuotesPage() {
           </div>
         ))}
       </div>
+
+      {/* Quote list */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {loading ? (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -423,25 +452,36 @@ export default function QuotesPage() {
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {quotes.map(q => {
-              const cfg = STATUS_CFG[q.status] || STATUS_CFG.draft
-              const isExpired = q.expiry_date && new Date(q.expiry_date) < new Date() && !['approved','converted','rejected'].includes(q.status)
+              const cfg       = STATUS_CFG[q.status] || STATUS_CFG.draft
+              const isExpired = q.expiry_date && new Date(q.expiry_date) < new Date() && !['approved', 'converted', 'rejected'].includes(q.status)
+              const attCount  = attachCounts[q.id] || 0
               return (
                 <div key={q.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                  <div className="flex-1 min-w-0">
+                  {/* Clickable info area navigates to detail page */}
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => router.push(`/quotes/${q.id}`)}>
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-slate-900 dark:text-white">{q.quote_number}</p>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
                       {isExpired && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1"><Clock className="w-2.5 h-2.5" />Expired</span>}
+                      {attCount > 0 && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 flex items-center gap-1">
+                          <Paperclip className="w-2.5 h-2.5" />{attCount}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{q.title}</p>
                     <p className="text-xs text-slate-400">{q.customer_name} · Issued {fmt(q.issue_date)}{q.expiry_date && ` · Expires ${fmt(q.expiry_date)}`}</p>
                   </div>
+
                   <div className="text-right flex-shrink-0">
                     <p className="text-lg font-bold text-slate-900 dark:text-white">${(q.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                   </div>
+
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    {!['approved','converted'].includes(q.status) && <Btn icon={Edit} onClick={() => { setEditing(q); setFormOpen(true) }} title="Edit quote" />}
-                    {['draft','sent'].includes(q.status) && <Btn icon={Send} onClick={() => setSending(q)} title="Send to client" color="text-blue-500" />}
+                    {/* Attachments — goes to detail page */}
+                    <Btn icon={Paperclip} onClick={() => router.push(`/quotes/${q.id}`)} title="View / manage attachments" color={attCount > 0 ? 'text-amber-500' : 'text-slate-400'} />
+                    {!['approved', 'converted'].includes(q.status) && <Btn icon={Edit} onClick={() => { setEditing(q); setFormOpen(true) }} title="Edit quote" />}
+                    {['draft', 'sent'].includes(q.status) && <Btn icon={Send} onClick={() => setSending(q)} title="Send to client" color="text-blue-500" />}
                     {q.approval_token && <Btn icon={Eye} onClick={() => window.open(`${typeof window !== 'undefined' ? window.location.origin : ''}/quote-approval?token=${q.approval_token}`, '_blank')} title="Preview approval page" color="text-violet-500" />}
                     {q.status === 'approved' && <Btn icon={RotateCcw} onClick={() => handleConvertToInvoice(q)} title="Convert to invoice" color="text-emerald-500" spinning={converting === q.id} />}
                     {q.status !== 'converted' && <Btn icon={Trash2} onClick={() => handleDelete(q)} title="Delete quote" color="text-rose-400" />}
@@ -452,8 +492,20 @@ export default function QuotesPage() {
           </div>
         )}
       </div>
-      <QuoteFormDialog open={formOpen} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); loadAll() }} editing={editing} orgId={orgId} customers={customers} />
-      {sending && <SendQuoteDialog quote={sending} onClose={() => setSending(null)} onSent={() => { setSending(null); loadAll() }} />}
+
+      <QuoteFormDialog
+        open={formOpen}
+        onClose={() => { setFormOpen(false); setEditing(null) }}
+        onSaved={() => { setFormOpen(false); setEditing(null); loadAll() }}
+        editing={editing} orgId={orgId} customers={customers}
+      />
+      {sending && (
+        <SendQuoteDialog
+          quote={sending}
+          onClose={() => setSending(null)}
+          onSent={() => { setSending(null); loadAll() }}
+        />
+      )}
     </div>
   )
 }
