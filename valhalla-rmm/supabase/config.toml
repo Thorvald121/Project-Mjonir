@@ -1,2 +1,0 @@
-[functions.sync-xcitium-devices]
-schedule = "*/15 * * * *"
