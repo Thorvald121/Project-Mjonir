@@ -1,0 +1,59 @@
+# Vercel Speed Insights Implementation
+
+## Summary
+Successfully installed and configured Vercel Speed Insights for the Valhalla RMM Next.js web application following the latest official documentation from Vercel.
+
+## Changes Made
+
+### 1. Package Installation
+- **File**: `apps/web/package.json`
+- **Change**: Added `@vercel/speed-insights` version `^2.0.0` to dependencies
+- **Command**: `pnpm add @vercel/speed-insights`
+
+### 2. Speed Insights Component Integration
+- **File**: `apps/web/src/app/layout.tsx`
+- **Changes**:
+  - Imported `SpeedInsights` component from `@vercel/speed-insights/next`
+  - Added `<SpeedInsights />` component to the root layout inside the `<body>` tag
+  - Placement: After the `<Providers>` wrapper to ensure proper tracking across the entire application
+
+### 3. Dependency Lock File
+- **File**: `pnpm-lock.yaml`
+- **Change**: Updated with the new `@vercel/speed-insights` dependency and its transitive dependencies
+
+## Implementation Details
+
+### Framework-Specific Configuration
+The implementation follows Next.js 14+ best practices as documented in the official Vercel Speed Insights quickstart guide:
+- Used the Next.js-specific import path: `@vercel/speed-insights/next`
+- Component is placed in the root layout (`app/layout.tsx`) to track all pages
+- Component is positioned within the `<body>` tag after the main application content
+
+### Code Quality Verification
+- TypeScript compilation: ✓ No new type errors introduced
+- Build process: ✓ Compiles successfully (pre-existing Supabase environment variable errors are unrelated)
+- Code structure: ✓ Maintains existing code patterns and formatting
+
+## What Speed Insights Provides
+
+Once deployed to Vercel, Speed Insights will:
+1. Automatically track Core Web Vitals metrics (LCP, FID, CLS, etc.)
+2. Collect real user performance data
+3. Provide insights through the Vercel dashboard
+4. Help identify performance bottlenecks and optimization opportunities
+
+## Next Steps
+
+After deployment:
+1. Deploy the application to Vercel (via git push or `vercel deploy`)
+2. Navigate to your project's Speed Insights dashboard on Vercel
+3. Monitor Core Web Vitals and performance metrics as real users interact with the application
+4. Use the insights to identify and address performance issues
+
+## Technical Notes
+
+- The Speed Insights component is lightweight and optimized for production
+- It automatically injects tracking scripts at `/_vercel/speed-insights/*`
+- Data collection begins immediately after deployment
+- No additional configuration is required for basic functionality
+- The component works seamlessly with Next.js App Router (v13.5+)
