@@ -204,8 +204,127 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
   const handleSend = async () => {
     if (!email.trim()) { setErr('Email address is required'); return }
     setSending(true); setErr(null)
-    const lineRows = items.map(i => `<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;">${i.description}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">${i.quantity}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;">$${Number(i.unit_price || 0).toFixed(2)}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;">$${(Number(i.quantity || 0) * Number(i.unit_price || 0)).toFixed(2)}</td></tr>`).join('')
-    const html = `<div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;background:#f8fafc;"><div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;"><h1 style="color:#f59e0b;margin:0;font-size:24px;">${quote.quote_number}</h1><h2 style="color:#f8fafc;font-size:18px;margin-top:16px;margin-bottom:0;">${quote.title}</h2></div><div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">${quote.message_to_client ? `<p style="color:#475569;font-size:14px;">${quote.message_to_client}</p>` : ''}<table style="width:100%;border-collapse:collapse;margin:16px 0;"><thead><tr style="background:#f1f5f9;"><th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;">Description</th><th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;">Qty</th><th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Rate</th><th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;">Total</th></tr></thead><tbody>${lineRows}</tbody></table><div style="text-align:right;padding:12px 0;border-top:2px solid #0f172a;"><p style="font-size:20px;font-weight:bold;color:#0f172a;">Total: $${Number(quote.total || 0).toFixed(2)}</p></div><div style="text-align:center;margin-top:32px;"><a href="${approvalUrl}" style="display:inline-block;background:#10b981;color:#ffffff;padding:14px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;">Review and Approve This Quote</a></div></div></div>`
+
+    const displayMode = quote.display_mode || 'full'
+    const fmtCur = (n) => '$' + Number(n || 0).toFixed(2)
+
+    const SECTION_LABELS = {
+      support: 'Support Plan', security: 'Security',
+      other: 'Additional Services', onboarding: 'Onboarding',
+    }
+
+    // Build the items HTML block according to display mode
+    let itemsHtml = ''
+
+    if (displayMode === 'full') {
+      // ── Full: description, qty, rate, total ──────────────────────────────────
+      const rows = items.map(i =>
+        `<tr>
+          <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:14px;color:#1e293b;">${i.description}${i.is_one_time ? ' <span style="font-size:11px;color:#f59e0b;">(one-time)</span>' : ''}</td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:center;color:#64748b;font-size:14px;">${i.quantity}</td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:right;color:#64748b;font-size:14px;">${fmtCur(i.unit_price)}</td>
+          <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600;font-size:14px;color:#0f172a;">${fmtCur(i.total ?? (i.quantity * i.unit_price))}</td>
+        </tr>`
+      ).join('')
+      itemsHtml = `
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="padding:10px 8px;text-align:left;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Description</th>
+              <th style="padding:10px 8px;text-align:center;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Qty</th>
+              <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Rate</th>
+              <th style="padding:10px 8px;text-align:right;color:#64748b;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`
+
+    } else if (displayMode === 'sectioned') {
+      // ── Sectioned: grouped by category, description + total only (no qty/rate) ─
+      const sections = {}
+      for (const item of items) {
+        const key = item.section || 'other'
+        if (!sections[key]) sections[key] = []
+        sections[key].push(item)
+      }
+      itemsHtml = Object.entries(sections).map(([key, sItems]) => {
+        const sTotal    = sItems.reduce((s, i) => s + (i.total ?? (i.quantity * i.unit_price) ?? 0), 0)
+        const allOneTime = sItems.every(i => i.is_one_time)
+        const label     = SECTION_LABELS[key] ?? key
+        const rows      = sItems.map(i =>
+          `<tr>
+            <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:14px;color:#1e293b;">${i.description}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600;font-size:14px;color:#0f172a;">${fmtCur(i.total ?? (i.quantity * i.unit_price))}${i.is_one_time ? '' : '/mo'}</td>
+          </tr>`
+        ).join('')
+        return `
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0;">
+            <thead>
+              <tr style="background:#0f172a;">
+                <th style="padding:10px 12px;text-align:left;color:#f59e0b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;">${label}</th>
+                <th style="padding:10px 12px;text-align:right;color:#f59e0b;font-size:13px;font-weight:700;">${fmtCur(sTotal)}${allOneTime ? ' one-time' : '/mo'}</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`
+      }).join('')
+
+    } else {
+      // ── Summary: section name + section total only — no individual items ────────
+      const sections = {}
+      for (const item of items) {
+        const key = item.section || 'other'
+        if (!sections[key]) sections[key] = []
+        sections[key].push(item)
+      }
+      const rows = Object.entries(sections).map(([key, sItems]) => {
+        const sTotal    = sItems.reduce((s, i) => s + (i.total ?? (i.quantity * i.unit_price) ?? 0), 0)
+        const allOneTime = sItems.every(i => i.is_one_time)
+        return `
+          <tr>
+            <td style="padding:12px 8px;border-bottom:1px solid #e2e8f0;font-size:15px;font-weight:600;color:#1e293b;">${SECTION_LABELS[key] ?? key}</td>
+            <td style="padding:12px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-size:15px;font-weight:700;color:#0f172a;">${fmtCur(sTotal)}${allOneTime ? ' <span style="font-size:12px;font-weight:400;color:#64748b;">one-time</span>' : ' <span style="font-size:12px;font-weight:400;color:#64748b;">/mo</span>'}</td>
+          </tr>`
+      }).join('')
+      itemsHtml = `
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+          <tbody>${rows}</tbody>
+        </table>`
+    }
+
+    // Recurring vs one-time breakdown for footer
+    const recurringTotal = items.filter(i => !i.is_one_time).reduce((s, i) => s + (i.total ?? (i.quantity * i.unit_price) ?? 0), 0)
+    const oneTimeTotal   = items.filter(i => i.is_one_time).reduce((s, i) => s + (i.total ?? (i.quantity * i.unit_price) ?? 0), 0)
+
+    const totalsHtml = displayMode === 'full'
+      ? `<p style="font-size:20px;font-weight:bold;color:#0f172a;margin:0;">Total: ${fmtCur(quote.total)}</p>`
+      : recurringTotal > 0 && oneTimeTotal > 0
+        ? `<p style="font-size:18px;font-weight:bold;color:#0f172a;margin:0 0 4px;">Monthly: ${fmtCur(recurringTotal)}/mo</p>
+           <p style="font-size:14px;color:#64748b;margin:0;">One-time: ${fmtCur(oneTimeTotal)} &nbsp;·&nbsp; First month: ${fmtCur(recurringTotal + oneTimeTotal)}</p>`
+        : `<p style="font-size:20px;font-weight:bold;color:#0f172a;margin:0;">${recurringTotal > 0 ? `${fmtCur(recurringTotal)}/mo` : fmtCur(oneTimeTotal)}</p>`
+
+    const html = `
+      <div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;background:#f8fafc;">
+        <div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;">
+          <p style="color:#f59e0b;margin:0 0 4px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;">${quote.quote_number}</p>
+          <h1 style="color:#f8fafc;margin:0;font-size:22px;font-weight:700;">${quote.title}</h1>
+          <p style="color:#94a3b8;margin:8px 0 0;font-size:13px;">Prepared for ${quote.customer_name}</p>
+        </div>
+        <div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0;border-top:none;">
+          ${quote.message_to_client ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 20px;">${quote.message_to_client}</p>` : ''}
+          ${itemsHtml}
+          <div style="text-align:right;padding:16px 0;border-top:2px solid #0f172a;margin-top:8px;">
+            ${totalsHtml}
+          </div>
+          <div style="text-align:center;margin-top:28px;">
+            <a href="${approvalUrl}" style="display:inline-block;background:#10b981;color:#ffffff;padding:14px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;">
+              Review and Approve This Quote
+            </a>
+            ${quote.expiry_date ? `<p style="color:#94a3b8;font-size:12px;margin-top:12px;">This quote expires on ${quote.expiry_date}.</p>` : ''}
+          </div>
+        </div>
+      </div>`
+
     const { error } = await supabase.functions.invoke('send-invoice-email', { body: { to: email.trim(), subject: `Quote ${quote.quote_number} - ${quote.title}`, html } })
     if (error) {
       window.location.href = `mailto:${email}?subject=Quote ${quote.quote_number}&body=Please review your quote at: ${approvalUrl}`
