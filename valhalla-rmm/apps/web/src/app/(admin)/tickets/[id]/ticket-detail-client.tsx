@@ -51,15 +51,13 @@ function LiveTimer({ startedAt }) {
   )
 }
 
-// ── Watchers / CC Field ───────────────────────────────────────────────────────
-// ── Sub-task Checklist ────────────────────────────────────────────────────────
-function SubTaskChecklist({ ticketId }: { ticketId: string }) {
+function SubTaskChecklist({ ticketId }) {
   const supabase  = createSupabaseBrowserClient()
-  const [tasks,   setTasks]   = useState<any[]>([])
+  const [tasks,   setTasks]   = useState([])
   const [text,    setText]    = useState('')
   const [adding,  setAdding]  = useState(false)
   const [showAdd, setShowAdd] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef(null)
 
   const load = async () => {
     const { data } = await supabase.from('ticket_tasks')
@@ -69,10 +67,7 @@ function SubTaskChecklist({ ticketId }: { ticketId: string }) {
   }
 
   useEffect(() => { if (ticketId) load() }, [ticketId])
-
-  useEffect(() => {
-    if (showAdd) setTimeout(() => inputRef.current?.focus(), 50)
-  }, [showAdd])
+  useEffect(() => { if (showAdd) setTimeout(() => inputRef.current?.focus(), 50) }, [showAdd])
 
   const addTask = async () => {
     if (!text.trim()) return
@@ -83,12 +78,12 @@ function SubTaskChecklist({ ticketId }: { ticketId: string }) {
     setAdding(false)
   }
 
-  const toggle = async (task: any) => {
+  const toggle = async (task) => {
     await supabase.from('ticket_tasks').update({ completed: !task.completed, completed_at: !task.completed ? new Date().toISOString() : null }).eq('id', task.id)
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed: !t.completed } : t))
   }
 
-  const remove = async (id: string) => {
+  const remove = async (id) => {
     await supabase.from('ticket_tasks').delete().eq('id', id)
     setTasks(prev => prev.filter(t => t.id !== id))
   }
@@ -110,60 +105,43 @@ function SubTaskChecklist({ ticketId }: { ticketId: string }) {
           <Plus className="w-3.5 h-3.5" /> Add
         </button>
       </div>
-
       {total > 0 && (
         <div className="mb-3">
           <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-            <span>{pct}% complete</span>
-            <span>{done} of {total} done</span>
+            <span>{pct}% complete</span><span>{done} of {total} done</span>
           </div>
           <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
-              style={{ width: `${pct}%` }} />
+            <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
           </div>
         </div>
       )}
-
       <div className="space-y-1.5">
         {tasks.map(task => (
           <div key={task.id} className="flex items-center gap-2.5 group">
             <button onClick={() => toggle(task)}
-              className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
-                task.completed
-                  ? 'bg-emerald-500 border-emerald-500'
-                  : 'border-slate-300 dark:border-slate-600 hover:border-emerald-400'
-              }`}>
+              className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 dark:border-slate-600 hover:border-emerald-400'}`}>
               {task.completed && (
                 <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none">
                   <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               )}
             </button>
-            <span className={`flex-1 text-sm leading-tight ${task.completed ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>
-              {task.title}
-            </span>
-            <button onClick={() => remove(task.id)}
-              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-300 hover:text-rose-500 transition-all">
+            <span className={`flex-1 text-sm leading-tight ${task.completed ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>{task.title}</span>
+            <button onClick={() => remove(task.id)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-300 hover:text-rose-500 transition-all">
               <X className="w-3 h-3" />
             </button>
           </div>
         ))}
       </div>
-
       {tasks.length === 0 && !showAdd && (
         <p className="text-xs text-slate-400 text-center py-2">No sub-tasks yet — break this ticket into steps</p>
       )}
-
       {showAdd && (
         <div className="flex gap-2 mt-2">
-          <input
-            ref={inputRef}
-            value={text}
-            onChange={e => setText(e.target.value)}
+          <input ref={inputRef} value={text} onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') addTask(); if (e.key === 'Escape') { setShowAdd(false); setText('') } }}
             placeholder="Sub-task description…"
-            className="flex-1 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-slate-400"
-          />
+            className="flex-1 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-slate-400" />
           <button onClick={addTask} disabled={!text.trim() || adding}
             className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
             {adding ? '…' : 'Add'}
@@ -174,49 +152,37 @@ function SubTaskChecklist({ ticketId }: { ticketId: string }) {
   )
 }
 
-function ActivityTimeline({ ticketId }: { ticketId: string }) {
+function ActivityTimeline({ ticketId }) {
   const supabase  = createSupabaseBrowserClient()
-  const [events,  setEvents]  = useState<any[]>([])
+  const [events,  setEvents]  = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!ticketId) return
     const load = async () => {
       setLoading(true)
-      // Pull from audit_log for this ticket
       const { data: auditRows } = await supabase
-        .from('audit_log')
-        .select('*')
-        .eq('table_name', 'tickets')
-        .eq('record_id', ticketId)
-        .order('created_at', { ascending: true })
-        .limit(100)
-
-      // Pull time entries
+        .from('audit_log').select('*')
+        .eq('table_name', 'tickets').eq('record_id', ticketId)
+        .order('created_at', { ascending: true }).limit(100)
       const { data: timeRows } = await supabase
-        .from('time_entries')
-        .select('id,technician,minutes,description,billable,created_at')
-        .eq('ticket_id', ticketId)
-        .order('created_at', { ascending: true })
-        .limit(50)
+        .from('time_entries').select('id,technician,minutes,description,billable,created_at')
+        .eq('ticket_id', ticketId).order('created_at', { ascending: true }).limit(50)
 
-      // Build unified event list
-      const events: any[] = []
-
+      const events = []
       for (const row of auditRows ?? []) {
         if (row.action === 'INSERT') {
           events.push({ id: row.id, type: 'created', at: row.created_at, actor: row.actor_name || row.actor_email || 'System', detail: 'Ticket created' })
         } else if (row.action === 'UPDATE' && row.changed_fields) {
-          const fields = Object.keys(row.changed_fields)
-          for (const field of fields) {
+          for (const field of Object.keys(row.changed_fields)) {
             const { from: f, to: t } = row.changed_fields[field]
             const detail = (() => {
-              if (field === 'status')      return `Status changed from "${f}" to "${t}"`
-              if (field === 'priority')    return `Priority changed from "${f}" to "${t}"`
-              if (field === 'assigned_to') return t ? `Assigned to ${t}` : 'Unassigned'
-              if (field === 'category')    return `Category set to "${t}"`
-              if (field === 'sla_due_date')return `SLA due date set to ${t ? new Date(t).toLocaleDateString() : 'cleared'}`
-              if (field === 'title')       return `Title updated`
+              if (field === 'status')       return `Status changed from "${f}" to "${t}"`
+              if (field === 'priority')     return `Priority changed from "${f}" to "${t}"`
+              if (field === 'assigned_to')  return t ? `Assigned to ${t}` : 'Unassigned'
+              if (field === 'category')     return `Category set to "${t}"`
+              if (field === 'sla_due_date') return `SLA due date set to ${t ? new Date(t).toLocaleDateString() : 'cleared'}`
+              if (field === 'title')        return `Title updated`
               if (field === 'customer_name') return `Customer linked: ${t}`
               return `${field.replace(/_/g,' ')} updated`
             })()
@@ -224,18 +190,12 @@ function ActivityTimeline({ ticketId }: { ticketId: string }) {
           }
         }
       }
-
       for (const row of timeRows ?? []) {
-        const hrs = Math.floor((row.minutes || 0) / 60)
+        const hrs  = Math.floor((row.minutes || 0) / 60)
         const mins = (row.minutes || 0) % 60
-        const dur = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
-        events.push({
-          id: `time-${row.id}`, type: 'time', at: row.created_at,
-          actor: row.technician || 'Unknown',
-          detail: `${dur} logged${row.description ? ` — ${row.description}` : ''}${row.billable ? '' : ' (non-billable)'}`,
-        })
+        const dur  = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
+        events.push({ id: `time-${row.id}`, type: 'time', at: row.created_at, actor: row.technician || 'Unknown', detail: `${dur} logged${row.description ? ` — ${row.description}` : ''}${row.billable ? '' : ' (non-billable)'}` })
       }
-
       events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
       setEvents(events)
       setLoading(false)
@@ -243,13 +203,8 @@ function ActivityTimeline({ ticketId }: { ticketId: string }) {
     load()
   }, [ticketId])
 
-  const ICON_CFG = {
-    created: { dot: 'bg-emerald-500',  label: 'Created'  },
-    update:  { dot: 'bg-blue-500',     label: 'Updated'  },
-    time:    { dot: 'bg-violet-500',   label: 'Time'     },
-  }
-
-  const fmtAgo = (d: string) => {
+  const ICON_CFG = { created: { dot: 'bg-emerald-500' }, update: { dot: 'bg-blue-500' }, time: { dot: 'bg-violet-500' } }
+  const fmtAgo = (d) => {
     const secs = Math.round((Date.now() - new Date(d).getTime()) / 1000)
     if (secs < 3600)  return `${Math.floor(secs/60)}m ago`
     if (secs < 86400) return `${Math.floor(secs/3600)}h ago`
@@ -262,7 +217,6 @@ function ActivityTimeline({ ticketId }: { ticketId: string }) {
       {[1,2,3].map(i => <div key={i} className="h-3 bg-slate-100 dark:bg-slate-800 rounded animate-pulse mb-2.5" />)}
     </div>
   )
-
   if (!events.length) return null
 
   return (
@@ -271,7 +225,6 @@ function ActivityTimeline({ ticketId }: { ticketId: string }) {
         <Activity className="w-4 h-4 text-slate-400" /> Activity Timeline
       </h3>
       <div className="relative">
-        {/* Vertical line */}
         <div className="absolute left-[5px] top-2 bottom-2 w-px bg-slate-100 dark:bg-slate-800" />
         <div className="space-y-3">
           {events.map(ev => {
@@ -296,8 +249,7 @@ function WatchersField({ ticket, onUpdate }) {
   const supabase = createSupabaseBrowserClient()
   const [input,  setInput]  = useState('')
   const [saving, setSaving] = useState(false)
-
-  const watchers: string[] = Array.isArray(ticket?.watchers) ? ticket.watchers : []
+  const watchers = Array.isArray(ticket?.watchers) ? ticket.watchers : []
 
   const add = async () => {
     const email = input.trim().toLowerCase()
@@ -308,7 +260,7 @@ function WatchersField({ ticket, onUpdate }) {
     setSaving(false); setInput(''); onUpdate()
   }
 
-  const remove = async (email: string) => {
+  const remove = async (email) => {
     await supabase.from('tickets').update({ watchers: watchers.filter(w => w !== email) }).eq('id', ticket.id)
     onUpdate()
   }
@@ -331,8 +283,7 @@ function WatchersField({ ticket, onUpdate }) {
           placeholder="Add email & press Enter"
           className="flex-1 px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-600 dark:text-slate-300 bg-transparent placeholder:text-slate-300 focus:outline-none focus:border-amber-400" />
         {input && (
-          <button onClick={add} disabled={saving}
-            className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs transition-colors">
+          <button onClick={add} disabled={saving} className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs transition-colors">
             {saving ? '…' : '+'}
           </button>
         )}
@@ -341,7 +292,6 @@ function WatchersField({ ticket, onUpdate }) {
   )
 }
 
-// ── Merge Ticket Dialog ───────────────────────────────────────────────────────
 function MergeTicketDialog({ ticket, open, onClose, onMerged }) {
   const supabase  = createSupabaseBrowserClient()
   const [tickets, setTickets] = useState([])
@@ -352,38 +302,24 @@ function MergeTicketDialog({ ticket, open, onClose, onMerged }) {
   useEffect(() => {
     if (!open) return
     setTarget(null); setSearch('')
-    supabase.from('tickets')
-      .select('id,title,status,priority,customer_name,created_at')
-      .not('id', 'eq', ticket.id)
-      .not('status', 'in', '("closed")')
-      .order('created_at', { ascending: false })
-      .limit(100)
+    supabase.from('tickets').select('id,title,status,priority,customer_name,created_at')
+      .not('id', 'eq', ticket.id).not('status', 'in', '("closed")')
+      .order('created_at', { ascending: false }).limit(100)
       .then(({ data }) => setTickets(data ?? []))
   }, [open])
 
-  const filtered = tickets.filter(t =>
-    !search ||
-    t.title.toLowerCase().includes(search.toLowerCase()) ||
-    (t.customer_name || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = tickets.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || (t.customer_name || '').toLowerCase().includes(search.toLowerCase()))
 
   const handleMerge = async () => {
     if (!target) return
     setMerging(true)
-    // Move all comments from this ticket to the target
     await supabase.from('ticket_comments').update({ ticket_id: target.id }).eq('ticket_id', ticket.id)
-    // Move time entries
     await supabase.from('time_entries').update({ ticket_id: target.id }).eq('ticket_id', ticket.id)
-    // Add a merge note to target
     await supabase.from('ticket_comments').insert({
-      ticket_id:       target.id,
-      organization_id: ticket.organization_id,
-      author_name:     'System',
-      content:         `Merged ticket: "${ticket.title}" (#${ticket.id.slice(-6).toUpperCase()})`,
-      is_staff:        true,
-      source:          'admin',
+      ticket_id: target.id, organization_id: ticket.organization_id,
+      author_name: 'System', content: `Merged ticket: "${ticket.title}" (#${ticket.id.slice(-6).toUpperCase()})`,
+      is_staff: true, source: 'admin',
     })
-    // Close this ticket
     await supabase.from('tickets').update({ status: 'closed' }).eq('id', ticket.id)
     setMerging(false)
     onMerged(target.id)
@@ -404,8 +340,7 @@ function MergeTicketDialog({ ticket, open, onClose, onMerged }) {
           <p className="text-sm text-slate-500">Select the ticket to merge <strong className="text-slate-700 dark:text-slate-300">into</strong>. All comments and time entries from <em>{ticket.title}</em> will be moved there, then this ticket will be closed.</p>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search tickets…"
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tickets…"
               className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
           </div>
           <div className="max-h-64 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-700 rounded-xl p-1">
@@ -438,7 +373,6 @@ function MergeTicketDialog({ ticket, open, onClose, onMerged }) {
   )
 }
 
-// ── Asset Picker ──────────────────────────────────────────────────────────────
 function AssetPicker({ ticket, orgId, onLinked }) {
   const supabase    = createSupabaseBrowserClient()
   const btnRef      = useRef(null)
@@ -456,14 +390,10 @@ function AssetPicker({ ticket, orgId, onLinked }) {
     }
   }, [linked])
 
-  // Load assets when dropdown opens — fetch all for the org, filter client-side
   useEffect(() => {
     if (!open) return
-    let query = supabase.from('inventory_items')
-      .select('id,name,vendor,model,serial_number,asset_tag,status,category,customer_id,customer_name')
-      .order('name').limit(200)
-    // If ticket has a customer, prefer their assets but don't exclude others
-    query.then(({ data }) => setAssets(data ?? []))
+    supabase.from('inventory_items').select('id,name,vendor,model,serial_number,asset_tag,status,category,customer_id,customer_name').order('name').limit(200)
+      .then(({ data }) => setAssets(data ?? []))
   }, [open])
 
   const openDropdown = () => {
@@ -472,28 +402,20 @@ function AssetPicker({ ticket, orgId, onLinked }) {
       const spaceBelow = window.innerHeight - rect.bottom
       const dropHeight = 280
       const goUp       = spaceBelow < dropHeight && rect.top > dropHeight
-      setDropPos({
-        top:   goUp ? rect.top + window.scrollY - dropHeight - 4 : rect.bottom + window.scrollY + 4,
-        left:  rect.left + window.scrollX,
-        width: Math.max(rect.width, 300),
-      })
+      setDropPos({ top: goUp ? rect.top + window.scrollY - dropHeight - 4 : rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: Math.max(rect.width, 300) })
     }
     setOpen(true)
   }
 
   const link = async (assetId, name) => {
     await supabase.from('tickets').update({ linked_asset_id: assetId }).eq('id', ticket.id)
-    setLinked(assetId)
-    setAssetName(name)
-    setOpen(false)
-    setSearch('')
+    setLinked(assetId); setAssetName(name); setOpen(false); setSearch('')
     onLinked?.()
   }
 
   const unlink = async () => {
     await supabase.from('tickets').update({ linked_asset_id: null }).eq('id', ticket.id)
-    setLinked(null)
-    setAssetName(null)
+    setLinked(null); setAssetName(null)
     onLinked?.()
   }
 
@@ -501,9 +423,7 @@ function AssetPicker({ ticket, orgId, onLinked }) {
     <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 min-w-0 overflow-hidden">
       <HardDrive className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
       <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1 min-w-0">{assetName}</span>
-      <button onClick={unlink} className="text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0 ml-auto">
-        <X className="w-3.5 h-3.5" />
-      </button>
+      <button onClick={unlink} className="text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0 ml-auto"><X className="w-3.5 h-3.5" /></button>
     </div>
   )
 
@@ -514,7 +434,7 @@ function AssetPicker({ ticket, orgId, onLinked }) {
         <HardDrive className="w-3.5 h-3.5" />
         {linked ? 'Loading…' : 'Link an asset…'}
       </button>
-      {open && typeof window !== 'undefined' && window.document.body && (
+      {open && typeof window !== 'undefined' && (
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
           <div style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: Math.max(dropPos.width, 280), zIndex: 9999 }}
@@ -522,33 +442,16 @@ function AssetPicker({ ticket, orgId, onLinked }) {
             <div className="p-2 border-b border-slate-100 dark:border-slate-700">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Search assets…"
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets…"
                   className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
               </div>
             </div>
             <div className="max-h-56 overflow-y-auto">
               {(() => {
                 const q = search.trim().toLowerCase()
-                const filtered = assets.filter(a =>
-                  !q ||
-                  a.name?.toLowerCase().includes(q) ||
-                  a.vendor?.toLowerCase().includes(q) ||
-                  a.model?.toLowerCase().includes(q) ||
-                  a.serial_number?.toLowerCase().includes(q) ||
-                  a.asset_tag?.toLowerCase().includes(q)
-                )
-                // Sort: customer's assets first
-                const sorted = [...filtered].sort((a, b) => {
-                  const aMatch = a.customer_id === ticket?.customer_id ? -1 : 0
-                  const bMatch = b.customer_id === ticket?.customer_id ? -1 : 0
-                  return aMatch - bMatch
-                })
-                if (sorted.length === 0) return (
-                  <div className="px-4 py-5 text-center text-xs text-slate-400">
-                    {assets.length === 0 ? 'No assets in inventory yet.' : 'No assets match your search.'}
-                  </div>
-                )
+                const filtered = assets.filter(a => !q || a.name?.toLowerCase().includes(q) || a.vendor?.toLowerCase().includes(q) || a.model?.toLowerCase().includes(q) || a.serial_number?.toLowerCase().includes(q) || a.asset_tag?.toLowerCase().includes(q))
+                const sorted = [...filtered].sort((a, b) => (a.customer_id === ticket?.customer_id ? -1 : 0) - (b.customer_id === ticket?.customer_id ? -1 : 0))
+                if (sorted.length === 0) return <div className="px-4 py-5 text-center text-xs text-slate-400">{assets.length === 0 ? 'No assets in inventory yet.' : 'No assets match your search.'}</div>
                 return sorted.map(a => {
                   const label = [a.vendor, a.model].filter(Boolean).join(' ')
                   const isCustomerAsset = a.customer_id === ticket?.customer_id
@@ -558,10 +461,7 @@ function AssetPicker({ ticket, orgId, onLinked }) {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{a.name}</p>
-                          <p className="text-[11px] text-slate-400 truncate">
-                            {label}{a.serial_number ? ` · S/N: ${a.serial_number}` : ''}
-                            {a.customer_name && !isCustomerAsset ? ` · ${a.customer_name}` : ''}
-                          </p>
+                          <p className="text-[11px] text-slate-400 truncate">{label}{a.serial_number ? ` · S/N: ${a.serial_number}` : ''}{a.customer_name && !isCustomerAsset ? ` · ${a.customer_name}` : ''}</p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           {isCustomerAsset && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">this customer</span>}
@@ -580,53 +480,28 @@ function AssetPicker({ ticket, orgId, onLinked }) {
   )
 }
 
-// ── AI Triage Panel ───────────────────────────────────────────────────────────
 function AiTriagePanel({ ticket, onTriageComplete }) {
   const supabase = createSupabaseBrowserClient()
   const [loading,    setLoading]    = useState(false)
-  const [triage,     setTriage]     = useState(() => {
-    if (ticket?.ai_triage) { try { return JSON.parse(ticket.ai_triage) } catch {} }
-    return null
-  })
+  const [triage,     setTriage]     = useState(() => { if (ticket?.ai_triage) { try { return JSON.parse(ticket.ai_triage) } catch {} } return null })
   const [expanded,   setExpanded]   = useState(false)
   const [kbArticles, setKbArticles] = useState([])
 
-  const PRIORITY_CLS = {
-    critical: 'bg-rose-100 text-rose-700',
-    high:     'bg-orange-100 text-orange-700',
-    medium:   'bg-amber-100 text-amber-700',
-    low:      'bg-emerald-100 text-emerald-700',
-  }
+  const PRIORITY_CLS = { critical: 'bg-rose-100 text-rose-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-amber-100 text-amber-700', low: 'bg-emerald-100 text-emerald-700' }
 
   const runTriage = async () => {
     setLoading(true)
     try {
-      const res = await fetch(
-        'https://yetrdrgagfovphrerpie.supabase.co/functions/v1/ai-triage-ticket',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey':        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}`,
-          },
-          body: JSON.stringify({
-            ticket_id:       ticket.id,
-            title:           ticket.title,
-            description:     ticket.description || '',
-            organization_id: ticket.organization_id,
-          }),
-        }
-      )
+      const res = await fetch('https://yetrdrgagfovphrerpie.supabase.co/functions/v1/ai-triage-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '', 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}` },
+        body: JSON.stringify({ ticket_id: ticket.id, title: ticket.title, description: ticket.description || '', organization_id: ticket.organization_id }),
+      })
       const data = await res.json()
       if (data.triage) {
-        setTriage(data.triage)
-        setExpanded(true)
-        // Fetch suggested KB articles
+        setTriage(data.triage); setExpanded(true)
         if (data.triage.suggested_kb_ids?.length > 0) {
-          const { data: articles } = await supabase.from('knowledge_articles')
-            .select('id,title,content,category')
-            .in('id', data.triage.suggested_kb_ids)
+          const { data: articles } = await supabase.from('knowledge_articles').select('id,title,content,category').in('id', data.triage.suggested_kb_ids)
           setKbArticles(articles ?? [])
         }
         onTriageComplete?.(data.triage)
@@ -636,8 +511,7 @@ function AiTriagePanel({ ticket, onTriageComplete }) {
   }
 
   if (!triage && !loading) return (
-    <button onClick={runTriage}
-      className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors font-medium">
+    <button onClick={runTriage} className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors font-medium">
       <Sparkles className="w-3.5 h-3.5" /> Run AI Triage
     </button>
   )
@@ -650,8 +524,7 @@ function AiTriagePanel({ ticket, onTriageComplete }) {
 
   return (
     <div className="rounded-xl border border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 overflow-hidden">
-      <button className="w-full flex items-center justify-between px-4 py-3 text-sm"
-        onClick={() => setExpanded(e => !e)}>
+      <button className="w-full flex items-center justify-between px-4 py-3 text-sm" onClick={() => setExpanded(e => !e)}>
         <div className="flex items-center gap-2 flex-wrap">
           <Sparkles className="w-4 h-4 text-violet-600 dark:text-violet-400" />
           <span className="font-medium text-violet-700 dark:text-violet-300">AI Triage</span>
@@ -666,9 +539,7 @@ function AiTriagePanel({ ticket, onTriageComplete }) {
           <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed">{triage?.reasoning}</p>
           {kbArticles.length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <BookOpen className="w-3 h-3" /> Suggested KB Articles
-              </p>
+              <p className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><BookOpen className="w-3 h-3" /> Suggested KB Articles</p>
               <div className="space-y-2">
                 {kbArticles.map(a => (
                   <div key={a.id} className="flex items-start gap-2 text-xs">
@@ -682,16 +553,13 @@ function AiTriagePanel({ ticket, onTriageComplete }) {
               </div>
             </div>
           )}
-          <button onClick={runTriage} className="text-[11px] text-violet-500 hover:text-violet-700 hover:underline">
-            Re-run triage
-          </button>
+          <button onClick={runTriage} className="text-[11px] text-violet-500 hover:text-violet-700 hover:underline">Re-run triage</button>
         </div>
       )}
     </div>
   )
 }
 
-// ── Canned Replies Picker ─────────────────────────────────────────────────────
 function CannedRepliesPicker({ ticket, onSelect }) {
   const supabase = createSupabaseBrowserClient()
   const [open,    setOpen]    = useState(false)
@@ -703,13 +571,7 @@ function CannedRepliesPicker({ ticket, onSelect }) {
       .then(({ data }) => setReplies(data ?? []))
   }, [])
 
-  const filtered = replies.filter(r =>
-    !search ||
-    r.name.toLowerCase().includes(search.toLowerCase()) ||
-    r.body.toLowerCase().includes(search.toLowerCase()) ||
-    (r.category || '').toLowerCase().includes(search.toLowerCase())
-  )
-
+  const filtered   = replies.filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.body.toLowerCase().includes(search.toLowerCase()) || (r.category || '').toLowerCase().includes(search.toLowerCase()))
   const categories = [...new Set(filtered.map(r => r.category || 'General'))].sort()
 
   const apply = (reply) => {
@@ -720,9 +582,7 @@ function CannedRepliesPicker({ ticket, onSelect }) {
         .replace(/\{\{ticket_title\}\}/g, ticket.title || '')
         .replace(/\{\{customer_name\}\}/g, ticket.customer_name || '')
     }
-    onSelect(body)
-    setOpen(false)
-    setSearch('')
+    onSelect(body); setOpen(false); setSearch('')
   }
 
   return (
@@ -738,21 +598,16 @@ function CannedRepliesPicker({ ticket, onSelect }) {
             <div className="p-2 border-b border-slate-200 dark:border-slate-700">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Search templates…"
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search templates…"
                   className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
               </div>
             </div>
             <div className="max-h-64 overflow-y-auto">
               {filtered.length === 0 ? (
-                <div className="px-4 py-6 text-center text-xs text-slate-400">
-                  {replies.length === 0 ? 'No canned replies yet. Create some in Settings → Canned Replies.' : 'No matches found.'}
-                </div>
+                <div className="px-4 py-6 text-center text-xs text-slate-400">{replies.length === 0 ? 'No canned replies yet. Create some in Settings → Canned Replies.' : 'No matches found.'}</div>
               ) : categories.map(cat => (
                 <div key={cat}>
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
-                    {cat}
-                  </div>
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">{cat}</div>
                   {filtered.filter(r => (r.category || 'General') === cat).map(reply => (
                     <button key={reply.id} onClick={() => apply(reply)}
                       className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
@@ -775,28 +630,41 @@ export default function TicketDetailClient() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
-  // All state first
-  const [ticketId,    setTicketId]    = useState(null)
-  const [ticket,      setTicket]      = useState(null)
-  const [comments,    setComments]    = useState([])
-  const [techUsers,   setTechUsers]   = useState([])
-  const [customers,   setCustomers]   = useState([])
-  const [custSearch,  setCustSearch]  = useState('')
-  const [custOpen,    setCustOpen]    = useState(false)
-  const [loading,     setLoading]     = useState(true)
-  const [error,       setError]       = useState(null)
-  const [updating,    setUpdating]    = useState(false)
-  const [noteMode,    setNoteMode]    = useState('internal')
-  const [noteText,    setNoteText]    = useState('')
-  const [aiOpen,      setAiOpen]      = useState(false)
-  const [aiLoading,   setAiLoading]   = useState(false)
-  const [aiSuggestions, setAiSuggestions] = useState<{tone: string, text: string}[]>([])
-  const [submitting,  setSubmitting]  = useState(false)
-  const [attachment,  setAttachment]  = useState(null)
-  const [signature,   setSignature]   = useState('')
+  const [ticket,       setTicket]       = useState(null)
+  const [comments,     setComments]     = useState([])
+  const [techUsers,    setTechUsers]    = useState([])
+  const [customers,    setCustomers]    = useState([])
+  const [custSearch,   setCustSearch]   = useState('')
+  const [custOpen,     setCustOpen]     = useState(false)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [updating,     setUpdating]     = useState(false)
+  const [noteMode,     setNoteMode]     = useState('internal')
+  const [noteText,     setNoteText]     = useState('')
+  const [aiOpen,       setAiOpen]       = useState(false)
+  const [aiLoading,    setAiLoading]    = useState(false)
+  const [aiSuggestions,setAiSuggestions]= useState([])
+  const [submitting,   setSubmitting]   = useState(false)
+  const [attachment,   setAttachment]   = useState(null)
+  const [signature,    setSignature]    = useState('')
   const [csatResponse, setCsatResponse] = useState(null)
+  const [editFields,   setEditFields]   = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
+  const [techSearch,   setTechSearch]   = useState('')
+  const [techOpen,     setTechOpen]     = useState(false)
+  const [timerSaving,  setTimerSaving]  = useState(false)
+  const [mergeOpen,    setMergeOpen]    = useState(false)
 
-  // Load tech signature once
+  const idRef        = useRef(null)
+  const orgIdRef     = useRef(null)
+  const myEmailRef   = useRef(null)
+  const myNameRef    = useRef(null)
+  const ticketRef    = useRef(null)
+  const fileInputRef = useRef(null)
+  const refreshRef   = useRef(null)
+
+  const id = params?.id
+  idRef.current = id
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
@@ -809,30 +677,10 @@ export default function TicketDetailClient() {
         })
     })
   }, [])
-  const [editFields,  setEditFields]  = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
-  const [techSearch,  setTechSearch]  = useState('')
-  const [techOpen,    setTechOpen]    = useState(false)
-  const [timerSaving, setTimerSaving] = useState(false)
-  const [mergeOpen,   setMergeOpen]   = useState(false)
 
-  // Refs — immune to TDZ and component teardown
-  const idRef          = useRef(null)
-  const orgIdRef       = useRef(null)
-  const myEmailRef     = useRef(null)
-  const myNameRef      = useRef(null)
-  const ticketRef      = useRef(null)
-  const fileInputRef   = useRef(null)
-  const refreshRef     = useRef(null)
-
-  // Sync id from params into ref immediately
-  const id = params?.id
-  idRef.current = id
-
-  // All data functions as const (NOT hoisted) — they use refs, never state
   const loadTicket = useCallback(async () => {
     const currentId = idRef.current
     if (!currentId) return
-    setLoading(true)
     const { data, error: err } = await supabase.from('tickets').select('*').eq('id', currentId).single()
     if (err) { setError(err.message); setLoading(false); return }
     setTicket(data)
@@ -865,63 +713,61 @@ export default function TicketDetailClient() {
     setCustomers(data ?? [])
   }, [])
 
-  // Real-time refresh using stable ref
   refreshRef.current = () => { loadTicket(); loadComments() }
   useEffect(() => {
     const tables = ['tickets', 'ticket_comments', 'time_entries']
-    const h = (e) => {
-      if (!tables.length || tables.includes(e.detail?.table)) refreshRef.current()
-    }
+    const h = (e) => { if (!tables.length || tables.includes(e.detail?.table)) refreshRef.current() }
     window.addEventListener('supabase:change', h)
     return () => window.removeEventListener('supabase:change', h)
   }, [])
 
-  // Init
   useEffect(() => {
     if (!id) return
     idRef.current = id
-
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       myEmailRef.current = user?.email ?? null
       if (!myNameRef.current) myNameRef.current = user?.email?.split('@')[0] ?? 'Staff'
-      const { data: member } = await supabase
-        .from('organization_members').select('organization_id').eq('user_id', user?.id).single()
+      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user?.id).single()
       if (member) orgIdRef.current = member.organization_id
     }
-
     init()
     loadTicket()
     loadComments()
     loadTechs()
     loadCustomers()
-    // Load CSAT response for this ticket
-    supabase.from('csat_responses').select('score,comment,submitted_at')
-      .eq('ticket_id', id).maybeSingle()
+    supabase.from('csat_responses').select('score,comment,submitted_at').eq('ticket_id', id).maybeSingle()
       .then(({ data }) => setCsatResponse(data || null))
   }, [id])
 
+  // ── FIXED: updateField now uses myEmailRef.current and has try/finally ────────
   const updateField = async (field, value) => {
     const currentId = idRef.current
     const t = ticketRef.current
     if (!currentId || !t) return
     setUpdating(true)
-    const oldValue = t[field] ?? null
-    await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
-    // Write audit log entry with actor so we know who made the change
-    if (oldValue !== value) {
-      await supabase.from('audit_log').insert({
-        organization_id: t.organization_id,
-        table_name:      'tickets',
-        record_id:       currentId,
-        record_title:    t.title,
-        action:          'UPDATE',
-        actor_email:     myEmail || null,
-        changed_fields:  { [field]: { from: oldValue, to: value } },
-      })
+    try {
+      const oldValue = t[field] ?? null
+      await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
+      // Write audit log — use myEmailRef.current, not the undeclared myEmail
+      if (oldValue !== value) {
+        await supabase.from('audit_log').insert({
+          organization_id: t.organization_id,
+          table_name:      'tickets',
+          record_id:       currentId,
+          record_title:    t.title,
+          action:          'UPDATE',
+          actor_email:     myEmailRef.current || null,   // ← FIXED: was `myEmail`
+          changed_fields:  { [field]: { from: oldValue, to: value } },
+        })
+      }
+      await loadTicket()
+    } catch (err) {
+      console.error('updateField error:', err)
+    } finally {
+      // FIXED: always re-enable the dropdown even if an error occurs
+      setUpdating(false)
     }
-    await loadTicket()
-    setUpdating(false)
   }
 
   const saveEditField = (field) => {
@@ -941,10 +787,7 @@ export default function TicketDetailClient() {
     const currentId = idRef.current
     if (!t || !currentId) return
     const now = new Date().toISOString()
-    await supabase.from('tickets').update({
-      timer_started: now,
-      status: t.status === 'open' ? 'in_progress' : t.status,
-    }).eq('id', currentId)
+    await supabase.from('tickets').update({ timer_started: now, status: t.status === 'open' ? 'in_progress' : t.status }).eq('id', currentId)
     await loadTicket()
   }
 
@@ -974,78 +817,63 @@ export default function TicketDetailClient() {
     await loadTicket()
   }
 
+  // ── FIXED: submitNote no longer double-fires loadTicket/loadComments ──────────
   const submitNote = async () => {
     const t = ticketRef.current
     const currentId = idRef.current
     if (!noteText.trim() || submitting || !t || !currentId) return
     setSubmitting(true)
     const { data: { user } } = await supabase.auth.getUser()
-    let attachment_url = null
+
+    let attachment_url  = null
     let attachment_name = null
     if (attachment) {
       const ext  = attachment.name.split('.').pop()
       const path = `ticket-attachments/${currentId}/${Date.now()}.${ext}`
       const { data: up, error: upErr } = await supabase.storage.from('attachments').upload(path, attachment)
-      if (upErr) {
-        console.error('Attachment upload failed:', upErr.message)
-        // Continue without attachment rather than blocking the reply
-      } else if (up) {
+      if (!upErr && up) {
         const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(path)
-        attachment_url = publicUrl
+        attachment_url  = publicUrl
         attachment_name = attachment.name
       }
     }
+
     await supabase.from('ticket_comments').insert({
       ticket_id:       currentId,
       organization_id: t.organization_id,
       author_name:     myNameRef.current || user?.email?.split('@')[0] || 'Staff',
       author_email:    user?.email ?? '',
       content:         noteText.trim(),
-      is_staff:        true,  // always true — staff member is writing this
+      is_staff:        true,
       source:          noteMode === 'internal' ? 'internal' : 'email',
       attachment_url,
       attachment_name,
     })
 
-    // Send actual email to client when replying
     if (noteMode === 'reply' && t.contact_email) {
       const subject  = `Re: ${t.title} [#${currentId}]`
       const bodyText = noteText.trim()
-
-      const textBody = [
-        bodyText,
-        signature ? `\n--\n${signature}` : '',
-        attachment_url ? `\nAttachment: ${attachment_url}` : '',
-      ].filter(Boolean).join('\n')
-
-      const ccList = Array.isArray(t.watchers) && t.watchers.length > 0
-        ? t.watchers.filter((w: string) => w !== t.contact_email)
-        : []
-
+      const textBody = [bodyText, signature ? `\n--\n${signature}` : '', attachment_url ? `\nAttachment: ${attachment_url}` : ''].filter(Boolean).join('\n')
+      const ccList   = Array.isArray(t.watchers) && t.watchers.length > 0 ? t.watchers.filter((w) => w !== t.contact_email) : []
       await supabase.functions.invoke('send-invoice-email', {
-        body: {
-          from:     'Valhalla IT Support <support@valhalla-it.net>',
-          reply_to: `support+${currentId}@valhalla-rmm.com`,
-          to:       t.contact_email,
-          cc:       ccList.length > 0 ? ccList : undefined,
-          subject,
-          text:     textBody,
-        }
+        body: { from: 'Valhalla IT Support <support@valhalla-it.net>', reply_to: `support+${currentId}@valhalla-rmm.com`, to: t.contact_email, cc: ccList.length > 0 ? ccList : undefined, subject, text: textBody }
       })
     }
 
     if (noteMode === 'reply') {
-      const staffUpdate: any = { last_customer_reply_at: null }
+      const staffUpdate = { last_customer_reply_at: null }
       if (!t.first_response_at) staffUpdate.first_response_at = new Date().toISOString()
       await supabase.from('tickets').update(staffUpdate).eq('id', currentId)
-      await loadTicket()  // refresh local ticket state so badge clears immediately
-      // Notify ticket list to re-fetch so badge clears there too
-      window.dispatchEvent(new CustomEvent('supabase:change', { detail: { table: 'tickets' } }))
     }
+
     setNoteText('')
     setAttachment(null)
-    await loadComments()
     setSubmitting(false)
+
+    // FIXED: load once directly, do NOT also dispatch supabase:change
+    // (that would trigger a second concurrent load via the realtime handler)
+    await loadTicket()
+    await loadComments()
   }
 
   if (loading) return (
@@ -1068,22 +896,14 @@ export default function TicketDetailClient() {
 
   const handleAiRewrite = async () => {
     if (!noteText.trim()) return
-    setAiLoading(true)
-    setAiOpen(true)
-    setAiSuggestions([])
+    setAiLoading(true); setAiOpen(true); setAiSuggestions([])
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/rewrite-reply`,
-        {
-          method:  'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify({ text: noteText.trim() }),
-        }
-      )
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/rewrite-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ text: noteText.trim() }),
+      })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Request failed')
       setAiSuggestions(data.suggestions || [])
@@ -1099,7 +919,6 @@ export default function TicketDetailClient() {
     const name = t.display_name || t.user_email.split('@')[0]
     return !techSearch || name.toLowerCase().includes(techSearch.toLowerCase()) || t.user_email.toLowerCase().includes(techSearch.toLowerCase())
   })
-  // Helper to get display label for an email
   const techLabel = (email) => {
     const t = techUsers.find(t => t.user_email === email)
     return t ? (t.display_name || t.user_email.split('@')[0]) : email
@@ -1123,11 +942,7 @@ export default function TicketDetailClient() {
             <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 capitalize">{ticket.category}</span>
             {ticket.customer_name && <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">{ticket.customer_name}</span>}
             {ticket.source && ticket.source !== 'admin' && (
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                ticket.source === 'portal' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' :
-                ticket.source === 'email'  ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' :
-                'bg-slate-100 text-slate-600'
-              }`}>via {ticket.source}</span>
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ticket.source === 'portal' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' : ticket.source === 'email' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' : 'bg-slate-100 text-slate-600'}`}>via {ticket.source}</span>
             )}
             {ticket.tags?.map(tag => (
               <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border border-violet-200">#{tag}</span>
@@ -1154,13 +969,7 @@ export default function TicketDetailClient() {
             {['open','in_progress','waiting','resolved','closed'].map(s => <option key={s} value={s}>{lbl(s)}</option>)}
           </select>
         </div>
-
-        <MergeTicketDialog
-          ticket={ticket}
-          open={mergeOpen}
-          onClose={() => setMergeOpen(false)}
-          onMerged={(targetId) => { setMergeOpen(false); router.push(`/tickets/${targetId}`) }}
-        />
+        <MergeTicketDialog ticket={ticket} open={mergeOpen} onClose={() => setMergeOpen(false)} onMerged={(targetId) => { setMergeOpen(false); router.push(`/tickets/${targetId}`) }} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1169,12 +978,7 @@ export default function TicketDetailClient() {
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-3">Description</h3>
               <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed space-y-1"
-                dangerouslySetInnerHTML={{ __html: ticket.description
-                  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                  .replace(/^\n/g, '')
-                  .replace(/\n\n/g, '</p><p class="mt-2">')
-                  .replace(/\n/g, '<br/>')
-                }} />
+                dangerouslySetInnerHTML={{ __html: ticket.description.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^\n/g, '').replace(/\n\n/g, '</p><p class="mt-2">').replace(/\n/g, '<br/>') }} />
             </div>
           )}
 
@@ -1197,11 +1001,9 @@ export default function TicketDetailClient() {
               {comments.length > 0 && (
                 <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                   {comments.map(comment => {
-                    const isInternal = comment.is_staff && comment.source === 'internal'
+                    const isInternal   = comment.is_staff && comment.source === 'internal'
                     const isStaffReply = comment.is_staff && comment.source !== 'internal'
-                    const isClient = !comment.is_staff
 
-                    // Internal note — full width yellow
                     if (isInternal) return (
                       <div key={comment.id} className="flex items-start gap-2">
                         <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -1220,7 +1022,6 @@ export default function TicketDetailClient() {
                       </div>
                     )
 
-                    // Staff reply — right aligned, blue bubble
                     if (isStaffReply) return (
                       <div key={comment.id} className="flex items-end gap-2 flex-row-reverse">
                         <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold">
@@ -1243,7 +1044,7 @@ export default function TicketDetailClient() {
                       </div>
                     )
 
-                    // Client reply — left aligned, white bubble with green accent
+                    // Client reply
                     return (
                       <div key={comment.id} className="flex items-end gap-2">
                         <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center flex-shrink-0 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
@@ -1297,10 +1098,7 @@ export default function TicketDetailClient() {
                   {noteMode === 'reply' && canEmailClient && /https?:\/\//.test(noteText) && (
                     <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-700 dark:text-amber-400">
                       <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      <span>
-                        <strong>Link detected</strong> — Gmail may block emails containing links from new domains.
-                        Ask the client to add <strong>support@valhalla-it.net</strong> to their contacts, or share the link via the portal instead.
-                      </span>
+                      <span><strong>Link detected</strong> — Gmail may block emails containing links from new domains. Ask the client to add <strong>support@valhalla-it.net</strong> to their contacts, or share the link via the portal instead.</span>
                     </div>
                   )}
                   <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={4}
@@ -1325,8 +1123,7 @@ export default function TicketDetailClient() {
                       {noteMode === 'reply' && noteText.trim().length > 10 && (
                         <button type="button" onClick={handleAiRewrite}
                           className="flex items-center gap-1 h-7 px-2 text-xs text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20 rounded transition-colors font-medium border border-purple-200 dark:border-purple-800">
-                          <Sparkles className="w-3 h-3" />
-                          Improve
+                          <Sparkles className="w-3 h-3" /> Improve
                         </button>
                       )}
                     </div>
@@ -1370,7 +1167,6 @@ export default function TicketDetailClient() {
               </div>
             </div>
           </div>
-
           <ActivityTimeline ticketId={ticket?.id} />
         </div>
 
@@ -1487,29 +1283,16 @@ export default function TicketDetailClient() {
                   <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
                     <button type="button"
                       className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors italic"
-                      onMouseDown={() => {
-                        setEditFields(p => ({ ...p, customer_id: '', customer_name: '' }))
-                        setCustOpen(false)
-                        updateField('customer_id', null)
-                        updateField('customer_name', null)
-                      }}>
+                      onMouseDown={() => { setEditFields(p => ({ ...p, customer_id: '', customer_name: '' })); setCustOpen(false); updateField('customer_id', null); updateField('customer_name', null) }}>
                       — No customer
                     </button>
-                    {customers
-                      .filter(c => !custSearch || c.name.toLowerCase().includes(custSearch.toLowerCase()))
-                      .map(c => (
-                        <button key={c.id} type="button"
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                          onMouseDown={() => {
-                            setEditFields(p => ({ ...p, customer_id: c.id, customer_name: c.name }))
-                            setCustOpen(false)
-                            updateField('customer_id', c.id)
-                            updateField('customer_name', c.name)
-                          }}>
-                          {c.name}
-                        </button>
-                      ))
-                    }
+                    {customers.filter(c => !custSearch || c.name.toLowerCase().includes(custSearch.toLowerCase())).map(c => (
+                      <button key={c.id} type="button"
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        onMouseDown={() => { setEditFields(p => ({ ...p, customer_id: c.id, customer_name: c.name })); setCustOpen(false); updateField('customer_id', c.id); updateField('customer_name', c.name) }}>
+                        {c.name}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1518,33 +1301,23 @@ export default function TicketDetailClient() {
               <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-xs text-slate-400 mb-1">Contact Name</p>
-                <input value={editFields.contact_name}
-                  onChange={e => setEditFields(p => ({ ...p, contact_name: e.target.value }))}
-                  onBlur={() => saveEditField('contact_name')}
-                  placeholder="Contact name" className={inp} />
+                <input value={editFields.contact_name} onChange={e => setEditFields(p => ({ ...p, contact_name: e.target.value }))} onBlur={() => saveEditField('contact_name')} placeholder="Contact name" className={inp} />
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-xs text-slate-400 mb-1">Contact Email</p>
-                <input type="email" value={editFields.contact_email}
-                  onChange={e => setEditFields(p => ({ ...p, contact_email: e.target.value }))}
-                  onBlur={() => saveEditField('contact_email')}
-                  placeholder="email@client.com" className={inp} />
+                <input type="email" value={editFields.contact_email} onChange={e => setEditFields(p => ({ ...p, contact_email: e.target.value }))} onBlur={() => saveEditField('contact_email')} placeholder="email@client.com" className={inp} />
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-xs text-slate-400 mb-1">SLA Due Date</p>
-                <input type="datetime-local" value={editFields.sla_due_date}
-                  onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))}
-                  onBlur={() => saveEditField('sla_due_date')}
-                  className={inp} />
+                <input type="datetime-local" value={editFields.sla_due_date} onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))} onBlur={() => saveEditField('sla_due_date')} className={inp} />
               </div>
             </div>
-            {/* Linked Asset */}
             <div className="flex items-start gap-2.5">
               <HardDrive className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
@@ -1552,7 +1325,6 @@ export default function TicketDetailClient() {
                 <AssetPicker ticket={ticket} orgId={orgIdRef.current} onLinked={() => loadTicket()} />
               </div>
             </div>
-            {/* CC / Watchers */}
             <div className="flex items-start gap-2.5">
               <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">
