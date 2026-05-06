@@ -393,14 +393,19 @@ function QuoteApprovalContent() {
 }
 
 // ── Client attachments — shows only is_client_visible files ──────────────────
+// Uses the Supabase URL + anon key directly so unauthenticated clients
+// on the public approval page can create signed URLs without being logged in.
 function ClientAttachments({ quoteId }) {
   const supabase = createSupabaseBrowserClient()
-  const [attachments, setAttachments] = useState([])
+  const [attachments, setAttachments]   = useState([])
+  const [downloading, setDownloading]   = useState(null)
+  const [dlError,     setDlError]       = useState(null)
 
   useEffect(() => {
     if (!quoteId) return
-    supabase.from('quote_attachments')
-      .select('id, file_name, file_size, file_type, storage_path, is_client_visible')
+    supabase
+      .from('quote_attachments')
+      .select('id, file_name, file_size, file_type, storage_path')
       .eq('quote_id', quoteId)
       .eq('is_client_visible', true)
       .then(({ data }) => setAttachments(data ?? []))
@@ -409,10 +414,26 @@ function ClientAttachments({ quoteId }) {
   if (attachments.length === 0) return null
 
   const download = async (a) => {
-    const { data } = await supabase.storage
-      .from('quote-attachments')
-      .createSignedUrl(a.storage_path, 60)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    setDownloading(a.id)
+    setDlError(null)
+    try {
+      // createSignedUrl works with the anon key once the storage
+      // policy allows anon SELECT on the bucket
+      const { data, error } = await supabase.storage
+        .from('quote-attachments')
+        .createSignedUrl(a.storage_path, 120) // 2-minute window
+
+      if (error || !data?.signedUrl) {
+        setDlError(`Could not open ${a.file_name}. Please contact your service provider.`)
+      } else {
+        // Open in a new tab — works for PDF, images, and triggers
+        // a browser download for other file types
+        window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+      }
+    } catch (e) {
+      setDlError('Download failed. Please try again.')
+    }
+    setDownloading(null)
   }
 
   const fmtSize = (b) => {
@@ -421,21 +442,46 @@ function ClientAttachments({ quoteId }) {
     return ` · ${(b / (1024 * 1024)).toFixed(1)} MB`
   }
 
+  const fileLabel = (type) => {
+    const map = {
+      'application/pdf': 'PDF',
+      'application/msword': 'Word',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word',
+      'application/vnd.ms-excel': 'Excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel',
+      'text/plain': 'Text',
+      'text/csv': 'CSV',
+    }
+    if (map[type]) return map[type]
+    if (type?.startsWith('image/')) return 'Image'
+    return 'File'
+  }
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
       <div className="px-4 py-3 bg-slate-800/60">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Supporting Documents</p>
       </div>
+      {dlError && (
+        <div className="px-4 py-2 bg-rose-900/30 border-b border-rose-800/40">
+          <p className="text-xs text-rose-400">{dlError}</p>
+        </div>
+      )}
       <div className="divide-y divide-slate-800">
         {attachments.map(a => (
-          <button key={a.id} onClick={() => download(a)}
-            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800/40 transition-colors text-left">
+          <button key={a.id} onClick={() => download(a)} disabled={downloading === a.id}
+            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800/40 disabled:opacity-60 transition-colors text-left">
             <Globe className="w-4 h-4 text-emerald-500 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-slate-200 truncate">{a.file_name}</p>
-              <p className="text-xs text-slate-500">{a.file_type?.split('/')[1]?.toUpperCase() || 'File'}{fmtSize(a.file_size)}</p>
+              <p className="text-xs text-slate-500">
+                {fileLabel(a.file_type)}{fmtSize(a.file_size)}
+              </p>
             </div>
-            <span className="text-xs text-amber-500 font-medium flex-shrink-0">Download ↓</span>
+            {downloading === a.id
+              ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
+              : <span className="text-xs text-amber-500 font-medium flex-shrink-0">Open ↗</span>
+            }
           </button>
         ))}
       </div>
