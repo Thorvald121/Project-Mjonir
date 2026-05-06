@@ -73,7 +73,6 @@ function getSlaLabel(slaDue, status) {
   return h > 0 ? `${h}h ${m}m left` : `${m}m left`
 }
 
-// Attention score — higher = needs more attention (floats to top)
 function getAttentionScore(t) {
   let score = 0
   if (t.last_customer_reply_at) score += 1000
@@ -101,23 +100,32 @@ function fmtDate(d) {
 // ── NewTicketDialog ────────────────────────────────────────────────────────────
 function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   const supabase = createSupabaseBrowserClient()
-  const [saving,       setSaving]       = useState(false)
-  const [err,          setErr]          = useState(null)
-  const [techs,        setTechs]        = useState([])
-  const [templates,    setTemplates]    = useState([])
-  const [showTpl,      setShowTpl]      = useState(false)
-  const [kbSuggestions, setKbSuggestions] = useState([])
-  const [kbLoading,    setKbLoading]    = useState(false)
+  const [saving,          setSaving]          = useState(false)
+  const [err,             setErr]             = useState(null)
+  const [techs,           setTechs]           = useState([])
+  const [templates,       setTemplates]       = useState([])
+  const [showTpl,         setShowTpl]         = useState(false)
+  const [kbSuggestions,   setKbSuggestions]   = useState([])
+  const [kbLoading,       setKbLoading]       = useState(false)
+  const [createMultiple,  setCreateMultiple]  = useState(false)  // ← NEW
+  const [justCreated,     setJustCreated]     = useState(null)   // ← NEW: flash confirmation
   const [form, setForm] = useState({
     title:'', description:'', priority:'medium', category:'other',
     customer_id:'', assigned_to:'', contact_name:'', contact_email:'', tags:'',
   })
   const s = (k,v) => setForm(p => ({ ...p, [k]: v }))
 
+  const resetForm = () => {
+    setForm({ title:'', description:'', priority:'medium', category:'other', customer_id:'', assigned_to:'', contact_name:'', contact_email:'', tags:'' })
+    setErr(null)
+    setKbSuggestions([])
+    setJustCreated(null)
+  }
+
   useEffect(() => {
     if (!open) return
-    setForm({ title:'', description:'', priority:'medium', category:'other', customer_id:'', assigned_to:'', contact_name:'', contact_email:'', tags:'' })
-    setErr(null); setShowTpl(false); setKbSuggestions([])
+    resetForm()
+    setShowTpl(false)
     supabase.from('organization_members').select('id,user_email,display_name,role')
       .in('role', ['owner','admin','technician'])
       .then(({ data }) => setTechs(data ?? []))
@@ -146,7 +154,6 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
     setSaving(true); setErr(null)
     const tags = form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : []
     const cust = customers.find(c => c.id === form.customer_id)
-    const tech = techs.find(t => t.user_email === form.assigned_to)
     const { error } = await supabase.from('tickets').insert({
       organization_id: orgId,
       title:         form.title.trim(),
@@ -163,10 +170,22 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
       source: 'admin',
       updated_at: new Date().toISOString(),
     })
-    if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false)
-    setForm({ title:'',description:'',priority:'medium',category:'other',customer_id:'',assigned_to:'',contact_name:'',contact_email:'',tags:'' })
+    if (error) { setErr(error.message); return }
+
     onSaved()
+
+    if (createMultiple) {
+      // Stay open — flash a confirmation and reset just the title/description
+      // Keep customer, assignee, priority, category so the next ticket is pre-filled
+      setJustCreated(form.title.trim())
+      setForm(prev => ({ ...prev, title: '', description: '', tags: '' }))
+      setKbSuggestions([])
+      setTimeout(() => setJustCreated(null), 3000)
+    } else {
+      // Default behaviour — close immediately
+      onClose()
+    }
   }
 
   const applyTemplate = (tpl) => {
@@ -212,8 +231,20 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
             <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
           </div>
         </div>
+
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Just-created confirmation flash */}
+          {justCreated && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800">
+              <CheckSquare className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <p className="text-sm text-emerald-700 dark:text-emerald-400 truncate">
+                Created: <strong>{justCreated}</strong>
+              </p>
+            </div>
+          )}
+
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
+
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Title *</label>
             <input value={form.title} onChange={e => s('title',e.target.value)} required placeholder="Brief description of the issue" className={`mt-1 ${inp}`} autoFocus />
@@ -236,6 +267,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
             )}
             {kbLoading && <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Searching KB…</p>}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Priority</label>
@@ -264,6 +296,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
               <input type="email" value={form.contact_email} onChange={e => s('contact_email',e.target.value)} placeholder="Auto-filled from customer" className={`mt-1 ${inp}`} />
             </div>
           </div>
+
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Assign To</label>
             <select value={form.assigned_to} onChange={e => s('assigned_to',e.target.value)} className={`mt-1 ${inp}`}>
@@ -275,19 +308,39 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
               ))}
             </select>
           </div>
+
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</label>
             <textarea value={form.description} onChange={e => s('description',e.target.value)} rows={3} placeholder="Detailed description..." className={`mt-1 ${inp} resize-none`} />
           </div>
+
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tags (comma-separated)</label>
             <input value={form.tags} onChange={e => s('tags',e.target.value)} placeholder="e.g. urgent, wifi, laptop" className={`mt-1 ${inp}`} />
           </div>
+
+          {/* ── Create multiple checkbox ── */}
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <input
+              type="checkbox"
+              id="createMultiple"
+              checked={createMultiple}
+              onChange={e => setCreateMultiple(e.target.checked)}
+              className="w-4 h-4 accent-amber-500 flex-shrink-0"
+            />
+            <label htmlFor="createMultiple" className="cursor-pointer select-none">
+              <p className="text-sm font-medium text-slate-900 dark:text-white">Create multiple tickets</p>
+              <p className="text-xs text-slate-400">Keep this window open after each ticket is created</p>
+            </label>
+          </div>
+
           <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              {createMultiple ? 'Done' : 'Cancel'}
+            </button>
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Ticket
+              {saving ? 'Creating…' : createMultiple ? 'Create & Next' : 'Create Ticket'}
             </button>
           </div>
         </form>
@@ -316,15 +369,10 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => { setHovering(false); setAssignOpen(false) }}
     >
-      {/* Checkbox */}
       <div className="mt-0.5 flex-shrink-0" onClick={e => { e.stopPropagation(); onSelect(t.id) }}>
         <input type="checkbox" checked={selected} onChange={() => {}} className="w-4 h-4 accent-amber-500 cursor-pointer" />
       </div>
-
-      {/* Priority dot */}
       <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${dot}`} />
-
-      {/* Main content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -359,8 +407,6 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
               {t.tags?.length > 2 && <span className="text-[10px] text-slate-400">+{t.tags.length-2}</span>}
             </div>
           </div>
-
-          {/* Right side: time + assign */}
           <div className="flex-shrink-0 flex flex-col items-end gap-1 text-right">
             <span className="text-[11px] text-slate-400">{fmtDate(t.created_at)}</span>
             {slaLabel && (
@@ -380,8 +426,6 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
                 ))}
               </div>
             )}
-
-            {/* Quick assign — shows on hover */}
             <div className="relative" onClick={e => e.stopPropagation()}>
               <button
                 onClick={() => setAssignOpen(p => !p)}
@@ -477,10 +521,10 @@ export default function TicketsPage() {
   const [sortField,      setSortField]      = useState('created_at')
   const [sortDir,        setSortDir]        = useState('desc')
   const [hideImported,   setHideImported]   = useState(true)
-  const [hideResolved,   setHideResolved]   = useState(true)    // NEW: collapse resolved/closed
-  const [groupByCustomer,setGroupByCustomer]= useState(false)   // NEW: group by customer
-  const [attentionFirst, setAttentionFirst] = useState(true)    // NEW: float unread/urgent to top
-  const [viewMode,       setViewMode]       = useState('cards') // NEW: cards | table | kanban
+  const [hideResolved,   setHideResolved]   = useState(true)
+  const [groupByCustomer,setGroupByCustomer]= useState(false)
+  const [attentionFirst, setAttentionFirst] = useState(true)
+  const [viewMode,       setViewMode]       = useState('cards')
   const [savedFilters,   setSavedFilters]   = useState([])
   const [filterName,     setFilterName]     = useState('')
   const [showSaveInput,  setShowSaveInput]  = useState(false)
@@ -498,7 +542,6 @@ export default function TicketsPage() {
 
   const PAGE = 100
 
-  // Load view preferences from localStorage
   useEffect(() => {
     try {
       const prefs = JSON.parse(localStorage.getItem('ticket-view-prefs') || '{}')
@@ -626,7 +669,6 @@ export default function TicketsPage() {
   const uniqueCustomers = useMemo(() => customers.map(c => c.name).sort(), [customers])
   const uniqueAssignees = useMemo(() => [...new Set(tickets.map(t => t.assigned_to).filter(Boolean))].sort(), [tickets])
 
-  // Apply local filters (hide resolved, attention sort)
   const filtered = useMemo(() => {
     let list = [...tickets]
     if (hideResolved && statusFilter === 'all') {
@@ -638,12 +680,10 @@ export default function TicketsPage() {
     return list
   }, [tickets, hideResolved, attentionFirst, statusFilter])
 
-  // Count hidden resolved tickets to show in toggle
   const resolvedCount = useMemo(() =>
     tickets.filter(t => ['resolved','closed'].includes(t.status)).length,
   [tickets])
 
-  // Group by customer
   const grouped = useMemo(() => {
     if (!groupByCustomer) return null
     const map = {}
@@ -659,7 +699,6 @@ export default function TicketsPage() {
     })
   }, [filtered, groupByCustomer])
 
-  // Bulk actions
   const handleBulkStatus = async () => {
     if (!bulkStatus || selected.size === 0) return
     setBulkLoading(true)
@@ -693,7 +732,6 @@ export default function TicketsPage() {
   const sel = 'px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500'
   const fmtDate2 = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch { return '—' } }
 
-  // Render card list (possibly grouped)
   const renderCards = () => {
     if (groupByCustomer && grouped) {
       return grouped.map(([customerName, group]) => (
@@ -710,11 +748,9 @@ export default function TicketsPage() {
 
   return (
     <div className="space-y-3">
-      {/* Header */}
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">Tickets</h1>
         <div className="flex items-center gap-2">
-          {/* View mode toggle */}
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 gap-0.5">
             {[
               { mode: 'cards', icon: LayoutList, label: 'Card view'  },
@@ -775,7 +811,6 @@ export default function TicketsPage() {
 
       {/* View options row */}
       <div className="flex flex-wrap gap-2 items-center">
-        {/* Attention first */}
         <button onClick={() => { setAttentionFirst(p => !p); savePrefs({ attentionFirst: !attentionFirst }) }}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             attentionFirst
@@ -785,8 +820,6 @@ export default function TicketsPage() {
           <AlertTriangle className="w-3.5 h-3.5" />
           {attentionFirst ? 'Attention: On' : 'Attention sort'}
         </button>
-
-        {/* Hide resolved */}
         <button onClick={() => { setHideResolved(p => !p); savePrefs({ hideResolved: !hideResolved }) }}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             hideResolved
@@ -799,8 +832,6 @@ export default function TicketsPage() {
             : 'Show resolved'
           }
         </button>
-
-        {/* Group by customer */}
         {viewMode !== 'kanban' && (
           <button onClick={() => { setGroupByCustomer(p => !p); savePrefs({ groupByCustomer: !groupByCustomer }) }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
@@ -812,8 +843,6 @@ export default function TicketsPage() {
             {groupByCustomer ? 'Grouped by customer' : 'Group by customer'}
           </button>
         )}
-
-        {/* Hide imported */}
         <button onClick={() => setHideImported(p => !p)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             !hideImported
@@ -822,8 +851,6 @@ export default function TicketsPage() {
           }`}>
           {hideImported ? 'Show imported' : 'Hide imported'}
         </button>
-
-        {/* Saved filters */}
         <div className="relative" data-saved-menu>
           <button onClick={() => { setShowSavedMenu(p => !p); setShowSaveInput(false) }}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
@@ -871,7 +898,6 @@ export default function TicketsPage() {
             </div>
           )}
         </div>
-
         <span className="text-xs text-slate-400 ml-auto">{filtered.length} ticket{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
@@ -915,14 +941,12 @@ export default function TicketsPage() {
       {/* ── CARD VIEW ── */}
       {viewMode === 'cards' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          {/* Select all bar */}
           <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
             <input type="checkbox" checked={allChecked}
               ref={el => { if (el) el.indeterminate = someChecked }}
               onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
             <span className="text-xs text-slate-400">Select all</span>
           </div>
-
           {loading ? (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {Array(6).fill(0).map((_,i) => (
@@ -950,8 +974,6 @@ export default function TicketsPage() {
               {renderCards()}
             </div>
           )}
-
-          {/* Footer */}
           <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
             <span>
               {filtered.length} ticket{filtered.length !== 1 ? 's' : ''}
@@ -1076,7 +1098,13 @@ export default function TicketsPage() {
         </div>
       )}
 
-      <NewTicketDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSaved={loadAll} customers={customers} orgId={orgId} />
+      <NewTicketDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onSaved={loadAll}
+        customers={customers}
+        orgId={orgId}
+      />
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
