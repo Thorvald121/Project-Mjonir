@@ -6,7 +6,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   DollarSign, Clock, Shield, Package, Save, Loader2,
   CheckCircle2, AlertTriangle, ChevronDown, ChevronRight,
-  RefreshCw,
+  RefreshCw, Plus, Trash2, GripVertical, Eye, EyeOff,
 } from 'lucide-react'
 
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -34,8 +34,21 @@ const DEFAULTS = {
   onboarding_fee_default: 500,
 }
 
-function Section({ title, icon: Icon, color = 'text-amber-500', bg = 'bg-amber-50 dark:bg-amber-950/30', children }) {
-  const [open, setOpen] = useState(true)
+const DEFAULT_OFFERINGS = [
+  { key: 'security', label: 'Endpoint Security',                description: 'AV, Advanced Threat Security, EDR',       unit: 'device', section: 'security', rate: 3.50,  enabled: true },
+  { key: 'dns',      label: 'DNS Filtering & Web Content Control', description: 'Per device/mo',                         unit: 'device', section: 'security', rate: 4.00,  enabled: true },
+  { key: 'training', label: 'Security Awareness Training',      description: 'Per user/year — billed monthly',           unit: 'user',   section: 'security', rate: 25.00, enabled: true },
+  { key: 'darkweb',  label: 'Dark Web Monitoring',              description: 'Per domain/mo',                            unit: 'domain', section: 'security', rate: 15.00, enabled: true },
+  { key: 'backup',   label: 'Managed Backup Administration',    description: 'Per device/mo',                            unit: 'device', section: 'other',    rate: 8.00,  enabled: true },
+  { key: 'm365',     label: 'Microsoft 365 License Management', description: 'Per user/mo',                              unit: 'user',   section: 'other',    rate: 5.00,  enabled: true },
+]
+
+const SECTION_OPTIONS = ['security', 'other', 'support', 'onboarding']
+const UNIT_OPTIONS    = ['device', 'user', 'domain', 'month', 'license', 'mailbox', 'site']
+
+// ── Collapsible section wrapper ───────────────────────────────────────────────
+function Section({ title, icon: Icon, color = 'text-amber-500', bg = 'bg-amber-50 dark:bg-amber-950/30', children, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
@@ -53,6 +66,7 @@ function Section({ title, icon: Icon, color = 'text-amber-500', bg = 'bg-amber-5
   )
 }
 
+// ── Rate row ──────────────────────────────────────────────────────────────────
 function RateRow({ label, sub, fieldKey, form, setForm, prefix = '$', suffix = '', step = '1', min = '0' }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -61,28 +75,110 @@ function RateRow({ label, sub, fieldKey, form, setForm, prefix = '$', suffix = '
         {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
       </div>
       <div className="relative w-36 flex-shrink-0">
-        {prefix && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">{prefix}</span>
-        )}
+        {prefix && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">{prefix}</span>}
         <input
-          type="number"
-          min={min}
-          step={step}
+          type="number" min={min} step={step}
           value={form[fieldKey] ?? ''}
           onChange={e => setForm(p => ({ ...p, [fieldKey]: e.target.value === '' ? '' : Number(e.target.value) }))}
           className={`${inp} ${prefix ? 'pl-7' : ''} ${suffix ? 'pr-10' : ''} text-right`}
         />
-        {suffix && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">{suffix}</span>
-        )}
+        {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">{suffix}</span>}
       </div>
     </div>
   )
 }
 
+// ── Offering row — editable inline ────────────────────────────────────────────
+function OfferingRow({ offering, idx, onChange, onDelete, onToggle }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className={`rounded-xl border transition-colors ${offering.enabled ? 'border-slate-200 dark:border-slate-700' : 'border-slate-100 dark:border-slate-800 opacity-60'}`}>
+      {/* Row header */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <GripVertical className="w-4 h-4 text-slate-300 dark:text-slate-700 flex-shrink-0 cursor-grab" />
+
+        {/* Toggle enabled */}
+        <button onClick={() => onToggle(idx)}
+          title={offering.enabled ? 'Disable offering' : 'Enable offering'}
+          className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${offering.enabled ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'}`}>
+          {offering.enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+        </button>
+
+        {/* Label (editable inline) */}
+        <input
+          value={offering.label}
+          onChange={e => onChange(idx, 'label', e.target.value)}
+          placeholder="Offering name"
+          className="flex-1 min-w-0 bg-transparent text-sm font-medium text-slate-900 dark:text-white focus:outline-none border-b border-transparent focus:border-amber-400 py-0.5"
+        />
+
+        {/* Rate */}
+        <div className="relative flex-shrink-0 w-24">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">$</span>
+          <input
+            type="number" min={0} step="0.01"
+            value={offering.rate ?? ''}
+            onChange={e => onChange(idx, 'rate', parseFloat(e.target.value) || 0)}
+            className="w-full pl-6 pr-2 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-right bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+        <span className="text-xs text-slate-400 flex-shrink-0">/{offering.unit || 'unit'}</span>
+
+        {/* Expand for more fields */}
+        <button onClick={() => setExpanded(e => !e)}
+          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors flex-shrink-0">
+          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
+
+        {/* Delete */}
+        <button onClick={() => onDelete(idx)}
+          className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Expanded fields */}
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Description</label>
+            <input
+              value={offering.description || ''}
+              onChange={e => onChange(idx, 'description', e.target.value)}
+              placeholder="Shown to client in quotes"
+              className={`mt-1 ${inp} text-xs`}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Unit</label>
+            <select
+              value={offering.unit || 'device'}
+              onChange={e => onChange(idx, 'unit', e.target.value)}
+              className={`mt-1 ${inp} text-xs`}>
+              {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Section in quote</label>
+            <select
+              value={offering.section || 'other'}
+              onChange={e => onChange(idx, 'section', e.target.value)}
+              className={`mt-1 ${inp} text-xs`}>
+              {SECTION_OPTIONS.map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function PricingSettingsPage() {
-  const supabase = createSupabaseBrowserClient()
+  const supabase  = createSupabaseBrowserClient()
   const [form,    setForm]    = useState({ ...DEFAULTS })
+  const [offerings, setOfferings] = useState(DEFAULT_OFFERINGS)
   const [orgId,   setOrgId]   = useState(null)
   const [settId,  setSettId]  = useState(null)
   const [saving,  setSaving]  = useState(false)
@@ -111,10 +207,12 @@ export default function PricingSettingsPage() {
       if (existing) {
         setSettId(existing.id)
         const loaded = {}
-        Object.keys(DEFAULTS).forEach(k => {
-          loaded[k] = existing[k] ?? DEFAULTS[k]
-        })
+        Object.keys(DEFAULTS).forEach(k => { loaded[k] = existing[k] ?? DEFAULTS[k] })
         setForm(loaded)
+        // Load offerings from DB or fall back to defaults
+        if (existing.offerings && Array.isArray(existing.offerings)) {
+          setOfferings(existing.offerings)
+        }
       }
       setLoading(false)
     }
@@ -124,19 +222,45 @@ export default function PricingSettingsPage() {
   const handleSave = async () => {
     if (!orgId) return
     setSaving(true); setErr(null); setSaved(false)
-
-    const payload = { organization_id: orgId, ...form }
-
+    const payload = { organization_id: orgId, ...form, offerings }
     const { error } = settId
       ? await supabase.from('pricing_settings').update(payload).eq('id', settId)
       : await supabase.from('pricing_settings').insert(payload)
-
     if (error) { setErr(error.message); setSaving(false); return }
     setSaving(false); setSaved(true)
     setTimeout(() => setSaved(false), 3000)
   }
 
-  const resetDefaults = () => { setForm({ ...DEFAULTS }) }
+  const resetDefaults = () => {
+    setForm({ ...DEFAULTS })
+    setOfferings(DEFAULT_OFFERINGS)
+  }
+
+  // ── Offering CRUD ────────────────────────────────────────────────────────────
+  const updateOffering = (idx, key, val) => {
+    setOfferings(prev => prev.map((o, i) => i === idx ? { ...o, [key]: val } : o))
+  }
+
+  const toggleOffering = (idx) => {
+    setOfferings(prev => prev.map((o, i) => i === idx ? { ...o, enabled: !o.enabled } : o))
+  }
+
+  const deleteOffering = (idx) => {
+    if (!confirm('Remove this offering?')) return
+    setOfferings(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const addOffering = () => {
+    setOfferings(prev => [...prev, {
+      key:         `custom_${Date.now()}`,
+      label:       '',
+      description: '',
+      unit:        'device',
+      section:     'other',
+      rate:        0,
+      enabled:     true,
+    }])
+  }
 
   if (loading) return (
     <div className="max-w-3xl space-y-4 animate-pulse">
@@ -183,7 +307,6 @@ export default function PricingSettingsPage() {
       {/* Service Plans */}
       <Section title="Service Plan Rates" icon={DollarSign} color="text-amber-500" bg="bg-amber-50 dark:bg-amber-950/30">
         <p className="text-xs text-slate-400 mb-4">Per-user monthly rates and monthly minimums for each managed service plan.</p>
-
         <div className="grid grid-cols-1 gap-6">
           {[
             { plan: 'Core',     keyRate: 'core_per_user',      keyMin: 'core_monthly_min',     sub: 'Very small offices, stability + business-hours support' },
@@ -226,21 +349,66 @@ export default function PricingSettingsPage() {
         <RateRow label="Project rate" sub="Scoped project work billed separately" fieldKey="rate_project" form={form} setForm={setForm} step="0.01" />
       </Section>
 
-      {/* Add-On Rates */}
-      <Section title="Add-On Service Rates" icon={Shield} color="text-blue-500" bg="bg-blue-50 dark:bg-blue-950/30">
-        <p className="text-xs text-slate-400 mb-4">What you charge clients for add-on services. These are your sell prices, not your cost.</p>
-        <RateRow label="Endpoint Security (Bitdefender)" sub="Per device / month — includes AV, ATS, EDR" fieldKey="addon_security" form={form} setForm={setForm} step="0.01" />
-        <RateRow label="Managed Backup" sub="Per device / month" fieldKey="addon_backup" form={form} setForm={setForm} step="0.01" />
-        <RateRow label="M365 License Management" sub="Per user / month" fieldKey="addon_m365" form={form} setForm={setForm} step="0.01" />
-        <RateRow label="DNS Filtering" sub="Per device / month" fieldKey="addon_dns" form={form} setForm={setForm} step="0.01" />
-        <RateRow label="Security Awareness Training" sub="Per user / year" fieldKey="addon_training" form={form} setForm={setForm} step="0.01" />
-        <RateRow label="Dark Web Monitoring" sub="Per domain / month" fieldKey="addon_darkweb" form={form} setForm={setForm} step="0.01" />
-      </Section>
-
       {/* Onboarding */}
       <Section title="Onboarding & Setup" icon={Package} color="text-emerald-500" bg="bg-emerald-50 dark:bg-emerald-950/30">
         <p className="text-xs text-slate-400 mb-4">Default onboarding fee auto-populated into quotes. Can be overridden per quote.</p>
         <RateRow label="Default onboarding fee" sub="One-time — covers initial setup, deployment, and documentation" fieldKey="onboarding_fee_default" form={form} setForm={setForm} step="1" />
+      </Section>
+
+      {/* ── Service Offerings — fully editable ── */}
+      <Section title="Service Offerings & Add-Ons" icon={Shield} color="text-blue-500" bg="bg-blue-50 dark:bg-blue-950/30" defaultOpen={true}>
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                These are your add-on service offerings. Edit names and descriptions freely — they appear on quotes and the quote builder exactly as written here.
+                Toggle the eye icon to show or hide an offering from the quote builder without deleting it.
+              </p>
+            </div>
+          </div>
+
+          {/* Column headers */}
+          <div className="grid grid-cols-[32px_32px_1fr_100px_60px_32px_32px] gap-2 px-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+            <div />
+            <div />
+            <div>Offering name</div>
+            <div className="text-right">Sell rate</div>
+            <div className="text-center">/unit</div>
+            <div />
+            <div />
+          </div>
+
+          {/* Offering rows */}
+          {offerings.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <Shield className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+              <p className="text-sm">No offerings yet — add one below</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {offerings.map((offering, idx) => (
+                <OfferingRow
+                  key={offering.key + idx}
+                  offering={offering}
+                  idx={idx}
+                  onChange={updateOffering}
+                  onDelete={deleteOffering}
+                  onToggle={toggleOffering}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Add new offering */}
+          <button onClick={addOffering}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-500 hover:border-amber-400 hover:text-amber-600 dark:hover:border-amber-700 dark:hover:text-amber-400 transition-colors">
+            <Plus className="w-4 h-4" /> Add New Offering
+          </button>
+
+          <p className="text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-lg px-3 py-2">
+            <strong>Tip:</strong> When you add Action1, Bitdefender, or any other new tool — add it here first, set your sell rate, and it will automatically appear in the Quote Builder's add-on section.
+          </p>
+        </div>
       </Section>
 
       {/* Save button at bottom */}
