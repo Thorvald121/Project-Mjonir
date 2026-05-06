@@ -445,6 +445,7 @@ export default function QuoteBuilderPage() {
       expiry_date: validUntil || null, notes: notes || null,
       internal_notes: internalNotes || null, message_to_client: msgToClient || null,
       issue_date: new Date().toISOString().slice(0, 10),
+      approval_token: Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2),
     }
 
     const { data: saved, error } = await supabase.from('quotes').insert(payload).select('id, quote_number').single()
