@@ -274,7 +274,9 @@ export default function TimeTrackingPage() {
   const handleBulkUnapprove = async () => {
     if (selected.size === 0) return
     setBulkLoading(true)
-    await supabase.from('time_entries').update({ approved: false }).in('id', [...selected])
+    // Set to null (not false) — null is the natural "not yet reviewed" state
+    // and matches how entries are stored when first created
+    await supabase.from('time_entries').update({ approved: null }).in('id', [...selected])
     setBulkLoading(false); setSelected(new Set()); loadAll()
   }
 
@@ -584,7 +586,7 @@ export default function TimeTrackingPage() {
               </button>
               <button onClick={handleBulkUnapprove} disabled={bulkLoading}
                 className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium transition-colors">
-                Unapprove
+                Mark as Pending
               </button>
               <button onClick={() => setSelected(new Set())} className="ml-auto h-7 w-7 flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
                 <X className="w-4 h-4" />
