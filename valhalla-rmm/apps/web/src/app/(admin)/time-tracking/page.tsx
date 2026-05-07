@@ -423,7 +423,12 @@ export default function TimeTrackingPage() {
             <option value="billable">Billable Only</option>
             <option value="non-billable">Non-Billable</option>
           </select>
-          <select value={approvedFilter} onChange={e => setApprovedFilter(e.target.value)} className={sel}>
+          <select value={approvedFilter} onChange={e => {
+            const v = e.target.value
+            setApprovedFilter(v)
+            // When switching to pending or approved, show all time so nothing is hidden by month filter
+            if (v === 'pending' || v === 'approved') setMonthFilter('all')
+          }} className={sel}>
             <option value="all">All Status</option>
             <option value="pending">Pending approval{pendingApproval > 0 ? ` (${pendingApproval})` : ''}</option>
             <option value="approved">Approved{readyToInvoice > 0 ? ` (${readyToInvoice} ready)` : ''}</option>
@@ -556,7 +561,7 @@ export default function TimeTrackingPage() {
                 <span className="font-semibold">{pendingApproval} billable {pendingApproval === 1 ? 'entry' : 'entries'}</span> pending approval
                 {readyToInvoice > 0 && <span> · <span className="font-semibold text-emerald-600">{readyToInvoice} approved</span> and ready to invoice</span>}
               </p>
-              <button onClick={() => setApprovedFilter('pending')}
+              <button onClick={() => { setApprovedFilter('pending'); setMonthFilter('all') }}
                 className="text-xs font-semibold text-amber-600 hover:underline flex-shrink-0">
                 Review →
               </button>
