@@ -42,16 +42,16 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
   useEffect(() => {
     if (editing) {
       setForm({
-        ticket_id:    editing.ticket_id    || '',
-        ticket_title: editing.ticket_title || '',
-        customer_id:  editing.customer_id  || '',
+        ticket_id:     editing.ticket_id    || '',
+        ticket_title:  editing.ticket_title || '',
+        customer_id:   editing.customer_id  || '',
         customer_name: editing.customer_name || '',
-        technician:   editing.technician   || '',
-        description:  editing.description  || '',
-        minutes:      editing.minutes      || 60,
-        billable:     editing.billable     ?? true,
-        hourly_rate:  editing.hourly_rate  ?? '',
-        date:         editing.date         || new Date().toISOString().split('T')[0],
+        technician:    editing.technician   || '',
+        description:   editing.description  || '',
+        minutes:       editing.minutes      || 60,
+        billable:      editing.billable     ?? true,
+        hourly_rate:   editing.hourly_rate  ?? '',
+        date:          editing.date         || new Date().toISOString().split('T')[0],
       })
     } else {
       setForm({ ...BLANK })
@@ -66,7 +66,6 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
     if (t?.customer_id)   s('customer_id', t.customer_id)
     if (t?.customer_name) s('customer_name', t.customer_name)
     if (t?.assigned_to)   s('technician', t.assigned_to)
-    // Auto-fill hourly rate from customer
     if (t?.customer_id) {
       const c = customers.find(x => x.id === t.customer_id)
       if (c?.hourly_rate && (!form.hourly_rate || form.hourly_rate === '')) {
@@ -80,7 +79,6 @@ function LogTimeDialog({ open, onClose, onSaved, editing, orgId, tickets, custom
     const c = customers.find(x => x.id === customerId)
     s('customer_id', customerId)
     s('customer_name', c?.name || '')
-    // Auto-fill hourly rate from customer if not already set
     if (c?.hourly_rate && (!form.hourly_rate || form.hourly_rate === '')) {
       s('hourly_rate', String(c.hourly_rate))
     }
@@ -194,7 +192,7 @@ export default function TimeTrackingPage() {
   const [activeTab,      setActiveTab]      = useState('log')
   const [selected,       setSelected]       = useState(new Set())
   const [bulkLoading,    setBulkLoading]    = useState(false)
-  const [approvedFilter, setApprovedFilter] = useState('all') // all | pending | approved | invoiced
+  const [approvedFilter, setApprovedFilter] = useState('all')
 
   useEffect(() => {
     const init = async () => {
@@ -222,7 +220,6 @@ export default function TimeTrackingPage() {
 
   useRealtimeRefresh(['time_entries'], loadAll)
 
-
   const handleDelete = async (id) => {
     if (!confirm('Delete this time entry? This cannot be undone.')) return
     await supabase.from('time_entries').delete().eq('id', id)
@@ -247,14 +244,106 @@ export default function TimeTrackingPage() {
   const totalRevenue    = filtered.filter(e => e.billable && e.hourly_rate).reduce((s, e) => s + (e.hourly_rate * e.minutes) / 60, 0)
   const uniqueTechs     = [...new Set(entries.map(e => e.technician).filter(Boolean))]
 
+  // ── Previously missing: computed counts ──────────────────────────────────────
+  const pendingApproval = useMemo(() =>
+    entries.filter(e => e.billable && !e.approved && !e.invoice_id).length
+  , [entries])
+
+  const readyToInvoice = useMemo(() =>
+    entries.filter(e => e.billable && e.approved && !e.invoice_id).length
+  , [entries])
+
+  // ── Previously missing: selection helpers ────────────────────────────────────
+  const toggleSelect = (id) => setSelected(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+  const toggleAll = () => setSelected(prev =>
+    prev.size === filtered.length ? new Set() : new Set(filtered.map(e => e.id))
+  )
+  const allChecked  = filtered.length > 0 && selected.size === filtered.length
+  const someChecked = selected.size > 0 && !allChecked
+
+  // ── Previously missing: bulk action handlers ──────────────────────────────────
+  const handleBulkApprove = async () => {
+    if (selected.size === 0) return
+    setBulkLoading(true)
+    await supabase.from('time_entries').update({ approved: true }).in('id', [...selected])
+    setBulkLoading(false); setSelected(new Set()); loadAll()
+  }
+
+  const handleBulkUnapprove = async () => {
+    if (selected.size === 0) return
+    setBulkLoading(true)
+    await supabase.from('time_entries').update({ approved: false }).in('id', [...selected])
+    setBulkLoading(false); setSelected(new Set()); loadAll()
+  }
+
+  const handleBulkInvoice = async () => {
+    if (selected.size === 0 || !orgId) return
+    setBulkLoading(true)
+
+    const selectedEntries = filtered.filter(e => selected.has(e.id) && e.billable)
+    if (selectedEntries.length === 0) { setBulkLoading(false); return }
+
+    // Group by customer so we create one invoice per customer
+    const byCustomer = {}
+    for (const e of selectedEntries) {
+      const key = e.customer_id || '__none__'
+      if (!byCustomer[key]) byCustomer[key] = {
+        customer_id:   e.customer_id   || null,
+        customer_name: e.customer_name || null,
+        entries:       [],
+      }
+      byCustomer[key].entries.push(e)
+    }
+
+    for (const group of Object.values(byCustomer)) {
+      const lineItems = group.entries.map(e => ({
+        description: [e.ticket_title, e.description].filter(Boolean).join(' — ') || 'Time entry',
+        quantity:    parseFloat(((e.minutes || 0) / 60).toFixed(2)),
+        unit_price:  e.hourly_rate || 0,
+        total:       e.hourly_rate ? parseFloat(((e.hourly_rate * (e.minutes || 0)) / 60).toFixed(2)) : 0,
+      }))
+      const total   = lineItems.reduce((s, i) => s + i.total, 0)
+      const today   = new Date().toISOString().split('T')[0]
+      const dueDate = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })()
+
+      const { data: inv } = await supabase.from('invoices').insert({
+        organization_id: orgId,
+        invoice_number:  `INV-${Date.now().toString().slice(-6)}`,
+        customer_id:     group.customer_id,
+        customer_name:   group.customer_name,
+        status:          'draft',
+        payment_terms:   'net_30',
+        issue_date:      today,
+        due_date:        dueDate,
+        line_items:      lineItems,
+        subtotal:        total,
+        total,
+        amount_paid:     0,
+      }).select('id').single()
+
+      if (inv) {
+        // Mark entries as approved + linked to this invoice
+        await supabase.from('time_entries')
+          .update({ approved: true, invoice_id: inv.id })
+          .in('id', group.entries.map(e => e.id))
+      }
+    }
+
+    setBulkLoading(false); setSelected(new Set()); loadAll()
+    // Navigate to invoices so they can review the drafts
+    router.push('/invoices')
+  }
+
   // Report breakdowns
   const byTech = useMemo(() => {
     const map = {}
     filtered.forEach(e => {
       const k = e.technician || 'Unknown'
       if (!map[k]) map[k] = { name: k, total: 0, billable: 0, revenue: 0, entries: 0 }
-      map[k].total    += e.minutes || 0
-      map[k].entries  += 1
+      map[k].total   += e.minutes || 0
+      map[k].entries += 1
       if (e.billable) {
         map[k].billable += e.minutes || 0
         if (e.hourly_rate) map[k].revenue += (e.hourly_rate * (e.minutes || 0)) / 60
@@ -268,8 +357,8 @@ export default function TimeTrackingPage() {
     filtered.forEach(e => {
       const k = e.customer_name || 'No customer'
       if (!map[k]) map[k] = { name: k, total: 0, billable: 0, revenue: 0, entries: 0 }
-      map[k].total    += e.minutes || 0
-      map[k].entries  += 1
+      map[k].total   += e.minutes || 0
+      map[k].entries += 1
       if (e.billable) {
         map[k].billable += e.minutes || 0
         if (e.hourly_rate) map[k].revenue += (e.hourly_rate * (e.minutes || 0)) / 60
@@ -283,15 +372,21 @@ export default function TimeTrackingPage() {
     return d.toISOString().slice(0, 7)
   })
 
-  const fmt = (d) => { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
+  const fmt = (d) => {
+    if (!d) return '—'
+    try {
+      const dt = new Date(d.includes('T') ? d : d + 'T00:00:00')
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    } catch { return '—' }
+  }
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Hours',    value: fmtHours(totalMinutes),    icon: Clock,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
-          { label: 'Billable Hours', value: fmtHours(billableMinutes), icon: Timer,     color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
-          { label: 'Entries',        value: filtered.length,           icon: FileText,  color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-950/30' },
+          { label: 'Total Hours',    value: fmtHours(totalMinutes),        icon: Clock,      color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
+          { label: 'Billable Hours', value: fmtHours(billableMinutes),     icon: Timer,      color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
+          { label: 'Entries',        value: filtered.length,               icon: FileText,   color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-950/30' },
           { label: 'Revenue',        value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
         ].map(s => (
           <div key={s.label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
@@ -343,8 +438,10 @@ export default function TimeTrackingPage() {
               rows.push([e.date||'', e.technician||'', e.customer_name||'', e.ticket_title||'', e.description||'', e.minutes||0, ((e.minutes||0)/60).toFixed(2), e.billable?'Yes':'No', e.hourly_rate||'', amt])
             })
             const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
-            const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
-            a.download = `time-report-${monthFilter||'all'}.csv`; a.click()
+            const a = document.createElement('a')
+            a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+            a.download = `time-report-${monthFilter||'all'}.csv`
+            a.click()
           }}
             className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <Download className="w-4 h-4" /> Export CSV
@@ -371,7 +468,6 @@ export default function TimeTrackingPage() {
       {/* Report tab */}
       {activeTab === 'report' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* By technician */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm">By Technician</h3>
@@ -410,7 +506,6 @@ export default function TimeTrackingPage() {
             )}
           </div>
 
-          {/* By customer */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
               <h3 className="font-semibold text-slate-900 dark:text-white text-sm">By Customer</h3>
@@ -453,138 +548,138 @@ export default function TimeTrackingPage() {
 
       {activeTab === 'log' && (
         <>
-        {/* Pending approval banner */}
-        {pendingApproval > 0 && approvedFilter !== 'invoiced' && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl">
-            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-            <p className="text-sm text-amber-700 dark:text-amber-400 flex-1">
-              <span className="font-semibold">{pendingApproval} billable {pendingApproval === 1 ? 'entry' : 'entries'}</span> pending approval
-              {readyToInvoice > 0 && <span> · <span className="font-semibold text-emerald-600">{readyToInvoice} approved</span> and ready to invoice</span>}
-            </p>
-            <button onClick={() => setApprovedFilter('pending')}
-              className="text-xs font-semibold text-amber-600 hover:underline flex-shrink-0">
-              Review →
-            </button>
-          </div>
-        )}
+          {/* Pending approval banner */}
+          {pendingApproval > 0 && approvedFilter !== 'invoiced' && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+              <p className="text-sm text-amber-700 dark:text-amber-400 flex-1">
+                <span className="font-semibold">{pendingApproval} billable {pendingApproval === 1 ? 'entry' : 'entries'}</span> pending approval
+                {readyToInvoice > 0 && <span> · <span className="font-semibold text-emerald-600">{readyToInvoice} approved</span> and ready to invoice</span>}
+              </p>
+              <button onClick={() => setApprovedFilter('pending')}
+                className="text-xs font-semibold text-amber-600 hover:underline flex-shrink-0">
+                Review →
+              </button>
+            </div>
+          )}
 
-        {/* Bulk action bar */}
-        {selected.size > 0 && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl flex-wrap">
-            <CheckSquare className="w-4 h-4 text-blue-600 flex-shrink-0" />
-            <span className="text-sm font-medium text-blue-800 dark:text-blue-300">{selected.size} selected</span>
-            <button onClick={handleBulkApprove} disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
-              {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
-              Approve
-            </button>
-            <button onClick={handleBulkInvoice} disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
-              <FileText className="w-3 h-3" /> Create Invoice
-            </button>
-            <button onClick={handleBulkUnapprove} disabled={bulkLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium transition-colors">
-              Unapprove
-            </button>
-            <button onClick={() => setSelected(new Set())} className="ml-auto h-7 w-7 flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+          {/* Bulk action bar */}
+          {selected.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl flex-wrap">
+              <CheckSquare className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span className="text-sm font-medium text-blue-800 dark:text-blue-300">{selected.size} selected</span>
+              <button onClick={handleBulkApprove} disabled={bulkLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
+                {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                Approve
+              </button>
+              <button onClick={handleBulkInvoice} disabled={bulkLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
+                <FileText className="w-3 h-3" /> Create Invoice
+              </button>
+              <button onClick={handleBulkUnapprove} disabled={bulkLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-xs font-medium transition-colors">
+                Unapprove
+              </button>
+              <button onClick={() => setSelected(new Set())} className="ml-auto h-7 w-7 flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                <th className="w-10 px-4 py-3">
-                  <input type="checkbox" checked={allChecked}
-                    ref={el => { if (el) el.indeterminate = someChecked }}
-                    onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
-                </th>
-                {['Date','Technician','Ticket / Description','Customer','Time','Billable','Status','Rate','Amount',''].map(h => (
-                  <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {loading ? (
-                Array(5).fill(0).map((_, i) => (
-                  <tr key={i}>{Array(9).fill(0).map((_,j) => (
-                    <td key={j} className="px-3 py-3"><div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-20" /></td>
-                  ))}</tr>
-                ))
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-14 text-center text-slate-400 text-sm">
-                    <Clock className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                    {entries.length === 0 ? "No time entries yet. Click 'Log Time' to get started." : 'No entries match your filters.'}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                  <th className="w-10 px-4 py-3">
+                    <input type="checkbox" checked={allChecked}
+                      ref={el => { if (el) el.indeterminate = someChecked }}
+                      onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
+                  </th>
+                  {['Date','Technician','Ticket / Description','Customer','Time','Billable','Status','Rate','Amount',''].map(h => (
+                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
                 </tr>
-              ) : filtered.map(entry => {
-                const amount = entry.billable && entry.hourly_rate ? (entry.hourly_rate * entry.minutes) / 60 : null
-                return (
-                  <tr key={entry.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${selected.has(entry.id) ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}>
-                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(entry.id)} onChange={() => toggleSelect(entry.id)} className="w-4 h-4 accent-amber-500" />
-                    </td>
-                    <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.date ? fmt(entry.date) : '—'}</td>
-                    <td className="px-3 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{entry.technician || '—'}</td>
-                    <td className="px-3 py-3 max-w-xs">
-                      {entry.ticket_title && <p className="font-medium text-slate-900 dark:text-white truncate">{entry.ticket_title}</p>}
-                      {entry.description  && <p className="text-xs text-slate-400 truncate">{entry.description}</p>}
-                      {!entry.ticket_title && !entry.description && <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.customer_name || '—'}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">{fmtHours(entry.minutes || 0)}</td>
-                    <td className="px-3 py-3">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${entry.billable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
-                        {entry.billable ? 'Billable' : 'Non-billable'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {entry.invoice_id ? (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Invoiced</span>
-                      ) : entry.approved ? (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">Approved</span>
-                      ) : entry.billable ? (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">Pending</span>
-                      ) : (
-                        <span className="text-[10px] text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.hourly_rate ? `$${entry.hourly_rate}/hr` : '—'}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">{amount != null ? `$${amount.toFixed(2)}` : '—'}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-1">
-                        <button onClick={() => { setEditing(entry); setDialogOpen(true) }}
-                          className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        {entry.billable && !entry.invoice_id && (
-                          <button
-                            title="Add to new invoice"
-                            onClick={() => router.push(`/invoices?prefill_customer=${entry.customer_id}&prefill_entry=${entry.id}`)}
-                            className="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/20 text-slate-400 hover:text-amber-500 transition-colors">
-                            <FileText className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {entry.invoice_id && (
-                          <span title="Already invoiced" className="p-1.5 text-emerald-500">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                          </span>
-                        )}
-                        <button onClick={() => handleDelete(entry.id)}
-                          className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {loading ? (
+                  Array(5).fill(0).map((_, i) => (
+                    <tr key={i}>{Array(9).fill(0).map((_,j) => (
+                      <td key={j} className="px-3 py-3"><div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-20" /></td>
+                    ))}</tr>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="px-4 py-14 text-center text-slate-400 text-sm">
+                      <Clock className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                      {entries.length === 0 ? "No time entries yet. Click 'Log Time' to get started." : 'No entries match your filters.'}
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                ) : filtered.map(entry => {
+                  const amount = entry.billable && entry.hourly_rate ? (entry.hourly_rate * entry.minutes) / 60 : null
+                  return (
+                    <tr key={entry.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${selected.has(entry.id) ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}>
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(entry.id)} onChange={() => toggleSelect(entry.id)} className="w-4 h-4 accent-amber-500" />
+                      </td>
+                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.date ? fmt(entry.date) : '—'}</td>
+                      <td className="px-3 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{entry.technician || '—'}</td>
+                      <td className="px-3 py-3 max-w-xs">
+                        {entry.ticket_title && <p className="font-medium text-slate-900 dark:text-white truncate">{entry.ticket_title}</p>}
+                        {entry.description  && <p className="text-xs text-slate-400 truncate">{entry.description}</p>}
+                        {!entry.ticket_title && !entry.description && <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.customer_name || '—'}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">{fmtHours(entry.minutes || 0)}</td>
+                      <td className="px-3 py-3">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${entry.billable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                          {entry.billable ? 'Billable' : 'Non-billable'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        {entry.invoice_id ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Invoiced</span>
+                        ) : entry.approved ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">Approved</span>
+                        ) : entry.billable ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">Pending</span>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">{entry.hourly_rate ? `$${entry.hourly_rate}/hr` : '—'}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">{amount != null ? `$${amount.toFixed(2)}` : '—'}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex gap-1">
+                          <button onClick={() => { setEditing(entry); setDialogOpen(true) }}
+                            className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          {entry.billable && !entry.invoice_id && (
+                            <button
+                              title="Add to new invoice"
+                              onClick={() => router.push(`/invoices?prefill_customer=${entry.customer_id}&prefill_entry=${entry.id}`)}
+                              className="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/20 text-slate-400 hover:text-amber-500 transition-colors">
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {entry.invoice_id && (
+                            <span title="Already invoiced" className="p-1.5 text-emerald-500">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </span>
+                          )}
+                          <button onClick={() => handleDelete(entry.id)}
+                            className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
