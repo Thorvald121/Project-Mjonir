@@ -749,7 +749,6 @@ export default function TicketDetailClient() {
     try {
       const oldValue = t[field] ?? null
       await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
-      // Write audit log — use myEmailRef.current, not the undeclared myEmail
       if (oldValue !== value) {
         await supabase.from('audit_log').insert({
           organization_id: t.organization_id,
@@ -757,15 +756,26 @@ export default function TicketDetailClient() {
           record_id:       currentId,
           record_title:    t.title,
           action:          'UPDATE',
-          actor_email:     myEmailRef.current || null,   // ← FIXED: was `myEmail`
+          actor_email:     myEmailRef.current || null,
           changed_fields:  { [field]: { from: oldValue, to: value } },
         })
       }
       await loadTicket()
+
+      // Trigger CSAT email directly when status changes to resolved.
+      // We do this from the frontend because the database webhook is unreliable.
+      // The function deduplicates via csat_responses so it's safe to call every time.
+      if (field === 'status' && value === 'resolved' && t.contact_email) {
+        supabase.functions.invoke('send-csat-survey', {
+          body: {
+            record:     { ...t, status: 'resolved' },
+            old_record: { ...t, status: oldValue },
+          },
+        }).catch(err => console.error('CSAT invoke error:', err))
+      }
     } catch (err) {
       console.error('updateField error:', err)
     } finally {
-      // FIXED: always re-enable the dropdown even if an error occurs
       setUpdating(false)
     }
   }
