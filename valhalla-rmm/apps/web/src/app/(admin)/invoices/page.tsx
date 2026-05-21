@@ -91,7 +91,6 @@ function buildInvoiceHtml(inv, org = {}) {
 </head>
 <body>
 <div class="page">
-  <!-- Header -->
   <div class="header">
     <div>
       <div class="org-name">${orgName}</div>
@@ -106,8 +105,6 @@ function buildInvoiceHtml(inv, org = {}) {
       <div><span class="status-badge">${statusLabel}</span></div>
     </div>
   </div>
-
-  <!-- Addresses -->
   <div class="addresses">
     <div>
       <div class="address-label">Bill To</div>
@@ -120,8 +117,6 @@ function buildInvoiceHtml(inv, org = {}) {
       ${orgEmail ? `<div class="address-detail">${orgEmail}</div>` : ''}
     </div>
   </div>
-
-  <!-- Dates -->
   <div class="dates">
     <div class="date-item">
       <div class="label">Invoice #</div>
@@ -136,8 +131,6 @@ function buildInvoiceHtml(inv, org = {}) {
       <div class="value ${inv.status === 'overdue' ? 'overdue' : ''}">${fmt(inv.due_date)}${inv.payment_terms ? ` <span style="font-size:11px;color:#94a3b8;">(${TERMS_LABELS[inv.payment_terms] || inv.payment_terms})</span>` : ''}</div>
     </div>
   </div>
-
-  <!-- Line items -->
   <table>
     <thead>
       <tr>
@@ -149,8 +142,6 @@ function buildInvoiceHtml(inv, org = {}) {
     </thead>
     <tbody>${rows}</tbody>
   </table>
-
-  <!-- Totals -->
   <div class="totals">
     ${inv.discount_amount > 0 ? `<div class="total-row"><span>Discount</span><span>-${fmtMoney(inv.discount_amount)}</span></div>` : ''}
     ${inv.tax_rate > 0 ? `<div class="total-row"><span>Tax (${inv.tax_rate}%)</span><span>${fmtMoney(inv.tax_amount)}</span></div>` : ''}
@@ -161,26 +152,18 @@ function buildInvoiceHtml(inv, org = {}) {
     </div>
     ${inv.status === 'paid' ? `<div style="text-align:center;margin-top:8px;"><span class="paid-badge">✓ PAID IN FULL</span></div>` : ''}
   </div>
-
-  <!-- Notes -->
   ${inv.notes ? `<div class="notes"><div class="notes-label">Notes</div><div class="notes-text">${inv.notes}</div></div>` : ''}
-
-  <!-- Footer -->
   <div class="footer">
     <span>Thank you for your business</span>
     <span>${orgName} · ${orgEmail}</span>
   </div>
 </div>
-
-<!-- Print button (hidden when printing) -->
 <button class="print-btn no-print" onclick="window.print()">
   🖨 Save as PDF
 </button>
-
 </body>
 </html>`
 }
-
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh)
@@ -226,7 +209,13 @@ function calcTotals(items, taxRate, discountAmt, discountPct) {
   return { subtotal: sub, discount_amount: pctDisc + flat, taxAmount: tax, total: taxable + tax }
 }
 
-function fmt(d) { if (!d) return '—'; try { const dt = new Date(d.includes('T') ? d : d + 'T00:00:00'); return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d } }
+function fmt(d) {
+  if (!d) return '—'
+  try {
+    const dt = new Date(d.includes('T') ? d : d + 'T00:00:00')
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch { return d }
+}
 
 function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = false, spinning = false }) {
   return (
@@ -237,14 +226,13 @@ function Btn({ icon: Icon, onClick, title, color = 'text-slate-400', disabled = 
   )
 }
 
-
 function PartialPaymentSection({ inv, orgId, onPaid }) {
-  const supabase       = createSupabaseBrowserClient()
-  const balance        = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
-  const [loading,      setLoading]      = useState(false)
-  const [partialAmt,   setPartialAmt]   = useState('')
-  const [showPartial,  setShowPartial]  = useState(false)
-  const [copied,       setCopied]       = useState(false)
+  const supabase      = createSupabaseBrowserClient()
+  const balance       = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
+  const [loading,     setLoading]     = useState(false)
+  const [partialAmt,  setPartialAmt]  = useState('')
+  const [showPartial, setShowPartial] = useState(false)
+  const [copied,      setCopied]      = useState(false)
 
   const openFullLink = async () => {
     setLoading(true)
@@ -322,10 +310,12 @@ function PartialPaymentSection({ inv, orgId, onPaid }) {
   )
 }
 
-function ViewDialog({ inv, onClose, orgId, loadAll }) {
+// FIX 3: Added `org` prop so buildInvoiceHtml gets branding data
+// FIX 4: Replaced `setViewing(null)` with `onClose()` inside PartialPaymentSection
+function ViewDialog({ inv, onClose, orgId, loadAll, org }) {
   if (!inv) return null
-  const items = Array.isArray(inv.line_items) ? inv.line_items : []
-  const cfg = STATUS_CFG[inv.status] || STATUS_CFG.draft
+  const items   = Array.isArray(inv.line_items) ? inv.line_items : []
+  const cfg     = STATUS_CFG[inv.status] || STATUS_CFG.draft
   const balance = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
@@ -338,7 +328,8 @@ function ViewDialog({ inv, onClose, orgId, loadAll }) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                const html = buildInvoiceHtml(inv, org)
+                // FIX 1+3: org is now in scope — PDF opens with correct branding
+                const html = buildInvoiceHtml(inv, org || {})
                 const blob = new Blob([html], { type: 'text/html' })
                 const url  = URL.createObjectURL(blob)
                 const a    = document.createElement('a')
@@ -396,7 +387,11 @@ function ViewDialog({ inv, onClose, orgId, loadAll }) {
           </div>
           {inv.notes && <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm text-slate-600 dark:text-slate-400">{inv.notes}</div>}
           {inv.status !== 'paid' && (
-            <PartialPaymentSection inv={inv} orgId={orgId} onPaid={() => { setViewing(null); loadAll() }} />
+            <PartialPaymentSection
+              inv={inv}
+              orgId={orgId}
+              onPaid={() => { onClose(); loadAll() }}
+            />
           )}
         </div>
       </div>
@@ -413,25 +408,25 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     payment_terms: 'net_30', tax_rate: '', discount_amount: '', discount_percent: '',
     notes: '', line_items: [{ ...BLANK_ITEM }], is_recurring: false, recurrence_interval: 'monthly',
   }
-  const [form, setForm] = useState(blank)
+  const [form,   setForm]   = useState(blank)
   const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState(null)
+  const [err,    setErr]    = useState(null)
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
     if (!open) return
-    // Pre-populate from bulk time entry selection
     if (prefillEntries?.length > 0 && !editing) {
       const firstEntry = prefillEntries[0]
       const cust = customers.find(c => c.id === firstEntry.customer_id)
       const lines = prefillEntries.map(e => {
         const hours = (e.minutes || 0) / 60
-        const rate  = e.hourly_rate || cust?.hourly_rate || 0
+        // FIX 2: fall back to customer hourly_rate if entry doesn't have one
+        const rate  = Number(e.hourly_rate) || Number(cust?.hourly_rate) || 0
         const total = hours * rate
         return {
-          description: `${e.ticket_title || e.description || 'Support time'} (${hours.toFixed(2)}h @ $${rate}/hr)`,
-          quantity:    '1',
-          unit_price:  total.toFixed(2),
+          description:    `${e.ticket_title || e.description || 'Support time'} (${hours.toFixed(2)}h @ $${rate}/hr)`,
+          quantity:       '1',
+          unit_price:     total.toFixed(2),
           _time_entry_id: e.id,
         }
       })
@@ -465,15 +460,22 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     setForm(f => { const items = [...f.line_items]; items[i] = { ...items[i], [field]: val }; return { ...f, line_items: items } })
   }
 
+  // FIX 2: look up customer and fall back to their hourly_rate if entry has none
   const importTime = () => {
     if (!form.customer_id) return
     const unbilled = timeEntries.filter(e => e.customer_id === form.customer_id && e.billable && !e.invoice_id)
     if (!unbilled.length) { alert('No unbilled time entries for this customer'); return }
+    const cust = customers.find(c => c.id === form.customer_id)
     const newItems = unbilled.map(e => {
       const hours = e.minutes / 60
-      const rate = e.hourly_rate || 0
+      const rate  = Number(e.hourly_rate) || Number(cust?.hourly_rate) || 0
       const total = parseFloat((hours * rate).toFixed(2))
-      return { description: `${e.description || e.ticket_title || 'Support time'} (${hours.toFixed(2)}h @ $${rate}/hr)`, quantity: '1', unit_price: String(total), _time_entry_id: e.id }
+      return {
+        description:    `${e.description || e.ticket_title || 'Support time'} (${hours.toFixed(2)}h @ $${rate}/hr)`,
+        quantity:       '1',
+        unit_price:     String(total),
+        _time_entry_id: e.id,
+      }
     })
     setForm(f => ({ ...f, line_items: [...f.line_items.filter(i => i.description), ...newItems] }))
   }
@@ -509,8 +511,8 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
     setSaving(false); onSaved()
   }
 
-  const totals = calcTotals(form.line_items || [], form.tax_rate, form.discount_amount, form.discount_percent)
-  const unbilledCount = timeEntries.filter(e => e.customer_id === form.customer_id && e.billable && !e.invoice_id).length
+  const totals         = calcTotals(form.line_items || [], form.tax_rate, form.discount_amount, form.discount_percent)
+  const unbilledCount  = timeEntries.filter(e => e.customer_id === form.customer_id && e.billable && !e.invoice_id).length
 
   if (!open) return null
   return (
@@ -641,17 +643,17 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
 }
 
 function RecordPaymentDialog({ inv, onClose, onSaved }) {
-  const supabase = createSupabaseBrowserClient()
-  const [amount, setAmount] = useState('')
-  const [method, setMethod] = useState('bank_transfer')
-  const [saving, setSaving] = useState(false)
+  const supabase  = createSupabaseBrowserClient()
+  const [amount,  setAmount]  = useState('')
+  const [method,  setMethod]  = useState('bank_transfer')
+  const [saving,  setSaving]  = useState(false)
   const balance = Math.max(0, Number(inv?.total ?? 0) - Number(inv?.amount_paid ?? 0))
 
   const handleSave = async () => {
     const paid = parseFloat(amount)
     if (!paid || paid <= 0) return
     setSaving(true)
-    const newPaid = Number(inv.amount_paid || 0) + paid
+    const newPaid   = Number(inv.amount_paid || 0) + paid
     const newStatus = (Number(inv.total || 0) - newPaid) <= 0.01 ? 'paid' : 'partial'
     await supabase.from('invoices').update({
       amount_paid: newPaid, status: newStatus,
@@ -701,11 +703,11 @@ function RecordPaymentDialog({ inv, onClose, onSaved }) {
 }
 
 function SendEmailDialog({ inv, onClose, onSent }) {
-  const supabase = createSupabaseBrowserClient()
-  const [email, setEmail] = useState(inv?.contact_email || '')
+  const supabase  = createSupabaseBrowserClient()
+  const [email,   setEmail]   = useState(inv?.contact_email || '')
   const [sending, setSending] = useState(false)
-  const [sent, setSent] = useState(false)
-  const [err, setErr] = useState(null)
+  const [sent,    setSent]    = useState(false)
+  const [err,     setErr]     = useState(null)
 
   const handleSend = async () => {
     if (!email.trim()) { setErr('Email address is required'); return }
@@ -790,9 +792,9 @@ function AgingReport({ invoices }) {
     if (days <= 90) return 3
     return 4
   }
-  const unpaid = invoices.filter(i => ['sent','overdue','partial'].includes(i.status))
-  const totals = [0,0,0,0,0]
-  const counts = [0,0,0,0,0]
+  const unpaid  = invoices.filter(i => ['sent','overdue','partial'].includes(i.status))
+  const totals  = [0,0,0,0,0]
+  const counts  = [0,0,0,0,0]
   const custMap = {}
   unpaid.forEach(inv => {
     const b   = getBucket(inv.due_date)
@@ -809,7 +811,6 @@ function AgingReport({ invoices }) {
 
   return (
     <div className="space-y-5">
-      {/* Bucket summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {BUCKETS.map((b, i) => (
           <div key={b.label} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
@@ -819,8 +820,6 @@ function AgingReport({ invoices }) {
           </div>
         ))}
       </div>
-
-      {/* Per-customer breakdown */}
       {rows.length === 0 ? (
         <div className="py-16 text-center">
           <CheckCircle2 className="w-12 h-12 text-emerald-300 mx-auto mb-3" />
@@ -875,23 +874,23 @@ function AgingReport({ invoices }) {
 
 function InvoicesPageInner() {
   const supabase = createSupabaseBrowserClient()
-  const [invoices,      setInvoices]      = useState([])
-  const [customers,     setCustomers]     = useState([])
-  const [timeEntries,   setTimeEntries]   = useState([])
-  const [loading,       setLoading]       = useState(true)
-  const [orgId,         setOrgId]         = useState(null)
-  const [org,           setOrg]           = useState({})
-  const [dialogOpen,    setDialogOpen]    = useState(false)
+  const [invoices,       setInvoices]       = useState([])
+  const [customers,      setCustomers]      = useState([])
+  const [timeEntries,    setTimeEntries]    = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [orgId,          setOrgId]          = useState(null)
+  const [org,            setOrg]            = useState({})
+  const [dialogOpen,     setDialogOpen]     = useState(false)
   const [prefillEntries, setPrefillEntries] = useState(null)
   const searchParams = useSearchParams()
-  const [editing,       setEditing]       = useState(null)
-  const [viewing,       setViewing]       = useState(null)
-  const [payingInv,     setPayingInv]     = useState(null)
-  const [sendingInv,    setSendingInv]    = useState(null)
-  const [statusLoading, setStatusLoading] = useState(null)
-  const [stripeLoading, setStripeLoading] = useState(null)
-  const [linkCopied,    setLinkCopied]    = useState(null)
-  const [activeTab,     setActiveTab]     = useState('invoices')
+  const [editing,        setEditing]        = useState(null)
+  const [viewing,        setViewing]        = useState(null)
+  const [payingInv,      setPayingInv]      = useState(null)
+  const [sendingInv,     setSendingInv]     = useState(null)
+  const [statusLoading,  setStatusLoading]  = useState(null)
+  const [stripeLoading,  setStripeLoading]  = useState(null)
+  const [linkCopied,     setLinkCopied]     = useState(null)
+  const [activeTab,      setActiveTab]      = useState('invoices')
 
   useEffect(() => {
     const init = async () => {
@@ -900,7 +899,6 @@ function InvoicesPageInner() {
       const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) {
         setOrgId(member.organization_id)
-        // Load org branding for PDF
         supabase.from('organizations').select('name,company_email,phone,brand_color,logo_url')
           .eq('id', member.organization_id).single()
           .then(({ data }) => { if (data) setOrg(data) })
@@ -914,10 +912,11 @@ function InvoicesPageInner() {
     setLoading(true)
     const [inv, cust, time] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('customers').select('id,name,contact_email').eq('status','active').order('name').limit(200),
+      // FIX 1: Added hourly_rate so importTime and prefillEntries can fall back to it
+      supabase.from('customers').select('id,name,contact_email,hourly_rate').eq('status','active').order('name').limit(200),
       supabase.from('time_entries').select('id,customer_id,ticket_title,description,minutes,hourly_rate,billable,invoice_id,date').order('date', { ascending: false }).limit(500),
     ])
-    const today = new Date().toISOString().split('T')[0]
+    const today  = new Date().toISOString().split('T')[0]
     const toMark = (inv.data ?? []).filter(i => i.status === 'sent' && i.due_date && i.due_date < today)
     if (toMark.length > 0) {
       await Promise.all(toMark.map(i => supabase.from('invoices').update({ status: 'overdue' }).eq('id', i.id)))
@@ -933,7 +932,6 @@ function InvoicesPageInner() {
 
   useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
 
-  // Handle prefill_entries query param from time tracking bulk invoice
   useEffect(() => {
     const ids = searchParams?.get('prefill_entries')
     if (ids && timeEntries.length > 0) {
@@ -945,7 +943,6 @@ function InvoicesPageInner() {
       }
     }
   }, [searchParams, timeEntries])
-
 
   const markStatus = async (inv, status) => {
     setStatusLoading(inv.id)
@@ -985,11 +982,7 @@ function InvoicesPageInner() {
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
     const res = await fetch('https://yetrdrgagfovphrerpie.supabase.co/functions/v1/run-recurring-invoices', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': anonKey,
-        'Authorization': `Bearer ${anonKey}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'apikey': anonKey, 'Authorization': `Bearer ${anonKey}` },
       body: JSON.stringify({ invoice_id: inv.id }),
     })
     const data = await res.json()
@@ -1016,8 +1009,8 @@ function InvoicesPageInner() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: 'Total Invoices', value: invoices.length,               icon: FileText,     color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
-          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
-          { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
+          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,        color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
+          { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,   color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
           { label: 'Overdue',        value: overdueCount,                  icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30' },
         ].map(s => (
           <div key={s.label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
@@ -1032,7 +1025,6 @@ function InvoicesPageInner() {
         ))}
       </div>
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        {/* Tab bar */}
         <div className="flex border-b border-slate-200 dark:border-slate-800 px-4">
           {[
             { id: 'invoices', label: 'All Invoices' },
@@ -1048,13 +1040,9 @@ function InvoicesPageInner() {
             </button>
           ))}
         </div>
-
         {activeTab === 'aging' && (
-          <div className="p-5">
-            <AgingReport invoices={invoices} />
-          </div>
+          <div className="p-5"><AgingReport invoices={invoices} /></div>
         )}
-
         {activeTab === 'invoices' && loading && (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {Array(5).fill(0).map((_, i) => (
@@ -1068,7 +1056,6 @@ function InvoicesPageInner() {
             ))}
           </div>
         )}
-
         {activeTab === 'invoices' && !loading && invoices.length === 0 && (
           <div className="p-16 text-center">
             <FileText className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
@@ -1079,13 +1066,12 @@ function InvoicesPageInner() {
             </button>
           </div>
         )}
-
         {activeTab === 'invoices' && !loading && invoices.length > 0 && (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {invoices.map(inv => {
-              const cfg = STATUS_CFG[inv.status] || STATUS_CFG.draft
-              const balance = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
-              const isPaid = ['paid','void'].includes(inv.status)
+              const cfg      = STATUS_CFG[inv.status] || STATUS_CFG.draft
+              const balance  = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
+              const isPaid   = ['paid','void'].includes(inv.status)
               const isCopied = linkCopied === inv.id
               return (
                 <div key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -1107,16 +1093,16 @@ function InvoicesPageInner() {
                     {(inv.amount_paid || 0) > 0 && !isPaid && <p className="text-xs text-amber-500">Bal: ${balance.toFixed(2)}</p>}
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <Btn icon={Eye} onClick={() => setViewing(inv)} title="View invoice" />
-                    <Btn icon={FileText} onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
-                    {!isPaid && <Btn icon={Mail} onClick={() => setSendingInv(inv)} title="Email invoice" color="text-blue-500" />}
+                    <Btn icon={Eye}         onClick={() => setViewing(inv)}                          title="View invoice" />
+                    <Btn icon={FileText}    onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
+                    {!isPaid && <Btn icon={Mail}       onClick={() => setSendingInv(inv)}  title="Email invoice"             color="text-blue-500" />}
                     {inv.status === 'draft' && <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent" color="text-blue-400" spinning={statusLoading === inv.id} />}
-                    {!isPaid && <Btn icon={CreditCard} onClick={() => setPayingInv(inv)} title="Record payment" color="text-violet-500" />}
-                    {!isPaid && <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid" color="text-emerald-500" spinning={statusLoading === inv.id} />}
+                    {!isPaid && <Btn icon={CreditCard} onClick={() => setPayingInv(inv)}   title="Record payment"            color="text-violet-500" />}
+                    {!isPaid && <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid"  color="text-emerald-500" spinning={statusLoading === inv.id} />}
                     {!isPaid && <Btn icon={isCopied ? CheckCircle2 : Link} onClick={() => generateStripeLink(inv)} title={isCopied ? 'Link copied!' : 'Generate Stripe payment link'} color={isCopied ? 'text-emerald-500' : 'text-amber-500'} spinning={stripeLoading === inv.id} disabled={stripeLoading === inv.id} />}
                     {inv.stripe_payment_url && !isPaid && <Btn icon={isCopied ? CheckCircle2 : ExternalLink} onClick={() => copyLink(inv)} title={isCopied ? 'Copied!' : 'Copy existing payment link'} color={isCopied ? 'text-emerald-500' : 'text-blue-400'} />}
                     {inv.is_recurring && <Btn icon={RotateCcw} onClick={() => generateNow(inv)} title="Generate new invoice now" color="text-blue-500" />}
-                    <Btn icon={Trash2} onClick={() => deleteInvoice(inv.id)} title="Delete invoice" color="text-rose-400" />
+                    <Btn icon={Trash2}      onClick={() => deleteInvoice(inv.id)}                    title="Delete invoice"            color="text-rose-400" />
                   </div>
                 </div>
               )
@@ -1124,10 +1110,22 @@ function InvoicesPageInner() {
           </div>
         )}
       </div>
-      <InvoiceDialog open={dialogOpen} onClose={() => { setDialogOpen(false); setEditing(null); setPrefillEntries(null) }} onSaved={() => { setDialogOpen(false); setEditing(null); setPrefillEntries(null); loadAll() }} editing={editing} orgId={orgId} customers={customers} timeEntries={timeEntries} prefillEntries={prefillEntries} />
-      {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} orgId={orgId} loadAll={loadAll} />}
-      {payingInv && <RecordPaymentDialog inv={payingInv} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
-      {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
+
+      <InvoiceDialog
+        open={dialogOpen}
+        onClose={() => { setDialogOpen(false); setEditing(null); setPrefillEntries(null) }}
+        onSaved={() => { setDialogOpen(false); setEditing(null); setPrefillEntries(null); loadAll() }}
+        editing={editing}
+        orgId={orgId}
+        customers={customers}
+        timeEntries={timeEntries}
+        prefillEntries={prefillEntries}
+      />
+
+      {/* FIX 5: Pass org={org} so ViewDialog can pass it to buildInvoiceHtml */}
+      {viewing    && <ViewDialog inv={viewing} onClose={() => setViewing(null)} orgId={orgId} loadAll={loadAll} org={org} />}
+      {payingInv  && <RecordPaymentDialog inv={payingInv}  onClose={() => setPayingInv(null)}  onSaved={() => { setPayingInv(null);  loadAll() }} />}
+      {sendingInv && <SendEmailDialog     inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() =>  { setSendingInv(null); loadAll() }} />}
     </div>
   )
 }
