@@ -5,32 +5,42 @@ import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Plus, FileSignature, Building2, Calendar, RefreshCw,
-  DollarSign, Pencil, Trash2, ChevronRight, Loader2,
+  DollarSign, Pencil, Trash2, Loader2,
   Send, CheckCircle2, Clock, AlertTriangle, ExternalLink,
-  FileText, X, Download,
+  FileText, X,
 } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BILLING_OPTS = ['monthly','quarterly','annually','one_time']
 
-// Full lifecycle statuses
-const STATUS_OPTS = ['draft','sent','signed','active','expiring_soon','expired','cancelled','pending']
-
 const STATUS_META = {
-  draft:        { label: 'Draft',         cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',          icon: FileText },
-  sent:         { label: 'Sent to client',cls: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400',            icon: Send },
-  signed:       { label: 'Signed',        cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400',icon: CheckCircle2 },
-  active:       { label: 'Active',        cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400',icon: CheckCircle2 },
-  expiring_soon:{ label: 'Expiring soon', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',        icon: Clock },
-  expired:      { label: 'Expired',       cls: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400',            icon: AlertTriangle },
-  cancelled:    { label: 'Cancelled',     cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',           icon: X },
-  pending:      { label: 'Pending',       cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',        icon: Clock },
+  draft:        { label: 'Draft',          cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',          icon: FileText },
+  sent:         { label: 'Sent to client', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400',           icon: Send },
+  signed:       { label: 'Signed',         cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400',icon: CheckCircle2 },
+  active:       { label: 'Active',         cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400',icon: CheckCircle2 },
+  expiring_soon:{ label: 'Expiring soon',  cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',        icon: Clock },
+  expired:      { label: 'Expired',        cls: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400',            icon: AlertTriangle },
+  cancelled:    { label: 'Cancelled',      cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',           icon: X },
+  pending:      { label: 'Pending',        cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',        icon: Clock },
 }
 
-const lbl     = (s) => s?.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
-const fmtDate = (d) => { try { return new Date(d + (d?.length===10?'T00:00:00':'')).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) } catch { return '—' } }
-const fmtCur  = (n) => n != null ? `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—'
+const lbl       = (s) => s?.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
+const fmtDate   = (d) => { try { return new Date(d + (d?.length===10?'T00:00:00':'')).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) } catch { return '—' } }
+const fmtCur    = (n) => n != null ? `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—'
 const daysUntil = (d) => { if (!d) return null; const diff = new Date(d+'T00:00:00').getTime() - Date.now(); return Math.ceil(diff/86400000) }
+
+// Calculate the next billing date given a base date and billing cycle
+function calculateNextDate(fromDate, billingCycle) {
+  if (billingCycle === 'one_time') return null
+  const d = new Date(fromDate)
+  switch (billingCycle) {
+    case 'monthly':   d.setMonth(d.getMonth() + 1);        break
+    case 'quarterly': d.setMonth(d.getMonth() + 3);        break
+    case 'annually':  d.setFullYear(d.getFullYear() + 1);  break
+    default:          return null
+  }
+  return d.toISOString().split('T')[0]
+}
 
 function useRealtimeRefresh(tables, onRefresh) {
   const ref = useRef(onRefresh); ref.current = onRefresh
@@ -92,6 +102,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
     if (!form.title.trim()) { setErr('Title is required'); return }
     setSaving(true); setErr(null)
     const cust = customers.find(c => c.id === form.customer_id)
+    const autoInvoiceAllowed = ['signed','active'].includes(form.status)
     const payload = {
       customer_id:   form.customer_id,
       customer_name: cust?.name || null,
@@ -101,8 +112,7 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
       start_date:    form.start_date || null,
       end_date:      form.end_date   || null,
       auto_renew:    form.auto_renew,
-      // auto_invoice only allowed on signed/active contracts
-      auto_invoice:  form.auto_invoice && ['signed','active'].includes(form.status),
+      auto_invoice:  form.auto_invoice && autoInvoiceAllowed,
       notes:         form.notes || null,
       document_url:  form.document_url || null,
       status:        form.status,
@@ -127,7 +137,6 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
         <div className="p-5 space-y-4">
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
 
-          {/* Status — prominent at top */}
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</label>
             <div className="flex flex-wrap gap-2 mt-2">
@@ -145,15 +154,9 @@ function ContractDialog({ open, onClose, onSaved, editing, orgId, customers }) {
                 )
               })}
             </div>
-            {form.status === 'draft' && (
-              <p className="text-[11px] text-slate-400 mt-1.5">Draft contracts won't trigger auto-invoicing.</p>
-            )}
-            {form.status === 'sent' && (
-              <p className="text-[11px] text-blue-500 mt-1.5">Sent — awaiting client signature. Auto-invoicing still disabled.</p>
-            )}
-            {['signed','active'].includes(form.status) && (
-              <p className="text-[11px] text-emerald-600 mt-1.5">✓ Signed contracts can use auto-invoicing.</p>
-            )}
+            {form.status === 'draft'  && <p className="text-[11px] text-slate-400 mt-1.5">Draft contracts won't trigger auto-invoicing.</p>}
+            {form.status === 'sent'   && <p className="text-[11px] text-blue-500 mt-1.5">Sent — awaiting client signature. Auto-invoicing still disabled.</p>}
+            {['signed','active'].includes(form.status) && <p className="text-[11px] text-emerald-600 mt-1.5">✓ Signed contracts can use auto-invoicing.</p>}
           </div>
 
           <div>
@@ -255,7 +258,6 @@ function SendContractDialog({ contract, open, onClose, onSent }) {
   useEffect(() => {
     if (!open || !contract) return
     setErr(null); setSending(false)
-    // Pre-fill from customer if available
     setEmail(contract.contact_email || '')
     setName(contract.customer_name || '')
     setMessage(`Hi,\n\nPlease find attached your ${contract.title} contract for review.\n\nOnce you've reviewed the terms, please confirm your acceptance by replying to this email.\n\nIf you have any questions, don't hesitate to reach out.\n\nKind regards,\nValhalla IT`)
@@ -264,33 +266,16 @@ function SendContractDialog({ contract, open, onClose, onSent }) {
   const handleSend = async () => {
     if (!email.trim()) { setErr('Email address is required'); return }
     setSending(true); setErr(null)
-
     const { data: { session } } = await supabase.auth.getSession()
     const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/send-contract-email`, {
       method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${session?.access_token}`,
-      },
-      body: JSON.stringify({
-        contract_id:   contract.id,
-        to_email:      email.trim(),
-        to_name:       name.trim(),
-        message:       message.trim(),
-      }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ contract_id: contract.id, to_email: email.trim(), to_name: name.trim(), message: message.trim() }),
     })
-
     const data = await res.json()
     if (!res.ok || data.error) { setErr(data.error || 'Failed to send'); setSending(false); return }
-
-    // Update contract status to 'sent'
-    await supabase.from('contracts').update({
-      status:  'sent',
-      sent_at: new Date().toISOString(),
-    }).eq('id', contract.id)
-
-    setSending(false)
-    onSent()
+    await supabase.from('contracts').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', contract.id)
+    setSending(false); onSent()
   }
 
   const inp = 'w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500'
@@ -351,9 +336,10 @@ export default function ContractsPage() {
   const [orgId,      setOrgId]      = useState(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing,    setEditing]    = useState(null)
-  const [sending,    setSending]    = useState(null) // contract being sent
+  const [sending,    setSending]    = useState(null)
   const [filter,     setFilter]     = useState('all')
   const [invoicing,  setInvoicing]  = useState(null)
+  const [runningCron, setRunningCron] = useState(false)
 
   const loadAll = async () => {
     setLoading(true)
@@ -379,19 +365,27 @@ export default function ContractsPage() {
     loadAll()
   }
 
+  // Manual invoice generation — now properly sets next_invoice_date
   const generateInvoice = async (c) => {
     if (!['signed','active'].includes(c.status)) {
       alert('Only signed or active contracts can be invoiced. Please update the contract status first.')
       return
     }
     setInvoicing(c.id)
-    const today      = new Date().toISOString().slice(0,10)
-    const dueDate    = new Date(Date.now() + 30*86400000).toISOString().slice(0,10)
-    const now        = new Date()
-    const month      = now.toLocaleDateString('en-US',{month:'long',year:'numeric'})
-    const periodMap  = { monthly: `${month} retainer`, quarterly: `Q${Math.ceil((now.getMonth()+1)/3)} ${now.getFullYear()} retainer`, annually: `${now.getFullYear()} annual retainer`, one_time: 'one-time service' }
-    const period     = periodMap[c.billing_cycle] || 'retainer'
-    const invNumber  = `INV-${Date.now().toString().slice(-6)}`
+    const today     = new Date().toISOString().slice(0,10)
+    const dueDate   = new Date(Date.now() + 30*86400000).toISOString().slice(0,10)
+    const now       = new Date()
+    const month     = now.toLocaleDateString('en-US',{month:'long',year:'numeric'})
+    const q         = Math.ceil((now.getMonth()+1)/3)
+    const periodMap = {
+      monthly:   `${month} retainer`,
+      quarterly: `Q${q} ${now.getFullYear()} retainer`,
+      annually:  `${now.getFullYear()} annual retainer`,
+      one_time:  'one-time service',
+    }
+    const period    = periodMap[c.billing_cycle] || 'retainer'
+    const invNumber = `INV-${Date.now().toString().slice(-6)}`
+    const lineValue = Number(c.value || 0)
 
     await supabase.from('invoices').insert({
       organization_id: c.organization_id,
@@ -402,41 +396,75 @@ export default function ContractsPage() {
       payment_terms:   'net_30',
       issue_date:      today,
       due_date:        dueDate,
-      line_items:      [{ description: `${c.title} — ${period}`, quantity: 1, unit_price: c.value }],
-      subtotal:        c.value,
-      total:           c.value,
+      line_items:      [{ description: `${c.title} — ${period}`, quantity: 1, unit_price: lineValue, total: lineValue }],
+      subtotal:        lineValue,
+      total:           lineValue,
       amount_paid:     0,
       notes:           `Generated from contract: ${c.title}`,
     })
-    await supabase.from('contracts').update({ last_invoiced_at: now.toISOString() }).eq('id', c.id)
+
+    // FIX: set next_invoice_date so the cron knows when to bill again
+    const nextDate = calculateNextDate(today, c.billing_cycle)
+    await supabase.from('contracts').update({
+      last_invoiced_at:  now.toISOString(),
+      next_invoice_date: nextDate,
+    }).eq('id', c.id)
+
     setInvoicing(null)
     router.push('/invoices')
   }
 
   const markSigned = async (c) => {
-    await supabase.from('contracts').update({
-      status:    'signed',
-      signed_at: new Date().toISOString(),
-    }).eq('id', c.id)
+    await supabase.from('contracts').update({ status: 'signed', signed_at: new Date().toISOString() }).eq('id', c.id)
     loadAll()
   }
 
+  // Manually trigger the auto-invoicing cron for testing
+  const runAutoInvoiceNow = async () => {
+    setRunningCron(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/run-contract-invoicing`,
+        {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+          body:    '{}',
+        }
+      )
+      const data = await res.json()
+      if (data.ok) {
+        const invoiced = data.results?.filter(r => r.status === 'invoiced').length ?? 0
+        const skipped  = data.results?.filter(r => r.status?.startsWith('skipped')).length ?? 0
+        alert(`Auto-invoice run complete.\n\n✓ ${invoiced} invoice${invoiced !== 1 ? 's' : ''} created\n— ${skipped} skipped`)
+        loadAll()
+      } else {
+        alert(`Error: ${data.error || 'Unknown error'}`)
+      }
+    } catch (e) {
+      alert(`Error: ${e.message}`)
+    } finally {
+      setRunningCron(false)
+    }
+  }
+
   // Stats
-  const signed    = contracts.filter(c => ['signed','active'].includes(c.status))
-  const drafts    = contracts.filter(c => c.status === 'draft')
-  const sent      = contracts.filter(c => c.status === 'sent')
-  const expiring  = contracts.filter(c => { const d = daysUntil(c.end_date); return d !== null && d >= 0 && d <= 30 && ['signed','active'].includes(c.status) })
-  const mrr       = signed.filter(c => c.billing_cycle === 'monthly').reduce((s,c) => s + (c.value||0), 0)
-  const arr       = signed.reduce((s,c) => s + (c.value||0) * ({monthly:12,quarterly:4,annually:1,one_time:0}[c.billing_cycle]??0), 0)
+  const signed   = contracts.filter(c => ['signed','active'].includes(c.status))
+  const drafts   = contracts.filter(c => c.status === 'draft')
+  const sent     = contracts.filter(c => c.status === 'sent')
+  const expiring = contracts.filter(c => { const d = daysUntil(c.end_date); return d !== null && d >= 0 && d <= 30 && ['signed','active'].includes(c.status) })
+  const mrr      = signed.filter(c => c.billing_cycle === 'monthly').reduce((s,c) => s + (c.value||0), 0)
+  const arr      = signed.reduce((s,c) => s + (c.value||0) * ({monthly:12,quarterly:4,annually:1,one_time:0}[c.billing_cycle]??0), 0)
+  const autoInvoiceCount = contracts.filter(c => c.auto_invoice && ['signed','active'].includes(c.status)).length
 
   const filtered = useMemo(() => {
-    if (filter === 'all')      return contracts
-    if (filter === 'draft')    return contracts.filter(c => c.status === 'draft')
-    if (filter === 'sent')     return contracts.filter(c => c.status === 'sent')
-    if (filter === 'signed')   return contracts.filter(c => ['signed','active'].includes(c.status))
-    if (filter === 'expiring') return expiring
-    if (filter === 'expired')  return contracts.filter(c => { const d = daysUntil(c.end_date); return c.status === 'expired' || (d !== null && d < 0) })
-    if (filter === 'cancelled')return contracts.filter(c => c.status === 'cancelled')
+    if (filter === 'all')       return contracts
+    if (filter === 'draft')     return contracts.filter(c => c.status === 'draft')
+    if (filter === 'sent')      return contracts.filter(c => c.status === 'sent')
+    if (filter === 'signed')    return contracts.filter(c => ['signed','active'].includes(c.status))
+    if (filter === 'expiring')  return expiring
+    if (filter === 'expired')   return contracts.filter(c => { const d = daysUntil(c.end_date); return c.status === 'expired' || (d !== null && d < 0) })
+    if (filter === 'cancelled') return contracts.filter(c => c.status === 'cancelled')
     return contracts
   }, [contracts, filter])
 
@@ -447,20 +475,29 @@ export default function ContractsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">Contracts</h1>
-        <button onClick={() => { setEditing(null); setDialogOpen(true) }}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
-          <Plus className="w-4 h-4" /> New Contract
-        </button>
+        <div className="flex items-center gap-2">
+          {autoInvoiceCount > 0 && (
+            <button onClick={runAutoInvoiceNow} disabled={runningCron}
+              className="flex items-center gap-1.5 px-3 py-2 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50">
+              {runningCron ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Run Auto-Invoice Now
+            </button>
+          )}
+          <button onClick={() => { setEditing(null); setDialogOpen(true) }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
+            <Plus className="w-4 h-4" /> New Contract
+          </button>
+        </div>
       </div>
 
       {/* KPI cards */}
       {!loading && contracts.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'MRR',          value: fmtCur(mrr),           sub: 'monthly recurring',   color: 'text-emerald-600' },
-            { label: 'ARR',          value: fmtCur(arr),           sub: 'annual recurring',    color: 'text-blue-600' },
-            { label: 'Active',       value: signed.length,         sub: 'signed contracts',    color: 'text-slate-900 dark:text-white' },
-            { label: 'Needs action', value: drafts.length + sent.length, sub: `${drafts.length} draft · ${sent.length} awaiting signature`, color: drafts.length + sent.length > 0 ? 'text-amber-600' : 'text-slate-900 dark:text-white' },
+            { label: 'MRR',            value: fmtCur(mrr),                sub: 'monthly recurring',                    color: 'text-emerald-600' },
+            { label: 'ARR',            value: fmtCur(arr),                sub: 'annual recurring',                     color: 'text-blue-600' },
+            { label: 'Active',         value: signed.length,              sub: 'signed contracts',                     color: 'text-slate-900 dark:text-white' },
+            { label: 'Auto-invoicing', value: autoInvoiceCount,           sub: `${drafts.length} draft · ${sent.length} awaiting sig`, color: autoInvoiceCount > 0 ? 'text-emerald-600' : 'text-slate-400' },
           ].map(({ label, value, sub, color }) => (
             <div key={label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
               <p className="text-xs text-slate-400 mb-1">{label}</p>
@@ -474,13 +511,13 @@ export default function ContractsPage() {
       {/* Filter tabs */}
       <div className="flex flex-wrap gap-2 items-center">
         {[
-          { key: 'all',      label: `All (${contracts.length})` },
-          { key: 'draft',    label: `Draft (${drafts.length})` },
-          { key: 'sent',     label: `Awaiting signature (${sent.length})` },
-          { key: 'signed',   label: `Active (${signed.length})` },
-          { key: 'expiring', label: `Expiring soon (${expiring.length})` },
-          { key: 'expired',  label: 'Expired' },
-          { key: 'cancelled',label: 'Cancelled' },
+          { key: 'all',       label: `All (${contracts.length})` },
+          { key: 'draft',     label: `Draft (${drafts.length})` },
+          { key: 'sent',      label: `Awaiting signature (${sent.length})` },
+          { key: 'signed',    label: `Active (${signed.length})` },
+          { key: 'expiring',  label: `Expiring soon (${expiring.length})` },
+          { key: 'expired',   label: 'Expired' },
+          { key: 'cancelled', label: 'Cancelled' },
         ].map(({ key, label }) => (
           <button key={key} onClick={() => setFilter(key)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
@@ -525,12 +562,12 @@ export default function ContractsPage() {
       ) : (
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
           {filtered.map(c => {
-            const meta       = getStatusMeta(c)
-            const days       = daysUntil(c.end_date)
+            const meta        = getStatusMeta(c)
+            const days        = daysUntil(c.end_date)
             const annualValue = c.value ? c.value * ({monthly:12,quarterly:4,annually:1,one_time:1}[c.billing_cycle]??1) : null
-            const isDraft    = c.status === 'draft'
-            const isSent     = c.status === 'sent'
-            const isSigned   = ['signed','active'].includes(c.status)
+            const isDraft     = c.status === 'draft'
+            const isSent      = c.status === 'sent'
+            const isSigned    = ['signed','active'].includes(c.status)
 
             return (
               <div key={c.id} className={`flex items-start gap-4 px-5 py-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${isDraft ? 'border-l-4 border-l-slate-300' : isSent ? 'border-l-4 border-l-blue-400' : isSigned ? 'border-l-4 border-l-emerald-400' : ''}`}>
@@ -548,16 +585,12 @@ export default function ContractsPage() {
                     {c.auto_invoice && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">Auto-invoice</span>}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                    <span className="flex items-center gap-1 text-xs text-slate-400">
-                      <Building2 className="w-3 h-3" />{c.customer_name}
-                    </span>
+                    <span className="flex items-center gap-1 text-xs text-slate-400"><Building2 className="w-3 h-3" />{c.customer_name}</span>
                     {c.start_date && c.end_date && (
-                      <span className="flex items-center gap-1 text-xs text-slate-400">
-                        <Calendar className="w-3 h-3" />{fmtDate(c.start_date)} → {fmtDate(c.end_date)}
-                      </span>
+                      <span className="flex items-center gap-1 text-xs text-slate-400"><Calendar className="w-3 h-3" />{fmtDate(c.start_date)} → {fmtDate(c.end_date)}</span>
                     )}
                     {c.billing_cycle && <span className="text-xs text-slate-400">{lbl(c.billing_cycle)}</span>}
-                    {c.signed_at    && <span className="text-xs text-emerald-600">Signed {fmtDate(c.signed_at)}</span>}
+                    {c.signed_at && <span className="text-xs text-emerald-600">Signed {fmtDate(c.signed_at)}</span>}
                     {c.sent_at && !c.signed_at && <span className="text-xs text-blue-500">Sent {fmtDate(c.sent_at)}</span>}
                     {c.next_invoice_date && c.auto_invoice && (
                       <span className="text-xs text-slate-400 flex items-center gap-1">
@@ -567,14 +600,8 @@ export default function ContractsPage() {
                     {c.last_invoiced_at && <span className="text-xs text-slate-400">Last invoiced {fmtDate(c.last_invoiced_at)}</span>}
                   </div>
                   {c.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{c.notes}</p>}
-
-                  {/* Workflow action hints */}
-                  {isDraft && (
-                    <p className="text-[11px] text-slate-400 mt-1">Ready to send? Click Send to email this contract to the client.</p>
-                  )}
-                  {isSent && (
-                    <p className="text-[11px] text-blue-500 mt-1">Awaiting client signature. Mark as signed once confirmed.</p>
-                  )}
+                  {isDraft && <p className="text-[11px] text-slate-400 mt-1">Ready to send? Click Send to email this contract to the client.</p>}
+                  {isSent  && <p className="text-[11px] text-blue-500 mt-1">Awaiting client signature. Mark as signed once confirmed.</p>}
                 </div>
 
                 {/* Value */}
@@ -591,41 +618,30 @@ export default function ContractsPage() {
                 {/* Actions */}
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {c.document_url && (
-                    <a href={c.document_url} target="_blank" rel="noreferrer"
-                      title="Open document"
+                    <a href={c.document_url} target="_blank" rel="noreferrer" title="Open document"
                       className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-blue-500 transition-colors">
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                   )}
-
-                  {/* Send — for draft contracts */}
                   {isDraft && (
-                    <button onClick={() => setSending(c)}
-                      title="Send to client"
+                    <button onClick={() => setSending(c)} title="Send to client"
                       className="flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-800 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors">
                       <Send className="w-3 h-3" /> Send
                     </button>
                   )}
-
-                  {/* Mark signed — for sent contracts */}
                   {isSent && (
-                    <button onClick={() => markSigned(c)}
-                      title="Mark as signed"
+                    <button onClick={() => markSigned(c)} title="Mark as signed"
                       className="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors">
                       <CheckCircle2 className="w-3 h-3" /> Signed
                     </button>
                   )}
-
-                  {/* Generate invoice — for signed contracts */}
                   {isSigned && c.value && (
-                    <button onClick={() => generateInvoice(c)} disabled={!!invoicing}
-                      title="Generate invoice"
+                    <button onClick={() => generateInvoice(c)} disabled={!!invoicing} title="Generate invoice now"
                       className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-500 hover:text-emerald-600 hover:border-emerald-300 transition-colors disabled:opacity-50">
                       {invoicing === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <DollarSign className="w-3 h-3" />}
                       Invoice
                     </button>
                   )}
-
                   <button onClick={() => { setEditing(c); setDialogOpen(true) }}
                     className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
                     <Pencil className="w-3.5 h-3.5" />
@@ -645,14 +661,10 @@ export default function ContractsPage() {
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null) }}
         onSaved={() => { setDialogOpen(false); setEditing(null); loadAll() }}
-        editing={editing}
-        orgId={orgId}
-        customers={customers}
+        editing={editing} orgId={orgId} customers={customers}
       />
-
       <SendContractDialog
-        contract={sending}
-        open={!!sending}
+        contract={sending} open={!!sending}
         onClose={() => setSending(null)}
         onSent={() => { setSending(null); loadAll() }}
       />
