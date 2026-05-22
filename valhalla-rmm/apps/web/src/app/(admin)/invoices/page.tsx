@@ -18,7 +18,6 @@ function buildInvoiceHtml(inv, org = {}) {
   const accent   = org.brand_color || '#f59e0b'
   const orgName  = org.name || 'Valhalla IT'
   const orgEmail = org.company_email || ''
-  const orgPhone = org.phone || ''
   const TERMS_LABELS = { net_15: 'Net 15', net_30: 'Net 30', net_60: 'Net 60', due_on_receipt: 'Due on Receipt' }
   const STATUS_STYLE = {
     paid:    'background:#d1fae5;color:#065f46;',
@@ -90,7 +89,7 @@ function buildInvoiceHtml(inv, org = {}) {
   <div class="header">
     <div>
       <div class="org-name">${orgName}</div>
-      <div class="org-contact">${orgEmail ? orgEmail + '<br/>' : ''}${orgPhone ? orgPhone : ''}</div>
+      <div class="org-contact">${orgEmail ? orgEmail : ''}</div>
     </div>
     <div class="invoice-meta">
       <div class="invoice-title">Invoice</div>
@@ -968,7 +967,7 @@ function InvoicesPageInner() {
       const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) {
         setOrgId(member.organization_id)
-        supabase.from('organizations').select('name,company_email,phone,brand_color,logo_url')
+        supabase.from('organizations').select('name,company_email,brand_color,logo_url')
           .eq('id', member.organization_id).single()
           .then(({ data }) => { if (data) setOrg(data) })
       }
