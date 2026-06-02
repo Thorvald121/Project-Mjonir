@@ -6,10 +6,12 @@
 import { useState, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
-import { Star, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { Star, CheckCircle2, AlertCircle, Loader2, ExternalLink } from 'lucide-react'
 
 const SCORE_LABELS = { 1: 'Very Unsatisfied', 2: 'Unsatisfied', 3: 'Neutral', 4: 'Satisfied', 5: 'Very Satisfied' }
 const SCORE_COLORS = { 1: 'text-rose-500', 2: 'text-orange-500', 3: 'text-yellow-500', 4: 'text-emerald-400', 5: 'text-emerald-500' }
+const GOOGLE_REVIEW_URL = 'https://www.google.com/search?q=Valhalla+IT&stick=H4sIAAAAAAAA_-NgU1I2qEg2TjVPSbRIMUpOSzJOSbMyqLAwMjI3S0kySTNINjNMSV3Eyh2WmJORmJOTqOAZAgAFhR-yNQAAAA#'
+const SUPABASE_URL = 'https://yetrdrgagfovphrerpie.supabase.co'
 
 function decodeToken(token) {
   try {
@@ -22,30 +24,63 @@ function decodeToken(token) {
 function CsatForm() {
   const searchParams = useSearchParams()
   const token        = searchParams.get('token') || ''
-
-  const tokenData = useMemo(() => decodeToken(token), [token])
+  const tokenData    = useMemo(() => decodeToken(token), [token])
 
   const [score,      setScore]      = useState(0)
   const [hovered,    setHovered]    = useState(0)
   const [comment,    setComment]    = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted,  setSubmitted]  = useState(false)
+  const [responseId, setResponseId] = useState(null)
   const [duplicate,  setDuplicate]  = useState(false)
   const [error,      setError]      = useState('')
 
   if (!token || !tokenData) return (
-    <Screen><AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-4" /><h2 className="text-lg font-semibold text-slate-100 mb-2">Invalid Survey Link</h2><p className="text-slate-400 text-sm">This survey link is invalid or has expired.</p></Screen>
+    <Screen>
+      <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-4" />
+      <h2 className="text-lg font-semibold text-slate-100 mb-2">Invalid Survey Link</h2>
+      <p className="text-slate-400 text-sm">This survey link is invalid or has expired.</p>
+    </Screen>
   )
+
   if (duplicate) return (
-    <Screen><CheckCircle2 className="w-12 h-12 text-slate-500 mx-auto mb-4" /><h2 className="text-lg font-semibold text-slate-100 mb-2">Already Submitted</h2><p className="text-slate-400 text-sm">You've already rated this support ticket. Thank you!</p></Screen>
+    <Screen>
+      <CheckCircle2 className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+      <h2 className="text-lg font-semibold text-slate-100 mb-2">Already Submitted</h2>
+      <p className="text-slate-400 text-sm">You've already rated this support ticket. Thank you!</p>
+    </Screen>
   )
+
   if (submitted) return (
     <Screen>
       <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto mb-5" />
       <h2 className="text-xl font-bold text-slate-100 mb-2">Thanks for your feedback!</h2>
       <p className="text-slate-400 text-sm">Your response helps us improve our service.</p>
-      {score >= 4 && <p className="text-emerald-400 text-sm mt-4 font-medium">We're glad we could help 😊</p>}
-      {score <= 2 && <p className="text-amber-400 text-sm mt-4">We'll work harder to do better next time.</p>}
+
+      {score >= 4 && (
+        <div className="mt-6 pt-6 border-t border-slate-700">
+          <p className="text-emerald-400 text-sm font-medium mb-1">We're so glad we could help 😊</p>
+          <p className="text-slate-400 text-sm mt-3 mb-5 leading-relaxed">
+            Would you mind taking 60 seconds to share your experience on Google?
+            It helps other local businesses find us.
+          </p>
+          <a
+            href={GOOGLE_REVIEW_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors text-sm"
+          >
+            <Star className="w-4 h-4 fill-white" />
+            Leave a Google Review
+            <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+          </a>
+          <p className="text-slate-600 text-xs mt-4">No obligation — only if you'd like to help us grow.</p>
+        </div>
+      )}
+
+      {score <= 2 && (
+        <p className="text-amber-400 text-sm mt-4">We'll work harder to do better next time.</p>
+      )}
     </Screen>
   )
 
@@ -53,22 +88,49 @@ function CsatForm() {
     if (!score) return
     setSubmitting(true); setError('')
     try {
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
       const res = await fetch(
-        'https://yetrdrgagfovphrerpie.supabase.co/functions/v1/submit-csat',
+        `${SUPABASE_URL}/functions/v1/submit-csat`,
         {
-          method: 'POST',
+          method:  'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}`,
+            'Content-Type':  'application/json',
+            'apikey':         anonKey,
+            'Authorization': `Bearer ${anonKey}`,
           },
           body: JSON.stringify({ token, score, comment: comment.trim() || null }),
         }
       )
       const data = await res.json()
+
       if (data?.alreadySubmitted) { setDuplicate(true); setSubmitting(false); return }
       if (data?.error || !res.ok)  { setError(data?.error || 'Submission failed.'); setSubmitting(false); return }
+
+      // Capture the response ID if submit-csat returns it
+      const rid = data?.id || data?.response_id || null
+      setResponseId(rid)
       setSubmitted(true)
+
+      // Fire Google Review follow-up email for positive scores (fire and forget)
+      if (score >= 4 && tokenData?.contactEmail) {
+        fetch(
+          `${SUPABASE_URL}/functions/v1/send-google-review-request`,
+          {
+            method:  'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'apikey':         anonKey,
+              'Authorization': `Bearer ${anonKey}`,
+            },
+            body: JSON.stringify({
+              response_id:   rid,
+              contact_email: tokenData.contactEmail,
+              customer_name: tokenData.customerName || tokenData.orgName,
+              score,
+            }),
+          }
+        ).catch(err => console.error('Google review follow-up failed:', err))
+      }
     } catch { setError('Could not submit. Please try again.') }
     finally { setSubmitting(false) }
   }
@@ -109,15 +171,22 @@ function CsatForm() {
           <label className="text-xs text-slate-400 uppercase tracking-wide block mb-2">
             Additional Comments <span className="normal-case text-slate-600">(optional)</span>
           </label>
-          <textarea value={comment} onChange={e => setComment(e.target.value)} rows={4}
+          <textarea
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            rows={4}
             placeholder="Tell us what went well or what we could improve..."
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-slate-200 placeholder:text-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 resize-none" />
+            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-slate-200 placeholder:text-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 resize-none"
+          />
         </div>
 
         {error && <p className="text-rose-400 text-sm mb-4 text-center">{error}</p>}
 
-        <button onClick={handleSubmit} disabled={!score || submitting}
-          className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl transition-colors">
+        <button
+          onClick={handleSubmit}
+          disabled={!score || submitting}
+          className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl transition-colors"
+        >
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
           {submitting ? 'Submitting…' : 'Submit Feedback'}
         </button>
