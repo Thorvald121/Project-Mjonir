@@ -294,23 +294,55 @@ function PartialPaymentSection({ inv, orgId, onPaid }) {
   )
 }
 
-// ViewDialog now loads payment history from invoice_payments table
 function ViewDialog({ inv, onClose, orgId, loadAll, org }) {
   const supabase = createSupabaseBrowserClient()
   const [payments,        setPayments]        = useState([])
   const [paymentsLoading, setPaymentsLoading] = useState(false)
+  const [deletingPayment, setDeletingPayment] = useState(null)
 
-  // Load payment history whenever the viewed invoice changes
-  useEffect(() => {
+  const loadPayments = async () => {
     if (!inv?.id) return
     setPaymentsLoading(true)
-    supabase
+    const { data } = await supabase
       .from('invoice_payments')
       .select('*')
       .eq('invoice_id', inv.id)
       .order('paid_at', { ascending: false })
-      .then(({ data }) => { setPayments(data ?? []); setPaymentsLoading(false) })
-  }, [inv?.id])
+    setPayments(data ?? [])
+    setPaymentsLoading(false)
+  }
+
+  useEffect(() => { loadPayments() }, [inv?.id])
+
+  const deletePayment = async (paymentId) => {
+    if (!confirm('Remove this payment? The invoice balance will be recalculated.')) return
+    setDeletingPayment(paymentId)
+
+    // Delete the payment record
+    await supabase.from('invoice_payments').delete().eq('id', paymentId)
+
+    // Sum remaining payments to recalculate amount_paid
+    const { data: remaining } = await supabase
+      .from('invoice_payments')
+      .select('amount')
+      .eq('invoice_id', inv.id)
+
+    const newAmountPaid = (remaining ?? []).reduce((s, p) => s + Number(p.amount || 0), 0)
+    const invTotal      = Number(inv.total || 0)
+    const newStatus     = newAmountPaid <= 0
+      ? (inv.status === 'overdue' ? 'overdue' : 'sent')
+      : (invTotal - newAmountPaid) <= 0.01 ? 'paid' : 'partial'
+
+    await supabase.from('invoices').update({
+      amount_paid: newAmountPaid,
+      status:      newStatus,
+      ...(newStatus !== 'paid' ? { paid_date: null } : {}),
+    }).eq('id', inv.id)
+
+    setDeletingPayment(null)
+    await loadPayments()
+    loadAll()
+  }
 
   if (!inv) return null
   const items   = Array.isArray(inv.line_items) ? inv.line_items : []
@@ -409,30 +441,34 @@ function ViewDialog({ inv, onClose, orgId, loadAll, org }) {
               ) : (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {payments.map(p => {
-                    const paidAt = p.paid_at ? new Date(p.paid_at) : null
-                    const dateStr = paidAt
-                      ? paidAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                      : '—'
-                    const timeStr = paidAt
-                      ? paidAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-                      : ''
+                    const paidAt  = p.paid_at ? new Date(p.paid_at) : null
+                    const dateStr = paidAt ? paidAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+                    const timeStr = paidAt ? paidAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''
+                    const isDeleting = deletingPayment === p.id
                     return (
-                      <div key={p.id} className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium text-slate-900 dark:text-white">
-                              {METHOD_LABELS[p.source] || p.source || 'Payment'}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {dateStr}{timeStr ? ` at ${timeStr}` : ''}
-                              {p.stripe_ref && <span className="ml-2 text-slate-300">Ref: {p.stripe_ref}</span>}
-                            </p>
-                          </div>
+                      <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 dark:text-white">
+                            {METHOD_LABELS[p.source] || p.source || 'Payment'}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {dateStr}{timeStr ? ` at ${timeStr}` : ''}
+                            {p.stripe_ref && <span className="ml-2 text-slate-300">Ref: {p.stripe_ref}</span>}
+                          </p>
                         </div>
-                        <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 flex-shrink-0">
                           +${Number(p.amount || 0).toFixed(2)}
                         </p>
+                        <button
+                          onClick={() => deletePayment(p.id)}
+                          disabled={isDeleting}
+                          title="Remove this payment"
+                          className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-300 hover:text-rose-500 transition-colors disabled:opacity-40 flex-shrink-0">
+                          {isDeleting
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
                     )
                   })}
@@ -691,7 +727,6 @@ function InvoiceDialog({ open, onClose, onSaved, editing, orgId, customers, time
   )
 }
 
-// RecordPaymentDialog now writes each payment to invoice_payments for full history
 function RecordPaymentDialog({ inv, onClose, onSaved, orgId }) {
   const supabase  = createSupabaseBrowserClient()
   const [amount,  setAmount]  = useState('')
@@ -704,11 +739,8 @@ function RecordPaymentDialog({ inv, onClose, onSaved, orgId }) {
     const paid = parseFloat(amount)
     if (!paid || paid <= 0) return
     setSaving(true)
-
     const newPaid   = Number(inv.amount_paid || 0) + paid
     const newStatus = (Number(inv.total || 0) - newPaid) <= 0.01 ? 'paid' : 'partial'
-
-    // Write individual payment record for history tracking
     await supabase.from('invoice_payments').insert({
       invoice_id:      inv.id,
       organization_id: orgId,
@@ -717,14 +749,11 @@ function RecordPaymentDialog({ inv, onClose, onSaved, orgId }) {
       stripe_ref:      ref.trim() || null,
       paid_at:         new Date().toISOString(),
     })
-
-    // Update invoice running total and status
     await supabase.from('invoices').update({
       amount_paid: newPaid,
       status:      newStatus,
       ...(newStatus === 'paid' ? { paid_date: new Date().toISOString().split('T')[0] } : {}),
     }).eq('id', inv.id)
-
     setSaving(false); onSaved()
   }
 
@@ -1014,7 +1043,6 @@ function InvoicesPageInner() {
     if (status === 'paid') {
       updates.paid_date   = new Date().toISOString().split('T')[0]
       updates.amount_paid = inv.total || 0
-      // Record the remaining balance as a payment in history when marking fully paid via the quick button
       const remaining = Math.max(0, Number(inv.total || 0) - Number(inv.amount_paid || 0))
       if (remaining > 0.01 && orgId) {
         await supabase.from('invoice_payments').insert({
@@ -1087,10 +1115,10 @@ function InvoicesPageInner() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Invoices', value: invoices.length,               icon: FileText,      color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30'     },
-          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30'   },
-          { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30'},
-          { label: 'Overdue',        value: overdueCount,                  icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30'     },
+          { label: 'Total Invoices', value: invoices.length,               icon: FileText,      color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30'      },
+          { label: 'Outstanding',    value: `$${outstanding.toFixed(2)}`,  icon: Clock,         color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30'    },
+          { label: 'Collected',      value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,    color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
+          { label: 'Overdue',        value: overdueCount,                  icon: AlertTriangle, color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30'      },
         ].map(s => (
           <div key={s.label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
             <div className={`w-10 h-10 rounded-full ${s.bg} flex items-center justify-center flex-shrink-0`}>
@@ -1181,16 +1209,16 @@ function InvoicesPageInner() {
                     {(inv.amount_paid || 0) > 0 && !isPaid && <p className="text-xs text-amber-500">Bal: ${balance.toFixed(2)}</p>}
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <Btn icon={Eye}          onClick={() => setViewing(inv)}                          title="View invoice" />
-                    <Btn icon={FileText}     onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
-                    {!isPaid && <Btn icon={Mail}        onClick={() => setSendingInv(inv)}  title="Email invoice"            color="text-blue-500" />}
+                    <Btn icon={Eye}           onClick={() => setViewing(inv)}                          title="View invoice" />
+                    <Btn icon={FileText}      onClick={() => { setEditing(inv); setDialogOpen(true) }} title="Edit invoice" />
+                    {!isPaid && <Btn icon={Mail}         onClick={() => setSendingInv(inv)}  title="Email invoice"           color="text-blue-500" />}
                     {inv.status === 'draft' && <Btn icon={Send} onClick={() => markStatus(inv, 'sent')} title="Mark as Sent" color="text-blue-400" spinning={statusLoading === inv.id} />}
-                    {!isPaid && <Btn icon={CreditCard}  onClick={() => setPayingInv(inv)}   title="Record payment"           color="text-violet-500" />}
+                    {!isPaid && <Btn icon={CreditCard}   onClick={() => setPayingInv(inv)}   title="Record payment"          color="text-violet-500" />}
                     {!isPaid && <Btn icon={CheckCircle2} onClick={() => markStatus(inv, 'paid')} title="Mark as fully paid"  color="text-emerald-500" spinning={statusLoading === inv.id} />}
                     {!isPaid && <Btn icon={isCopied ? CheckCircle2 : Link} onClick={() => generateStripeLink(inv)} title={isCopied ? 'Link copied!' : 'Generate Stripe payment link'} color={isCopied ? 'text-emerald-500' : 'text-amber-500'} spinning={stripeLoading === inv.id} disabled={stripeLoading === inv.id} />}
                     {inv.stripe_payment_url && !isPaid && <Btn icon={isCopied ? CheckCircle2 : ExternalLink} onClick={() => copyLink(inv)} title={isCopied ? 'Copied!' : 'Copy existing payment link'} color={isCopied ? 'text-emerald-500' : 'text-blue-400'} />}
                     {inv.is_recurring && <Btn icon={RotateCcw} onClick={() => generateNow(inv)} title="Generate new invoice now" color="text-blue-500" />}
-                    <Btn icon={Trash2}       onClick={() => deleteInvoice(inv.id)}                    title="Delete invoice"           color="text-rose-400" />
+                    <Btn icon={Trash2}        onClick={() => deleteInvoice(inv.id)}                    title="Delete invoice"          color="text-rose-400" />
                   </div>
                 </div>
               )
@@ -1208,10 +1236,7 @@ function InvoicesPageInner() {
       />
 
       {viewing   && <ViewDialog inv={viewing} onClose={() => setViewing(null)} orgId={orgId} loadAll={loadAll} org={org} />}
-
-      {/* Pass orgId so RecordPaymentDialog can write to invoice_payments */}
       {payingInv && <RecordPaymentDialog inv={payingInv} orgId={orgId} onClose={() => setPayingInv(null)} onSaved={() => { setPayingInv(null); loadAll() }} />}
-
       {sendingInv && <SendEmailDialog inv={sendingInv} onClose={() => setSendingInv(null)} onSent={() => { setSendingInv(null); loadAll() }} />}
     </div>
   )
