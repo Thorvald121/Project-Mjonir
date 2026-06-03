@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
   CheckCircle2, Send, Trash2, Eye, X, Loader2,
@@ -971,6 +972,7 @@ function AgingReport({ invoices }) {
 
 function InvoicesPageInner() {
   const supabase = createSupabaseBrowserClient()
+  const queryClient = useQueryClient()
   const [invoices,       setInvoices]       = useState([])
   const [customers,      setCustomers]      = useState([])
   const [timeEntries,    setTimeEntries]    = useState([])
@@ -1005,28 +1007,47 @@ function InvoicesPageInner() {
     init()
   }, [])
 
-  const loadAll = async () => {
-    setLoading(true)
-    const [inv, cust, time] = await Promise.all([
-      supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),
-      supabase.from('customers').select('id,name,contact_email,hourly_rate').eq('status','active').order('name').limit(200),
-      supabase.from('time_entries').select('id,customer_id,ticket_title,description,minutes,hourly_rate,billable,invoice_id,date').order('date', { ascending: false }).limit(500),
-    ])
+  // ── TanStack Query: cache invoice list, customers, time entries ──────────────
+  const { data: invoiceQueryData, isPending: invoicesPending } = useQuery({
+    queryKey:  ['invoices', orgId],
+    enabled:   !!orgId,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+    queryFn:   async () => {
+      const [inv, cust, time] = await Promise.all([
+        supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200),
+        supabase.from('customers').select('id,name,contact_email,hourly_rate').eq('status','active').order('name').limit(200),
+        supabase.from('time_entries').select('id,customer_id,ticket_title,description,minutes,hourly_rate,billable,invoice_id,date').order('date', { ascending: false }).limit(500),
+      ])
+      return {
+        invoices:    inv.data  ?? [],
+        customers:   cust.data ?? [],
+        timeEntries: time.data ?? [],
+      }
+    },
+  })
+
+  // Sync query data to local state; also mark overdue invoices
+  useEffect(() => {
+    if (!invoiceQueryData) return
     const today  = new Date().toISOString().split('T')[0]
-    const toMark = (inv.data ?? []).filter(i => i.status === 'sent' && i.due_date && i.due_date < today)
+    const toMark = invoiceQueryData.invoices.filter(i => i.status === 'sent' && i.due_date && i.due_date < today)
     if (toMark.length > 0) {
-      await Promise.all(toMark.map(i => supabase.from('invoices').update({ status: 'overdue' }).eq('id', i.id)))
-      const refreshed = await supabase.from('invoices').select('*').order('created_at', { ascending: false }).limit(200)
-      setInvoices(refreshed.data ?? [])
+      Promise.all(toMark.map(i => supabase.from('invoices').update({ status: 'overdue' }).eq('id', i.id)))
+        .then(() => queryClient.invalidateQueries({ queryKey: ['invoices', orgId] }))
     } else {
-      setInvoices(inv.data ?? [])
+      setInvoices(invoiceQueryData.invoices)
     }
-    setCustomers(cust.data ?? [])
-    setTimeEntries(time.data ?? [])
+    setCustomers(invoiceQueryData.customers)
+    setTimeEntries(invoiceQueryData.timeEntries)
     setLoading(false)
-  }
+  }, [invoiceQueryData])
+
+  const loadAll = () => queryClient.invalidateQueries({ queryKey: ['invoices', orgId] })
 
   useRealtimeRefresh(['invoices', 'time_entries'], loadAll)
+
+
 
   useEffect(() => {
     const ids = searchParams?.get('prefill_entries')

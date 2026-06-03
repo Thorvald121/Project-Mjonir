@@ -2,6 +2,7 @@
 'use client'
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2,
@@ -12,16 +13,6 @@ import { SlaPredictionBadge } from '@/components/SlaPrediction'
 import { calculateSlaDue } from '@/lib/sla'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function useRealtimeRefresh(tables, onRefresh) {
-  const ref = useRef(onRefresh)
-  ref.current = onRefresh
-  useEffect(() => {
-    const h = (e) => { if (!tables.length || tables.includes(e.detail?.table)) ref.current() }
-    window.addEventListener('supabase:change', h)
-    return () => window.removeEventListener('supabase:change', h)
-  }, [tables.join(',')]) // eslint-disable-line
-}
-
 const PRIORITY_CLS = {
   critical: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300',
   high:     'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300',
@@ -108,8 +99,8 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   const [showTpl,         setShowTpl]         = useState(false)
   const [kbSuggestions,   setKbSuggestions]   = useState([])
   const [kbLoading,       setKbLoading]       = useState(false)
-  const [createMultiple,  setCreateMultiple]  = useState(false)  // ← NEW
-  const [justCreated,     setJustCreated]     = useState(null)   // ← NEW: flash confirmation
+  const [createMultiple,  setCreateMultiple]  = useState(false)
+  const [justCreated,     setJustCreated]     = useState(null)
   const [form, setForm] = useState({
     title:'', description:'', priority:'medium', category:'other',
     customer_id:'', assigned_to:'', contact_name:'', contact_email:'', tags:'',
@@ -118,15 +109,12 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
 
   const resetForm = () => {
     setForm({ title:'', description:'', priority:'medium', category:'other', customer_id:'', assigned_to:'', contact_name:'', contact_email:'', tags:'' })
-    setErr(null)
-    setKbSuggestions([])
-    setJustCreated(null)
+    setErr(null); setKbSuggestions([]); setJustCreated(null)
   }
 
   useEffect(() => {
     if (!open) return
-    resetForm()
-    setShowTpl(false)
+    resetForm(); setShowTpl(false)
     supabase.from('organization_members').select('id,user_email,display_name,role')
       .in('role', ['owner','admin','technician'])
       .then(({ data }) => setTechs(data ?? []))
@@ -143,8 +131,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
         .select('id,title,content,category')
         .or(`title.ilike.%${q}%,content.ilike.%${q}%`)
         .limit(3)
-      setKbSuggestions(data ?? [])
-      setKbLoading(false)
+      setKbSuggestions(data ?? []); setKbLoading(false)
     }, 400)
     return () => clearTimeout(timer)
   }, [form.title])
@@ -168,24 +155,19 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
       contact_name:  form.contact_name  || null,
       contact_email: form.contact_email || null,
       tags,
-      source: 'admin',
-      sla_due_date: calculateSlaDue(form.priority).toISOString(),
-      updated_at: new Date().toISOString(),
+      source:        'admin',
+      sla_due_date:  calculateSlaDue(form.priority).toISOString(),
+      updated_at:    new Date().toISOString(),
     })
     setSaving(false)
     if (error) { setErr(error.message); return }
-
     onSaved()
-
     if (createMultiple) {
-      // Stay open — flash a confirmation and reset just the title/description
-      // Keep customer, assignee, priority, category so the next ticket is pre-filled
       setJustCreated(form.title.trim())
       setForm(prev => ({ ...prev, title: '', description: '', tags: '' }))
       setKbSuggestions([])
       setTimeout(() => setJustCreated(null), 3000)
     } else {
-      // Default behaviour — close immediately
       onClose()
     }
   }
@@ -203,8 +185,8 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   }
 
   const inp = 'w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500'
-
   if (!open) return null
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -233,28 +215,20 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
             <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
           </div>
         </div>
-
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {/* Just-created confirmation flash */}
           {justCreated && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800">
               <CheckSquare className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <p className="text-sm text-emerald-700 dark:text-emerald-400 truncate">
-                Created: <strong>{justCreated}</strong>
-              </p>
+              <p className="text-sm text-emerald-700 dark:text-emerald-400 truncate">Created: <strong>{justCreated}</strong></p>
             </div>
           )}
-
           {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
-
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Title *</label>
             <input value={form.title} onChange={e => s('title',e.target.value)} required placeholder="Brief description of the issue" className={`mt-1 ${inp}`} autoFocus />
             {kbSuggestions.length > 0 && (
               <div className="mt-2 space-y-1.5">
-                <p className="text-[11px] text-slate-400 flex items-center gap-1">
-                  <BookOpen className="w-3 h-3" /> Related KB articles — check before submitting:
-                </p>
+                <p className="text-[11px] text-slate-400 flex items-center gap-1"><BookOpen className="w-3 h-3" /> Related KB articles:</p>
                 {kbSuggestions.map(a => (
                   <a key={a.id} href="/knowledge-base" target="_blank" rel="noreferrer"
                     className="flex items-start gap-2 p-2 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 hover:bg-blue-100 dark:hover:bg-blue-950/40 transition-colors group">
@@ -269,7 +243,6 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
             )}
             {kbLoading && <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Searching KB…</p>}
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Priority</label>
@@ -298,44 +271,28 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
               <input type="email" value={form.contact_email} onChange={e => s('contact_email',e.target.value)} placeholder="Auto-filled from customer" className={`mt-1 ${inp}`} />
             </div>
           </div>
-
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Assign To</label>
             <select value={form.assigned_to} onChange={e => s('assigned_to',e.target.value)} className={`mt-1 ${inp}`}>
               <option value="">Unassigned</option>
-              {techs.map(t => (
-                <option key={t.id} value={t.user_email}>
-                  {t.display_name || t.user_email.split('@')[0]}
-                </option>
-              ))}
+              {techs.map(t => <option key={t.id} value={t.user_email}>{t.display_name || t.user_email.split('@')[0]}</option>)}
             </select>
           </div>
-
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</label>
             <textarea value={form.description} onChange={e => s('description',e.target.value)} rows={3} placeholder="Detailed description..." className={`mt-1 ${inp} resize-none`} />
           </div>
-
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Tags (comma-separated)</label>
             <input value={form.tags} onChange={e => s('tags',e.target.value)} placeholder="e.g. urgent, wifi, laptop" className={`mt-1 ${inp}`} />
           </div>
-
-          {/* ── Create multiple checkbox ── */}
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-            <input
-              type="checkbox"
-              id="createMultiple"
-              checked={createMultiple}
-              onChange={e => setCreateMultiple(e.target.checked)}
-              className="w-4 h-4 accent-amber-500 flex-shrink-0"
-            />
+            <input type="checkbox" id="createMultiple" checked={createMultiple} onChange={e => setCreateMultiple(e.target.checked)} className="w-4 h-4 accent-amber-500 flex-shrink-0" />
             <label htmlFor="createMultiple" className="cursor-pointer select-none">
               <p className="text-sm font-medium text-slate-900 dark:text-white">Create multiple tickets</p>
               <p className="text-xs text-slate-400">Keep this window open after each ticket is created</p>
             </label>
           </div>
-
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               {createMultiple ? 'Done' : 'Cancel'}
@@ -351,7 +308,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
   )
 }
 
-// ── Card view ─────────────────────────────────────────────────────────────────
+// ── TicketCard ─────────────────────────────────────────────────────────────────
 function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
   const router   = useRouter()
   const [hovering, setHovering] = useState(false)
@@ -379,13 +336,9 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <p className={`font-semibold text-sm truncate ${isDone ? 'text-slate-500' : 'text-slate-900 dark:text-white'}`}>
-                {t.title}
-              </p>
+              <p className={`font-semibold text-sm truncate ${isDone ? 'text-slate-500' : 'text-slate-900 dark:text-white'}`}>{t.title}</p>
               {t.last_customer_reply_at && (
-                <span className="flex-shrink-0 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 animate-pulse">
-                  ● Client replied
-                </span>
+                <span className="flex-shrink-0 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 animate-pulse">● Client replied</span>
               )}
               {slaState === 'breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">SLA!</span>}
               {slaState === 'warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">At risk</span>}
@@ -412,11 +365,8 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
           <div className="flex-shrink-0 flex flex-col items-end gap-1 text-right">
             <span className="text-[11px] text-slate-400">{fmtDate(t.created_at)}</span>
             {slaLabel && (
-              <span className={`text-[10px] font-medium flex items-center gap-1 ${
-                slaState==='breached' ? 'text-rose-600' : slaState==='warning' ? 'text-amber-600' : 'text-slate-400'
-              }`}>
-                {slaState !== 'ok' && <AlertTriangle className="w-3 h-3" />}
-                {slaLabel}
+              <span className={`text-[10px] font-medium flex items-center gap-1 ${slaState==='breached'?'text-rose-600':slaState==='warning'?'text-amber-600':'text-slate-400'}`}>
+                {slaState !== 'ok' && <AlertTriangle className="w-3 h-3" />}{slaLabel}
               </span>
             )}
             {csatMap[t.id] && (
@@ -431,26 +381,16 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
             <div className="relative" onClick={e => e.stopPropagation()}>
               <button
                 onClick={() => setAssignOpen(p => !p)}
-                className={`text-[11px] flex items-center gap-1 transition-all ${
-                  hovering || assignOpen
-                    ? 'text-amber-600 dark:text-amber-400 opacity-100'
-                    : 'opacity-0 text-slate-400'
-                } hover:underline`}
-              >
-                <UserCheck className="w-3 h-3" />
-                {t.assigned_to ? t.assigned_to.split('@')[0] : 'Assign'}
+                className={`text-[11px] flex items-center gap-1 transition-all ${hovering||assignOpen?'text-amber-600 dark:text-amber-400 opacity-100':'opacity-0 text-slate-400'} hover:underline`}>
+                <UserCheck className="w-3 h-3" />{t.assigned_to ? t.assigned_to.split('@')[0] : 'Assign'}
               </button>
               {assignOpen && (
                 <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden">
                   <button onClick={() => { onAssign(t.id, null); setAssignOpen(false) }}
-                    className="w-full text-left px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800">
-                    Unassigned
-                  </button>
+                    className="w-full text-left px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800">Unassigned</button>
                   {techs.map(tech => (
                     <button key={tech.id} onClick={() => { onAssign(t.id, tech.user_email); setAssignOpen(false) }}
-                      className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
-                        t.assigned_to === tech.user_email ? 'text-amber-600 font-semibold' : 'text-slate-700 dark:text-slate-300'
-                      }`}>
+                      className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${t.assigned_to===tech.user_email?'text-amber-600 font-semibold':'text-slate-700 dark:text-slate-300'}`}>
                       {tech.display_name || tech.user_email.split('@')[0]}
                     </button>
                   ))}
@@ -464,7 +404,7 @@ function TicketCard({ t, selected, onSelect, techs, csatMap, onAssign }) {
   )
 }
 
-// ── Kanban column ─────────────────────────────────────────────────────────────
+// ── KanbanColumn ──────────────────────────────────────────────────────────────
 function KanbanColumn({ col, tickets, csatMap, techs, onAssign }) {
   const router = useRouter()
   return (
@@ -476,9 +416,7 @@ function KanbanColumn({ col, tickets, csatMap, techs, onAssign }) {
       </div>
       <div className="space-y-2 flex-1">
         {tickets.length === 0 ? (
-          <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center text-xs text-slate-400">
-            No tickets
-          </div>
+          <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center text-xs text-slate-400">No tickets</div>
         ) : tickets.map(t => {
           const slaState = getSlaState(t.sla_due_date, t.status)
           const stripe   = PRIORITY_STRIPE[t.priority] || 'border-l-slate-200'
@@ -489,9 +427,9 @@ function KanbanColumn({ col, tickets, csatMap, techs, onAssign }) {
               <p className="text-sm font-medium text-slate-900 dark:text-white line-clamp-2 mb-2">{t.title}</p>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-1 flex-wrap">
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${PRIORITY_CLS[t.priority] ?? ''}`}>{t.priority}</span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${PRIORITY_CLS[t.priority]??''}`}>{t.priority}</span>
                   {t.last_customer_reply_at && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 animate-pulse">● replied</span>}
-                  {slaState === 'breached' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
+                  {slaState==='breached' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
                 </div>
                 <span className="text-[11px] text-slate-400">{fmtDate(t.created_at)}</span>
               </div>
@@ -504,17 +442,41 @@ function KanbanColumn({ col, tickets, csatMap, techs, onAssign }) {
   )
 }
 
+// ── CustomerGroup ─────────────────────────────────────────────────────────────
+function CustomerGroup({ name, tickets, selected, onSelect, techs, csatMap, onAssign }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const hasAttention = tickets.some(t => t.last_customer_reply_at || getSlaState(t.sla_due_date, t.status) !== 'ok')
+  return (
+    <div>
+      <button onClick={() => setCollapsed(p => !p)}
+        className="w-full flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left">
+        <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform ${collapsed?'':'rotate-90'}`} />
+        <Users className="w-3.5 h-3.5 text-slate-400" />
+        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{name}</span>
+        <span className="text-xs text-slate-400 bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded-full">{tickets.length}</span>
+        {hasAttention && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
+      </button>
+      {!collapsed && tickets.map(t => (
+        <TicketCard key={t.id} t={t} selected={selected.has(t.id)} onSelect={onSelect} techs={techs} csatMap={csatMap} onAssign={onAssign} />
+      ))}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function TicketsPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
+  // ── TanStack Query ──
+  const queryClient = useQueryClient()
+
   const [tickets,        setTickets]        = useState([])
   const [customers,      setCustomers]      = useState([])
   const [csatMap,        setCsatMap]        = useState({})
-  const [loading,        setLoading]        = useState(true)
   const [loadingMore,    setLoadingMore]    = useState(false)
   const [hasMore,        setHasMore]        = useState(false)
+  const [searchInput,    setSearchInput]    = useState('')
   const [search,         setSearch]         = useState('')
   const [statusFilter,   setStatusFilter]   = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
@@ -544,13 +506,19 @@ export default function TicketsPage() {
 
   const PAGE = 100
 
+  // Debounce search input
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 350)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
   useEffect(() => {
     try {
       const prefs = JSON.parse(localStorage.getItem('ticket-view-prefs') || '{}')
-      if (prefs.viewMode)       setViewMode(prefs.viewMode)
-      if (prefs.hideResolved   !== undefined) setHideResolved(prefs.hideResolved)
-      if (prefs.attentionFirst !== undefined) setAttentionFirst(prefs.attentionFirst)
-      if (prefs.groupByCustomer !== undefined) setGroupByCustomer(prefs.groupByCustomer)
+      if (prefs.viewMode)           setViewMode(prefs.viewMode)
+      if (prefs.hideResolved        !== undefined) setHideResolved(prefs.hideResolved)
+      if (prefs.attentionFirst      !== undefined) setAttentionFirst(prefs.attentionFirst)
+      if (prefs.groupByCustomer     !== undefined) setGroupByCustomer(prefs.groupByCustomer)
       const saved = localStorage.getItem('ticket-saved-filters')
       if (saved) setSavedFilters(JSON.parse(saved))
     } catch {}
@@ -573,8 +541,7 @@ export default function TicketsPage() {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setMyEmail(user?.email ?? null)
-      const { data: member } = await supabase
-        .from('organization_members').select('organization_id').eq('user_id', user.id).single()
+      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) {
         setOrgId(member.organization_id)
         supabase.from('organization_members').select('id,user_email,display_name,role')
@@ -594,6 +561,81 @@ export default function TicketsPage() {
       })
   }, [])
 
+  // ── TanStack Query: fetch tickets, re-runs whenever any filter/sort changes ──
+  // key includes all filter values so changing filters = new cache entry
+  const ticketQueryKey = [
+    'tickets', orgId,
+    statusFilter, priorityFilter, assigneeFilter, customerFilter,
+    sortField, sortDir, hideImported, search,
+  ]
+
+  const { data: queryData, isPending, isFetching } = useQuery({
+    queryKey:  ticketQueryKey,
+    enabled:   !!orgId,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData, // show previous results while new ones load — no blank flash
+    queryFn:   async () => {
+      let q = supabase.from('tickets')
+        .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at,last_customer_reply_at')
+        .order(sortField, { ascending: sortDir === 'asc' })
+        .range(0, PAGE)
+      if (statusFilter   !== 'all') q = q.eq('status', statusFilter)
+      if (priorityFilter !== 'all') q = q.eq('priority', priorityFilter)
+      if (customerFilter !== 'all') q = q.eq('customer_name', customerFilter)
+      if (hideImported)             q = q.neq('source', 'import')
+      if (assigneeFilter === 'mine')            q = q.eq('assigned_to', myEmail)
+      else if (assigneeFilter === 'unassigned') q = q.is('assigned_to', null)
+      else if (assigneeFilter !== 'all')        q = q.eq('assigned_to', assigneeFilter)
+      if (search.trim()) q = q.or(`title.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%,assigned_to.ilike.%${search.trim()}%`)
+      const { data } = await q
+      return data ?? []
+    },
+  })
+
+  // Sync query results to local tickets state (needed for loadMore accumulation)
+  useEffect(() => {
+    if (queryData === undefined) return
+    setHasMore(queryData.length > PAGE)
+    setTickets(queryData.slice(0, PAGE))
+    setSelected(new Set())
+  }, [queryData])
+
+  // Invalidate tickets cache to trigger a background refetch
+  const invalidateTickets = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['tickets', orgId] })
+  }, [queryClient, orgId])
+
+  // Realtime: refresh when Supabase fires a change event
+  useEffect(() => {
+    const h = (e) => {
+      if (!e.detail?.table || e.detail.table === 'tickets') invalidateTickets()
+    }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [invalidateTickets])
+
+  // Load more (appends to existing list — not cached, intentional)
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true)
+    let q = supabase.from('tickets')
+      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at,last_customer_reply_at')
+      .order(sortField, { ascending: sortDir === 'asc' })
+      .range(tickets.length, tickets.length + PAGE)
+    if (statusFilter   !== 'all') q = q.eq('status', statusFilter)
+    if (priorityFilter !== 'all') q = q.eq('priority', priorityFilter)
+    if (customerFilter !== 'all') q = q.eq('customer_name', customerFilter)
+    if (hideImported)             q = q.neq('source', 'import')
+    if (assigneeFilter === 'mine')            q = q.eq('assigned_to', myEmail)
+    else if (assigneeFilter === 'unassigned') q = q.is('assigned_to', null)
+    else if (assigneeFilter !== 'all')        q = q.eq('assigned_to', assigneeFilter)
+    if (search.trim()) q = q.or(`title.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%`)
+    const { data } = await q
+    const rows = data ?? []
+    setHasMore(rows.length > PAGE)
+    setTickets(prev => [...prev, ...rows.slice(0, PAGE)])
+    setLoadingMore(false)
+  }, [tickets.length, statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail])
+
   useEffect(() => {
     if (!showSavedMenu) return
     const handler = (e) => { if (!e.target.closest('[data-saved-menu]')) setShowSavedMenu(false) }
@@ -610,81 +652,31 @@ export default function TicketsPage() {
     if (f.sortField      !== undefined) setSortField(f.sortField)
     if (f.sortDir        !== undefined) setSortDir(f.sortDir)
     if (f.hideImported   !== undefined) setHideImported(f.hideImported)
-    if (f.search         !== undefined) setSearch(f.search)
+    if (f.search         !== undefined) { setSearchInput(f.search); setSearch(f.search) }
   }
   const saveFilter = () => {
     if (!filterName.trim()) return
     const entry = { name: filterName.trim(), filters: currentFilters(), savedAt: Date.now() }
     const next = [...savedFilters.filter(f => f.name !== entry.name), entry]
-    setSavedFilters(next)
-    localStorage.setItem('ticket-saved-filters', JSON.stringify(next))
+    setSavedFilters(next); localStorage.setItem('ticket-saved-filters', JSON.stringify(next))
     setFilterName(''); setShowSaveInput(false)
   }
   const deleteFilter = (name) => {
     const next = savedFilters.filter(f => f.name !== name)
-    setSavedFilters(next)
-    localStorage.setItem('ticket-saved-filters', JSON.stringify(next))
+    setSavedFilters(next); localStorage.setItem('ticket-saved-filters', JSON.stringify(next))
   }
-
-  const filtersRef = useRef({ statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail })
-  filtersRef.current = { statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported, search, myEmail }
-
-  const buildQuery = useCallback((from = 0) => {
-    const f = filtersRef.current
-    let q = supabase.from('tickets')
-      .select('id,title,status,priority,category,assigned_to,customer_id,customer_name,contact_email,sla_due_date,tags,source,created_at,first_response_at,last_customer_reply_at')
-      .order(f.sortField, { ascending: f.sortDir === 'asc' })
-      .range(from, from + PAGE)
-    if (f.statusFilter   !== 'all') q = q.eq('status', f.statusFilter)
-    if (f.priorityFilter !== 'all') q = q.eq('priority', f.priorityFilter)
-    if (f.customerFilter !== 'all') q = q.eq('customer_name', f.customerFilter)
-    if (f.hideImported)             q = q.neq('source', 'import')
-    if (f.assigneeFilter === 'mine')            q = q.eq('assigned_to', f.myEmail)
-    else if (f.assigneeFilter === 'unassigned') q = q.is('assigned_to', null)
-    else if (f.assigneeFilter !== 'all')        q = q.eq('assigned_to', f.assigneeFilter)
-    if (f.search.trim()) q = q.or(`title.ilike.%${f.search.trim()}%,customer_name.ilike.%${f.search.trim()}%,assigned_to.ilike.%${f.search.trim()}%`)
-    return q
-  }, [])
-
-  const loadAll = useCallback(async () => {
-    setLoading(true); setSelected(new Set())
-    const result = await buildQuery(0)
-    const rows = result.data ?? []
-    setHasMore(rows.length > PAGE)
-    setTickets(rows.slice(0, PAGE))
-    setLoading(false)
-  }, [buildQuery])
-
-  const loadMore = useCallback(async () => {
-    setLoadingMore(true)
-    const result = await buildQuery(tickets.length)
-    const rows = result.data ?? []
-    setHasMore(rows.length > PAGE)
-    setTickets(prev => [...prev, ...rows.slice(0, PAGE)])
-    setLoadingMore(false)
-  }, [buildQuery, tickets.length])
-
-  useEffect(() => { loadAll() }, [statusFilter, priorityFilter, assigneeFilter, customerFilter, sortField, sortDir, hideImported]) // eslint-disable-line
-  useEffect(() => { const t = setTimeout(() => loadAll(), 350); return () => clearTimeout(t) }, [search]) // eslint-disable-line
-  useRealtimeRefresh(['tickets'], loadAll)
 
   const uniqueCustomers = useMemo(() => customers.map(c => c.name).sort(), [customers])
   const uniqueAssignees = useMemo(() => [...new Set(tickets.map(t => t.assigned_to).filter(Boolean))].sort(), [tickets])
 
   const filtered = useMemo(() => {
     let list = [...tickets]
-    if (hideResolved && statusFilter === 'all') {
-      list = list.filter(t => !['resolved','closed'].includes(t.status))
-    }
-    if (attentionFirst) {
-      list.sort((a, b) => getAttentionScore(b) - getAttentionScore(a))
-    }
+    if (hideResolved && statusFilter === 'all') list = list.filter(t => !['resolved','closed'].includes(t.status))
+    if (attentionFirst) list.sort((a, b) => getAttentionScore(b) - getAttentionScore(a))
     return list
   }, [tickets, hideResolved, attentionFirst, statusFilter])
 
-  const resolvedCount = useMemo(() =>
-    tickets.filter(t => ['resolved','closed'].includes(t.status)).length,
-  [tickets])
+  const resolvedCount = useMemo(() => tickets.filter(t => ['resolved','closed'].includes(t.status)).length, [tickets])
 
   const grouped = useMemo(() => {
     if (!groupByCustomer) return null
@@ -705,31 +697,36 @@ export default function TicketsPage() {
     if (!bulkStatus || selected.size === 0) return
     setBulkLoading(true)
     for (const id of [...selected]) await supabase.from('tickets').update({ status: bulkStatus }).eq('id', id)
-    setBulkLoading(false); setSelected(new Set()); setBulkStatus(''); loadAll()
+    setBulkLoading(false); setSelected(new Set()); setBulkStatus('')
+    invalidateTickets()
   }
   const handleBulkAssign = async () => {
     if (!bulkAssign || selected.size === 0) return
     setBulkLoading(true)
     const assignTo = bulkAssign === '__unassigned__' ? null : bulkAssign
     for (const id of [...selected]) await supabase.from('tickets').update({ assigned_to: assignTo }).eq('id', id)
-    setBulkLoading(false); setSelected(new Set()); setBulkAssign(''); loadAll()
+    setBulkLoading(false); setSelected(new Set()); setBulkAssign('')
+    invalidateTickets()
   }
   const handleBulkDelete = async () => {
     setDeleteLoading(true)
     await supabase.from('tickets').delete().in('id', [...selected])
-    setDeleteLoading(false); setConfirmDelete(false); setSelected(new Set()); loadAll()
+    setDeleteLoading(false); setConfirmDelete(false); setSelected(new Set())
+    invalidateTickets()
   }
 
   const handleQuickAssign = async (ticketId, assignTo) => {
     await supabase.from('tickets').update({ assigned_to: assignTo }).eq('id', ticketId)
     setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, assigned_to: assignTo } : t))
-    window.dispatchEvent(new CustomEvent('supabase:change', { detail: { table: 'tickets' } }))
   }
 
   const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleAll    = () => setSelected(prev => prev.size === filtered.length ? new Set() : new Set(filtered.map(t => t.id)))
   const allChecked   = filtered.length > 0 && selected.size === filtered.length
   const someChecked  = selected.size > 0 && !allChecked
+
+  // loading = first load with no cached data; isFetching = background refresh (stale data shown)
+  const loading = isPending
 
   const sel = 'px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500'
   const fmtDate2 = (d) => { try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch { return '—' } }
@@ -751,21 +748,22 @@ export default function TicketsPage() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Tickets</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Tickets</h1>
+          {isFetching && !loading && (
+            <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" title="Refreshing…" />
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 gap-0.5">
             {[
-              { mode: 'cards', icon: LayoutList, label: 'Card view'  },
-              { mode: 'table', icon: Table2,     label: 'Table view' },
-              { mode: 'kanban',icon: Kanban,     label: 'Board view' },
+              { mode: 'cards',  icon: LayoutList, label: 'Card view'  },
+              { mode: 'table',  icon: Table2,     label: 'Table view' },
+              { mode: 'kanban', icon: Kanban,     label: 'Board view' },
             ].map(({ mode, icon: Icon, label }) => (
               <button key={mode} onClick={() => { setViewMode(mode); savePrefs({ viewMode: mode }) }}
                 title={label}
-                className={`p-1.5 rounded-md transition-colors ${
-                  viewMode === mode
-                    ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                }`}>
+                className={`p-1.5 rounded-md transition-colors ${viewMode===mode?'bg-white dark:bg-slate-700 text-amber-600 shadow-sm':'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
                 <Icon className="w-4 h-4" />
               </button>
             ))}
@@ -777,11 +775,11 @@ export default function TicketsPage() {
         </div>
       </div>
 
-      {/* Filters row */}
+      {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 min-w-48 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tickets…"
+          <input value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="Search tickets…"
             className="w-full pl-9 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
         </div>
         <select value={statusFilter}   onChange={e => setStatusFilter(e.target.value)}   className={sel}>
@@ -811,127 +809,91 @@ export default function TicketsPage() {
         </select>
       </div>
 
-      {/* View options row */}
+      {/* View options */}
       <div className="flex flex-wrap gap-2 items-center">
         <button onClick={() => { setAttentionFirst(p => !p); savePrefs({ attentionFirst: !attentionFirst }) }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-            attentionFirst
-              ? 'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-700'
-              : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}>
-          <AlertTriangle className="w-3.5 h-3.5" />
-          {attentionFirst ? 'Attention: On' : 'Attention sort'}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${attentionFirst?'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-700':'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+          <AlertTriangle className="w-3.5 h-3.5" />{attentionFirst?'Attention: On':'Attention sort'}
         </button>
         <button onClick={() => { setHideResolved(p => !p); savePrefs({ hideResolved: !hideResolved }) }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-            hideResolved
-              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-700'
-              : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}>
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${hideResolved?'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-700':'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
           <CheckSquare className="w-3.5 h-3.5" />
-          {hideResolved
-            ? resolvedCount > 0 ? `Hiding ${resolvedCount} resolved` : 'Hiding resolved'
-            : 'Show resolved'
-          }
+          {hideResolved?resolvedCount>0?`Hiding ${resolvedCount} resolved`:'Hiding resolved':'Show resolved'}
         </button>
         {viewMode !== 'kanban' && (
           <button onClick={() => { setGroupByCustomer(p => !p); savePrefs({ groupByCustomer: !groupByCustomer }) }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              groupByCustomer
-                ? 'border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-700'
-                : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-            }`}>
-            <Users className="w-3.5 h-3.5" />
-            {groupByCustomer ? 'Grouped by customer' : 'Group by customer'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${groupByCustomer?'border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-700':'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+            <Users className="w-3.5 h-3.5" />{groupByCustomer?'Grouped by customer':'Group by customer'}
           </button>
         )}
         <button onClick={() => setHideImported(p => !p)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-            !hideImported
-              ? 'border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-700'
-              : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}>
-          {hideImported ? 'Show imported' : 'Hide imported'}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${!hideImported?'border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-700':'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+          {hideImported?'Show imported':'Hide imported'}
         </button>
         <div className="relative" data-saved-menu>
           <button onClick={() => { setShowSavedMenu(p => !p); setShowSaveInput(false) }}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <Bookmark className="w-3.5 h-3.5" />
-            Saved{savedFilters.length > 0 && <span className="ml-0.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">{savedFilters.length}</span>}
-            <ChevronDown className={`w-3 h-3 transition-transform ${showSavedMenu ? 'rotate-180' : ''}`} />
+            Saved{savedFilters.length>0&&<span className="ml-0.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">{savedFilters.length}</span>}
+            <ChevronDown className={`w-3 h-3 transition-transform ${showSavedMenu?'rotate-180':''}`} />
           </button>
           {showSavedMenu && (
             <div className="absolute top-full mt-1 left-0 z-30 w-64 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden">
-              {savedFilters.length === 0 ? (
+              {savedFilters.length===0?(
                 <p className="px-4 py-3 text-xs text-slate-400 text-center">No saved filters yet</p>
-              ) : (
+              ):(
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {savedFilters.map(sf => (
                     <div key={sf.name} className="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 group">
-                      <button onClick={() => { applyFilter(sf.filters); setShowSavedMenu(false) }}
-                        className="flex-1 text-left text-sm font-medium text-slate-700 dark:text-slate-300 truncate">
-                        {sf.name}
-                      </button>
-                      <button onClick={() => deleteFilter(sf.name)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-300 hover:text-rose-500 transition-all">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                      <button onClick={() => { applyFilter(sf.filters); setShowSavedMenu(false) }} className="flex-1 text-left text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{sf.name}</button>
+                      <button onClick={() => deleteFilter(sf.name)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-300 hover:text-rose-500 transition-all"><X className="w-3.5 h-3.5" /></button>
                     </div>
                   ))}
                 </div>
               )}
               <div className="border-t border-slate-100 dark:border-slate-800 p-2">
-                {!showSaveInput ? (
-                  <button onClick={() => setShowSaveInput(true)}
-                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors">
+                {!showSaveInput?(
+                  <button onClick={() => setShowSaveInput(true)} className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors">
                     <Plus className="w-3.5 h-3.5" /> Save current filters
                   </button>
-                ) : (
+                ):(
                   <div className="flex gap-1.5">
                     <input autoFocus value={filterName} onChange={e => setFilterName(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') saveFilter(); if (e.key === 'Escape') { setShowSaveInput(false); setFilterName('') } }}
+                      onKeyDown={e => { if (e.key==='Enter') saveFilter(); if (e.key==='Escape') { setShowSaveInput(false); setFilterName('') } }}
                       placeholder="Filter name…"
                       className="flex-1 px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500" />
-                    <button onClick={saveFilter} disabled={!filterName.trim()}
-                      className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold">Save</button>
+                    <button onClick={saveFilter} disabled={!filterName.trim()} className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold">Save</button>
                   </div>
                 )}
               </div>
             </div>
           )}
         </div>
-        <span className="text-xs text-slate-400 ml-auto">{filtered.length} ticket{filtered.length !== 1 ? 's' : ''}</span>
+        <span className="text-xs text-slate-400 ml-auto">{filtered.length} ticket{filtered.length!==1?'s':''}</span>
       </div>
 
-      {/* Bulk actions bar */}
+      {/* Bulk actions */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl flex-wrap">
           <CheckSquare className="w-4 h-4 text-blue-600 flex-shrink-0" />
           <span className="text-sm font-medium text-blue-800 dark:text-blue-300">{selected.size} selected</span>
           <div className="flex items-center gap-2">
             <span className="text-xs text-blue-600">Set status:</span>
-            <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}
-              className="h-7 px-2 border border-blue-200 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 focus:outline-none">
+            <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)} className="h-7 px-2 border border-blue-200 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 focus:outline-none">
               <option value="">Choose…</option>{STATUSES.map(s => <option key={s} value={s}>{lbl(s)}</option>)}
             </select>
-            <button disabled={!bulkStatus || bulkLoading} onClick={handleBulkStatus}
-              className="h-7 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs font-medium">
-              {bulkLoading ? 'Applying…' : 'Apply'}
-            </button>
+            <button disabled={!bulkStatus||bulkLoading} onClick={handleBulkStatus} className="h-7 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs font-medium">{bulkLoading?'Applying…':'Apply'}</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-blue-600">Assign to:</span>
-            <select value={bulkAssign} onChange={e => setBulkAssign(e.target.value)}
-              className="h-7 px-2 border border-blue-200 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 focus:outline-none">
+            <select value={bulkAssign} onChange={e => setBulkAssign(e.target.value)} className="h-7 px-2 border border-blue-200 rounded text-xs bg-white dark:bg-slate-800 text-slate-700 focus:outline-none">
               <option value="">Choose…</option>
               <option value="__unassigned__">Unassigned</option>
-              {techs.map(t => <option key={t.user_email} value={t.user_email}>{t.display_name || t.user_email}</option>)}
+              {techs.map(t => <option key={t.user_email} value={t.user_email}>{t.display_name||t.user_email}</option>)}
             </select>
-            <button disabled={!bulkAssign || bulkLoading} onClick={handleBulkAssign}
-              className="h-7 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs font-medium">Assign</button>
+            <button disabled={!bulkAssign||bulkLoading} onClick={handleBulkAssign} className="h-7 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-xs font-medium">Assign</button>
           </div>
-          <button onClick={() => setConfirmDelete(true)}
-            className="ml-auto flex items-center gap-1 h-7 px-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded text-xs transition-colors">
+          <button onClick={() => setConfirmDelete(true)} className="ml-auto flex items-center gap-1 h-7 px-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded text-xs transition-colors">
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>
           <button onClick={() => setSelected(new Set())} className="h-7 w-7 flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
@@ -940,13 +902,11 @@ export default function TicketsPage() {
         </div>
       )}
 
-      {/* ── CARD VIEW ── */}
+      {/* Card view */}
       {viewMode === 'cards' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
-            <input type="checkbox" checked={allChecked}
-              ref={el => { if (el) el.indeterminate = someChecked }}
-              onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
+            <input type="checkbox" checked={allChecked} ref={el => { if (el) el.indeterminate = someChecked }} onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
             <span className="text-xs text-slate-400">Select all</span>
           </div>
           {loading ? (
@@ -966,26 +926,20 @@ export default function TicketsPage() {
               <CheckSquare className="w-12 h-12 text-slate-200 dark:text-slate-700 mx-auto mb-3" />
               <p className="text-slate-500 font-medium">No open tickets</p>
               {hideResolved && resolvedCount > 0 && (
-                <button onClick={() => setHideResolved(false)} className="mt-2 text-sm text-amber-600 hover:underline">
-                  Show {resolvedCount} resolved ticket{resolvedCount > 1 ? 's' : ''}
-                </button>
+                <button onClick={() => setHideResolved(false)} className="mt-2 text-sm text-amber-600 hover:underline">Show {resolvedCount} resolved ticket{resolvedCount>1?'s':''}</button>
               )}
             </div>
           ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {renderCards()}
-            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">{renderCards()}</div>
           )}
           <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
             <span>
-              {filtered.length} ticket{filtered.length !== 1 ? 's' : ''}
-              {hideResolved && resolvedCount > 0 && (
-                <button onClick={() => setHideResolved(false)} className="ml-2 text-amber-500 hover:underline">
-                  + {resolvedCount} resolved hidden
-                </button>
+              {filtered.length} ticket{filtered.length!==1?'s':''}
+              {hideResolved && resolvedCount>0 && (
+                <button onClick={() => setHideResolved(false)} className="ml-2 text-amber-500 hover:underline">+ {resolvedCount} resolved hidden</button>
               )}
             </span>
-            {hasMore && !search && statusFilter === 'all' && priorityFilter === 'all' && assigneeFilter === 'all' && customerFilter === 'all' && (
+            {hasMore && !search && statusFilter==='all' && priorityFilter==='all' && assigneeFilter==='all' && customerFilter==='all' && (
               <button onClick={loadMore} disabled={loadingMore}
                 className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-400 transition-colors disabled:opacity-60">
                 {loadingMore && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -996,7 +950,7 @@ export default function TicketsPage() {
         </div>
       )}
 
-      {/* ── TABLE VIEW ── */}
+      {/* Table view */}
       {viewMode === 'table' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
@@ -1004,9 +958,7 @@ export default function TicketsPage() {
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                   <th className="w-10 px-4 py-3">
-                    <input type="checkbox" checked={allChecked}
-                      ref={el => { if (el) el.indeterminate = someChecked }}
-                      onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
+                    <input type="checkbox" checked={allChecked} ref={el => { if (el) el.indeterminate = someChecked }} onChange={toggleAll} className="w-4 h-4 accent-amber-500" />
                   </th>
                   {['Title','Customer','Priority','Status','Assigned','SLA','Created'].map(h => (
                     <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{h}</th>
@@ -1020,14 +972,14 @@ export default function TicketsPage() {
                       <td key={j} className="px-3 py-3"><div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-20" /></td>
                     ))}</tr>
                   ))
-                ) : filtered.length === 0 ? (
+                ) : filtered.length===0 ? (
                   <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400 text-sm">No tickets found</td></tr>
                 ) : filtered.map(t => {
                   const slaState = getSlaState(t.sla_due_date, t.status)
                   const slaLabel = getSlaLabel(t.sla_due_date, t.status)
                   const stripe   = PRIORITY_STRIPE[t.priority] || 'border-l-slate-200'
                   return (
-                    <tr key={t.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors border-l-4 ${stripe} ${selected.has(t.id) ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}>
+                    <tr key={t.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors border-l-4 ${stripe} ${selected.has(t.id)?'bg-blue-50/50 dark:bg-blue-950/20':''}`}>
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleSelect(t.id)} className="w-4 h-4 accent-amber-500" />
                       </td>
@@ -1035,30 +987,27 @@ export default function TicketsPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-medium text-slate-900 dark:text-white hover:text-amber-600 transition-colors truncate">{t.title}</p>
                           {t.last_customer_reply_at && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 animate-pulse">● Client replied</span>}
-                          {slaState === 'breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
-                          {slaState === 'warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
+                          {slaState==='breached' && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">SLA!</span>}
+                          {slaState==='warning'  && <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">At risk</span>}
                           <SlaPredictionBadge ticket={t} compact />
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-xs text-slate-400 capitalize">{t.category}</p>
-                          {t.source && t.source !== 'admin' && (
-                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                              t.source === 'portal' ? 'bg-blue-100 text-blue-600' : t.source === 'email' ? 'bg-violet-100 text-violet-600' : 'bg-slate-100 text-slate-500'
-                            }`}>via {t.source}</span>
+                          {t.source && t.source!=='admin' && (
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${t.source==='portal'?'bg-blue-100 text-blue-600':t.source==='email'?'bg-violet-100 text-violet-600':'bg-slate-100 text-slate-500'}`}>via {t.source}</span>
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap text-sm">{t.customer_name || '—'}</td>
-                      <td className="px-3 py-3"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${PRIORITY_CLS[t.priority] ?? ''}`}>{t.priority}</span></td>
-                      <td className="px-3 py-3"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_CLS[t.status] ?? ''}`}>{lbl(t.status)}</span></td>
-                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap text-xs">{t.assigned_to ? t.assigned_to.split('@')[0] : 'Unassigned'}</td>
+                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap text-sm">{t.customer_name||'—'}</td>
+                      <td className="px-3 py-3"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${PRIORITY_CLS[t.priority]??''}`}>{t.priority}</span></td>
+                      <td className="px-3 py-3"><span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_CLS[t.status]??''}`}>{lbl(t.status)}</span></td>
+                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap text-xs">{t.assigned_to?t.assigned_to.split('@')[0]:'Unassigned'}</td>
                       <td className="px-3 py-3">
-                        {t.sla_due_date ? (
+                        {t.sla_due_date?(
                           <div className={`flex items-center gap-1 text-xs font-medium whitespace-nowrap ${slaState==='breached'?'text-rose-600':slaState==='warning'?'text-amber-600':'text-slate-400'}`}>
-                            {slaState!=='ok' && <AlertTriangle className="w-3 h-3"/>}
-                            {slaLabel}
+                            {slaState!=='ok' && <AlertTriangle className="w-3 h-3"/>}{slaLabel}
                           </div>
-                        ) : <span className="text-slate-300 text-xs">—</span>}
+                        ):<span className="text-slate-300 text-xs">—</span>}
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtDate2(t.created_at)}</td>
                     </tr>
@@ -1068,26 +1017,17 @@ export default function TicketsPage() {
             </table>
           </div>
           <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
-            <span>
-              {filtered.length} ticket{filtered.length !== 1 ? 's' : ''}
-              {hideResolved && resolvedCount > 0 && (
-                <button onClick={() => setHideResolved(false)} className="ml-2 text-amber-500 hover:underline">
-                  + {resolvedCount} resolved hidden
-                </button>
-              )}
-            </span>
-            {hasMore && !search && statusFilter === 'all' && priorityFilter === 'all' && assigneeFilter === 'all' && customerFilter === 'all' && (
-              <button onClick={loadMore} disabled={loadingMore}
-                className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg text-xs disabled:opacity-60">
-                {loadingMore && <Loader2 className="w-3 h-3 animate-spin" />}
-                {loadingMore ? 'Loading…' : 'Load more'}
+            <span>{filtered.length} ticket{filtered.length!==1?'s':''}{hideResolved&&resolvedCount>0&&<button onClick={() => setHideResolved(false)} className="ml-2 text-amber-500 hover:underline">+ {resolvedCount} resolved hidden</button>}</span>
+            {hasMore && !search && statusFilter==='all' && priorityFilter==='all' && assigneeFilter==='all' && customerFilter==='all' && (
+              <button onClick={loadMore} disabled={loadingMore} className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg text-xs disabled:opacity-60">
+                {loadingMore && <Loader2 className="w-3 h-3 animate-spin" />}{loadingMore?'Loading…':'Load more'}
               </button>
             )}
           </div>
         </div>
       )}
 
-      {/* ── KANBAN VIEW ── */}
+      {/* Kanban view */}
       {viewMode === 'kanban' && (
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-max">
@@ -1103,7 +1043,7 @@ export default function TicketsPage() {
       <NewTicketDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onSaved={loadAll}
+        onSaved={invalidateTickets}
         customers={customers}
         orgId={orgId}
       />
@@ -1111,41 +1051,17 @@ export default function TicketsPage() {
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <h2 className="font-semibold text-slate-900 dark:text-white text-lg mb-2">Delete {selected.size} ticket{selected.size !== 1 ? 's' : ''}?</h2>
+            <h2 className="font-semibold text-slate-900 dark:text-white text-lg mb-2">Delete {selected.size} ticket{selected.size!==1?'s':''}?</h2>
             <p className="text-sm text-slate-500 mb-6">This cannot be undone.</p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmDelete(false)} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
               <button onClick={handleBulkDelete} disabled={deleteLoading} className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold">
-                {deleteLoading ? 'Deleting…' : `Delete ${selected.size} ticket${selected.size !== 1 ? 's' : ''}`}
+                {deleteLoading?'Deleting…':`Delete ${selected.size} ticket${selected.size!==1?'s':''}`}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ── CustomerGroup ─────────────────────────────────────────────────────────────
-function CustomerGroup({ name, tickets, selected, onSelect, techs, csatMap, onAssign }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const hasAttention = tickets.some(t => t.last_customer_reply_at || getSlaState(t.sla_due_date, t.status) !== 'ok')
-
-  return (
-    <div>
-      <button
-        onClick={() => setCollapsed(p => !p)}
-        className="w-full flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left">
-        <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
-        <Users className="w-3.5 h-3.5 text-slate-400" />
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{name}</span>
-        <span className="text-xs text-slate-400 bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded-full">{tickets.length}</span>
-        {hasAttention && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
-      </button>
-      {!collapsed && tickets.map(t => (
-        <TicketCard key={t.id} t={t} selected={selected.has(t.id)}
-          onSelect={onSelect} techs={techs} csatMap={csatMap} onAssign={onAssign} />
-      ))}
     </div>
   )
 }
