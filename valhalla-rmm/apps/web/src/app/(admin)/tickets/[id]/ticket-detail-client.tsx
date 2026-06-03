@@ -9,8 +9,9 @@ import {
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
   BookOpen, Search, X, Sparkles, HardDrive, GitMerge, Activity,
-  CheckCircle2, Plus,
+  CheckCircle2, Plus, RotateCcw,
 } from 'lucide-react'
+import { calculateSlaDue, getSlaInfo, SLA_TARGETS } from '@/lib/sla'
 
 const PRIORITY_CLS = {
   critical: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300',
@@ -48,6 +49,74 @@ function LiveTimer({ startedAt }) {
     <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
       {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
     </span>
+  )
+}
+
+function SlaPanel({ ticket, onRecalculate }) {
+  const sla    = getSlaInfo(ticket?.sla_due_date, ticket?.status)
+  const target = SLA_TARGETS[ticket?.priority]
+  const isDone = ['resolved', 'closed'].includes(ticket?.status)
+
+  if (!ticket) return null
+
+  const stateColor = {
+    breached: 'text-rose-600 dark:text-rose-400',
+    warning:  'text-amber-600 dark:text-amber-400',
+    ok:       'text-emerald-600 dark:text-emerald-400',
+    done:     'text-slate-400',
+  }[sla.state]
+
+  const stateBg = {
+    breached: 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40',
+    warning:  'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40',
+    ok:       'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40',
+    done:     'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700',
+  }[sla.state]
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${stateBg}`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5">
+          {sla.state === 'breached' && <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />}
+          {sla.state === 'warning'  && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
+          {sla.state === 'ok'       && <CheckCircle2  className="w-3.5 h-3.5 text-emerald-500" />}
+          <p className={`text-xs font-semibold ${stateColor}`}>
+            {sla.state === 'done'     ? 'SLA complete'   : ''}
+            {sla.state === 'breached' ? 'SLA breached'   : ''}
+            {sla.state === 'warning'  ? 'SLA at risk'    : ''}
+            {sla.state === 'ok'       ? 'SLA on track'   : ''}
+          </p>
+        </div>
+        {!isDone && (
+          <button
+            onClick={onRecalculate}
+            title="Recalculate from current priority and creation date"
+            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-amber-500 transition-colors">
+            <RotateCcw className="w-3 h-3" /> Reset
+          </button>
+        )}
+      </div>
+
+      {sla.label && (
+        <p className={`text-sm font-bold ${stateColor}`}>{sla.label}</p>
+      )}
+
+      {ticket.sla_due_date && (
+        <p className="text-[11px] text-slate-400 mt-0.5">
+          Due {fmtDate(ticket.sla_due_date)}
+        </p>
+      )}
+
+      {target && (
+        <p className="text-[10px] text-slate-400 mt-1">
+          Target: {target.label} · {ticket.priority}
+        </p>
+      )}
+
+      {!ticket.sla_due_date && !isDone && (
+        <p className="text-xs text-slate-400">No SLA set — click Reset to auto-calculate</p>
+      )}
+    </div>
   )
 }
 
@@ -740,7 +809,6 @@ export default function TicketDetailClient() {
       .then(({ data }) => setCsatResponse(data || null))
   }, [id])
 
-  // ── FIXED: updateField now uses myEmailRef.current and has try/finally ────────
   const updateField = async (field, value) => {
     const currentId = idRef.current
     const t = ticketRef.current
@@ -749,6 +817,14 @@ export default function TicketDetailClient() {
     try {
       const oldValue = t[field] ?? null
       await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
+
+      // When priority changes, auto-recalculate the SLA due date from created_at
+      if (field === 'priority' && value !== oldValue) {
+        const newSlaDue = calculateSlaDue(value, new Date(t.created_at))
+        await supabase.from('tickets').update({ sla_due_date: newSlaDue.toISOString() }).eq('id', currentId)
+        setEditFields(p => ({ ...p, sla_due_date: newSlaDue.toISOString().slice(0, 16) }))
+      }
+
       if (oldValue !== value) {
         await supabase.from('audit_log').insert({
           organization_id: t.organization_id,
@@ -762,9 +838,6 @@ export default function TicketDetailClient() {
       }
       await loadTicket()
 
-      // Trigger CSAT email directly when status changes to resolved.
-      // We do this from the frontend because the database webhook is unreliable.
-      // The function deduplicates via csat_responses so it's safe to call every time.
       if (field === 'status' && value === 'resolved' && t.contact_email) {
         supabase.functions.invoke('send-csat-survey', {
           body: {
@@ -790,6 +863,17 @@ export default function TicketDetailClient() {
     } else {
       if (value !== (t[field] ?? '')) updateField(field, value || null)
     }
+  }
+
+  // Recalculate SLA due date from current priority and ticket creation time
+  const recalculateSla = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t || !currentId) return
+    const newSlaDue = calculateSlaDue(t.priority, new Date(t.created_at))
+    await supabase.from('tickets').update({ sla_due_date: newSlaDue.toISOString() }).eq('id', currentId)
+    setEditFields(p => ({ ...p, sla_due_date: newSlaDue.toISOString().slice(0, 16) }))
+    await loadTicket()
   }
 
   const startTimer = async () => {
@@ -827,7 +911,6 @@ export default function TicketDetailClient() {
     await loadTicket()
   }
 
-  // ── FIXED: submitNote no longer double-fires loadTicket/loadComments ──────────
   const submitNote = async () => {
     const t = ticketRef.current
     const currentId = idRef.current
@@ -879,9 +962,6 @@ export default function TicketDetailClient() {
     setNoteText('')
     setAttachment(null)
     setSubmitting(false)
-
-    // FIXED: load once directly, do NOT also dispatch supabase:change
-    // (that would trigger a second concurrent load via the realtime handler)
     await loadTicket()
     await loadComments()
   }
@@ -1054,7 +1134,6 @@ export default function TicketDetailClient() {
                       </div>
                     )
 
-                    // Client reply
                     return (
                       <div key={comment.id} className="flex items-end gap-2">
                         <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center flex-shrink-0 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
@@ -1180,7 +1259,9 @@ export default function TicketDetailClient() {
           <ActivityTimeline ticketId={ticket?.id} />
         </div>
 
+        {/* ── Sidebar ── */}
         <div className="space-y-4">
+          {/* Timer */}
           <div className={`rounded-xl border shadow-sm p-4 ${isTimerRunning ? 'bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900/40' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
             <div className="flex items-center gap-2 mb-3">
               <Timer className={`w-4 h-4 ${isTimerRunning ? 'text-violet-600 dark:text-violet-400' : 'text-slate-400'}`} />
@@ -1214,6 +1295,7 @@ export default function TicketDetailClient() {
             )}
           </div>
 
+          {/* Details */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-4">
             <div className="flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
@@ -1321,13 +1403,26 @@ export default function TicketDetailClient() {
                 <input type="email" value={editFields.contact_email} onChange={e => setEditFields(p => ({ ...p, contact_email: e.target.value }))} onBlur={() => saveEditField('contact_email')} placeholder="email@client.com" className={inp} />
               </div>
             </div>
+
+            {/* ── SLA Panel ── replaces the old bare datetime-local input */}
             <div className="flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-xs text-slate-400 mb-1">SLA Due Date</p>
-                <input type="datetime-local" value={editFields.sla_due_date} onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))} onBlur={() => saveEditField('sla_due_date')} className={inp} />
+              <div className="flex-1 space-y-2">
+                <p className="text-xs text-slate-400">SLA</p>
+                <SlaPanel ticket={ticket} onRecalculate={recalculateSla} />
+                <div>
+                  <p className="text-[10px] text-slate-400 mb-1">Manual override</p>
+                  <input
+                    type="datetime-local"
+                    value={editFields.sla_due_date}
+                    onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))}
+                    onBlur={() => saveEditField('sla_due_date')}
+                    className={inp}
+                  />
+                </div>
               </div>
             </div>
+
             <div className="flex items-start gap-2.5">
               <HardDrive className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
               <div className="flex-1">

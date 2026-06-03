@@ -9,6 +9,7 @@ import {
   ChevronRight, Users, UserCheck, BookOpen,
 } from 'lucide-react'
 import { SlaPredictionBadge } from '@/components/SlaPrediction'
+import { calculateSlaDue } from '@/lib/sla'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function useRealtimeRefresh(tables, onRefresh) {
@@ -168,6 +169,7 @@ function NewTicketDialog({ open, onClose, onSaved, customers, orgId }) {
       contact_email: form.contact_email || null,
       tags,
       source: 'admin',
+      sla_due_date: calculateSlaDue(form.priority).toISOString(),
       updated_at: new Date().toISOString(),
     })
     setSaving(false)
