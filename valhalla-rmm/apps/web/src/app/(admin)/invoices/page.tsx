@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useOrg } from '@/hooks/use-org'
 import {
   FileText, Plus, DollarSign, Clock, AlertTriangle,
   CheckCircle2, Send, Trash2, Eye, X, Loader2,
@@ -973,12 +974,13 @@ function AgingReport({ invoices }) {
 function InvoicesPageInner() {
   const supabase = createSupabaseBrowserClient()
   const queryClient = useQueryClient()
+  const { data: orgData } = useOrg()
+  const orgId = orgData?.orgId ?? null
+  const org   = orgData?.org   ?? {}
   const [invoices,       setInvoices]       = useState([])
   const [customers,      setCustomers]      = useState([])
   const [timeEntries,    setTimeEntries]    = useState([])
   const [loading,        setLoading]        = useState(true)
-  const [orgId,          setOrgId]          = useState(null)
-  const [org,            setOrg]            = useState({})
   const [dialogOpen,     setDialogOpen]     = useState(false)
   const [prefillEntries, setPrefillEntries] = useState(null)
   const searchParams = useSearchParams()
@@ -991,21 +993,10 @@ function InvoicesPageInner() {
   const [linkCopied,     setLinkCopied]     = useState(null)
   const [activeTab,      setActiveTab]      = useState('invoices')
 
+  // Trigger invoice load when orgId becomes available (instant from cache after first visit)
   useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
-      if (member) {
-        setOrgId(member.organization_id)
-        supabase.from('organizations').select('name,company_email,brand_color,logo_url')
-          .eq('id', member.organization_id).single()
-          .then(({ data }) => { if (data) setOrg(data) })
-      }
-      loadAll()
-    }
-    init()
-  }, [])
+    if (orgId) loadAll()
+  }, [orgId])
 
   // ── TanStack Query: cache invoice list, customers, time entries ──────────────
   const { data: invoiceQueryData, isPending: invoicesPending } = useQuery({

@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useOrg } from '@/hooks/use-org'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   Plus, Search, AlertTriangle, Clock, CheckSquare, X, Trash2,
@@ -470,6 +471,9 @@ export default function TicketsPage() {
 
   // ── TanStack Query ──
   const queryClient = useQueryClient()
+  const { data: orgData }  = useOrg()
+  const orgId  = orgData?.orgId  ?? null
+  const myEmail = orgData?.email ?? null
 
   const [tickets,        setTickets]        = useState([])
   const [customers,      setCustomers]      = useState([])
@@ -500,8 +504,6 @@ export default function TicketsPage() {
   const [confirmDelete,  setConfirmDelete]  = useState(false)
   const [deleteLoading,  setDeleteLoading]  = useState(false)
   const [dialogOpen,     setDialogOpen]     = useState(false)
-  const [myEmail,        setMyEmail]        = useState(null)
-  const [orgId,          setOrgId]          = useState(null)
   const [techs,          setTechs]          = useState([])
 
   const PAGE = 100
@@ -537,20 +539,13 @@ export default function TicketsPage() {
     return () => window.removeEventListener('valhalla:shortcut', handler)
   }, [])
 
+  // Fetch techs when orgId becomes available (cached after first load)
   useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setMyEmail(user?.email ?? null)
-      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
-      if (member) {
-        setOrgId(member.organization_id)
-        supabase.from('organization_members').select('id,user_email,display_name,role')
-          .eq('organization_id', member.organization_id)
-          .in('role', ['owner','admin','technician'])
-          .then(({ data }) => setTechs(data ?? []))
-      }
-    }
-    init()
+    if (!orgId) return
+    supabase.from('organization_members').select('id,user_email,display_name,role')
+      .eq('organization_id', orgId)
+      .in('role', ['owner','admin','technician'])
+      .then(({ data }) => setTechs(data ?? []))
     supabase.from('customers').select('id,name,contact_email').eq('status','active').order('name').limit(500)
       .then(({ data }) => setCustomers(data ?? []))
     supabase.from('csat_responses').select('ticket_id,score').not('ticket_id','is',null).limit(2000)
@@ -559,7 +554,7 @@ export default function TicketsPage() {
         for (const r of (data ?? [])) { if (r.ticket_id) map[r.ticket_id] = r.score }
         setCsatMap(map)
       })
-  }, [])
+  }, [orgId])
 
   // ── TanStack Query: fetch tickets, re-runs whenever any filter/sort changes ──
   // key includes all filter values so changing filters = new cache entry
