@@ -1,469 +1,74 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import { useOrg } from '@/hooks/use-org'
 import {
-  TrendingUp, Clock, Ticket, AlertTriangle, ChevronUp, ChevronDown,
-} from 'lucide-react'
-import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell,
-  Legend, ReferenceLine,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Area, AreaChart, Cell,
 } from 'recharts'
+import {
+  TrendingUp, DollarSign, Clock, Ticket, Users,
+  AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownRight,
+} from 'lucide-react'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const COLORS = ['#f59e0b','#3b82f6','#10b981','#8b5cf6','#f43f5e','#06b6d4']
-
-function getRange(key) {
-  const now = new Date()
-  const sub = (d) => new Date(now.getTime() - d * 86400000)
-  switch (key) {
-    case '7d':  return { start: sub(7),   end: now }
-    case '30d': return { start: sub(30),  end: now }
-    case '90d': return { start: sub(90),  end: now }
-    case '6m':  return { start: sub(180), end: now }
-    case '12m': return { start: sub(365), end: now }
-    default:    return { start: sub(30),  end: now }
-  }
+const fmt$ = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtHrs = (mins) => {
+  const h = Math.floor((mins || 0) / 60)
+  const m = (mins || 0) % 60
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
-
-function inRange(dateStr, range) {
-  if (!dateStr) return false
-  try { const d = new Date(dateStr); return d >= range.start && d <= range.end } catch { return false }
-}
-
-function fmtMins(mins) {
-  if (mins < 60) return `${Math.round(mins)}m`
-  if (mins < 1440) return `${Math.round(mins / 60)}h`
-  return `${(mins / 1440).toFixed(1)}d`
-}
-
-function fmtCurrency(n) {
-  return '$' + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
-
-function monthKey(dateStr) {
-  if (!dateStr) return null
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const fmtMonth = (dateStr) => {
+  if (!dateStr) return ''
   const d = new Date(dateStr)
-  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+  return `${MONTH_NAMES[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`
 }
 
-function addMonths(date, n) {
-  const d = new Date(date)
-  d.setMonth(d.getMonth() + n)
-  return d
-}
-
-const ttStyle = {
-  background: '#1e293b', border: '1px solid #334155',
-  borderRadius: 8, fontSize: 12, color: '#f1f5f9',
-}
-
-const RANGE_LABELS = {
-  '7d': 'Last 7 Days', '30d': 'Last 30 Days',
-  '90d': 'Last 90 Days', '6m': 'Last 6 Months', '12m': 'Last 12 Months',
-}
-
-// ── Section card wrapper ───────────────────────────────────────────────────────
-function Card({ title, subtitle, extra, children }) {
+// ── KPI Card ──────────────────────────────────────────────────────────────────
+function KpiCard({ label, value, sub, icon: Icon, color, trend, trendLabel }) {
+  const isUp = trend > 0
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-      {title && (
-        <div className="px-5 pt-4 pb-2 flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <p className="font-semibold text-sm text-slate-900 dark:text-white">{title}</p>
-            {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
-          </div>
-          {extra}
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${color}`}>
+          <Icon className="w-5 h-5 text-white" />
         </div>
-      )}
-      <div className="px-5 pb-5">{children}</div>
+        {trend !== undefined && (
+          <div className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
+            isUp ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                 : 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400'
+          }`}>
+            {isUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+            {Math.abs(trend)}%
+          </div>
+        )}
+      </div>
+      <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+      <p className="text-sm text-slate-500 mt-0.5">{label}</p>
+      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
     </div>
   )
 }
 
-// ── Ticket Volume Chart ───────────────────────────────────────────────────────
-function TicketVolumeChart({ tickets, range }) {
-  const data = useMemo(() => {
-    const spanDays = (range.end - range.start) / 86400000
-    const useWeeks = spanDays > 45
-    const buckets = []
-
-    if (useWeeks) {
-      // Weekly buckets
-      const d = new Date(range.start)
-      d.setDate(d.getDate() - d.getDay()) // start of week
-      while (d <= range.end) {
-        buckets.push({ key: new Date(d).toISOString(), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), opened: 0, resolved: 0 })
-        d.setDate(d.getDate() + 7)
-      }
-      tickets.forEach(t => {
-        if (!t.created_at) return
-        const cd = new Date(t.created_at)
-        if (cd < range.start || cd > range.end) return
-        const weekStart = new Date(cd); weekStart.setDate(cd.getDate() - cd.getDay())
-        const b = buckets.find(b => Math.abs(new Date(b.key) - weekStart) < 86400000)
-        if (b) b.opened++
-        if (['resolved','closed'].includes(t.status) && t.updated_at) {
-          const rd = new Date(t.updated_at)
-          if (rd >= range.start && rd <= range.end) {
-            const rw = new Date(rd); rw.setDate(rd.getDate() - rd.getDay())
-            const rb = buckets.find(b => Math.abs(new Date(b.key) - rw) < 86400000)
-            if (rb) rb.resolved++
-          }
-        }
-      })
-    } else {
-      // Daily buckets
-      const d = new Date(range.start)
-      while (d <= range.end) {
-        buckets.push({ key: d.toISOString().split('T')[0], label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), opened: 0, resolved: 0 })
-        d.setDate(d.getDate() + 1)
-      }
-      tickets.forEach(t => {
-        if (!t.created_at) return
-        const key = new Date(t.created_at).toISOString().split('T')[0]
-        const b = buckets.find(b => b.key === key)
-        if (b) b.opened++
-        if (['resolved','closed'].includes(t.status) && t.updated_at) {
-          const rKey = new Date(t.updated_at).toISOString().split('T')[0]
-          const rb = buckets.find(b => b.key === rKey)
-          if (rb) rb.resolved++
-        }
-      })
-    }
-
-    // Thin out labels if too many
-    if (buckets.length > 30) {
-      buckets.forEach((b, i) => { if (i % Math.ceil(buckets.length / 20) !== 0) b.label = '' })
-    }
-    return buckets
-  }, [tickets, range])
-
-  const hasData = data.some(b => b.opened > 0 || b.resolved > 0)
-
+// ── Custom tooltip ────────────────────────────────────────────────────────────
+function ChartTooltip({ active, payload, label, prefix = '$' }) {
+  if (!active || !payload?.length) return null
   return (
-    <Card title="Ticket Volume Over Time">
-      {!hasData ? (
-        <p className="text-center text-slate-400 text-sm py-12">No ticket data in this range</p>
-      ) : (
-        <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <defs>
-              <linearGradient id="openGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="resolveGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
-            <Tooltip contentStyle={ttStyle} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Area type="monotone" dataKey="opened" name="Opened" stroke="#f59e0b" fill="url(#openGrad)" strokeWidth={2} dot={false} />
-            <Area type="monotone" dataKey="resolved" name="Resolved" stroke="#10b981" fill="url(#resolveGrad)" strokeWidth={2} dot={false} />
-          </AreaChart>
-        </ResponsiveContainer>
-      )}
-    </Card>
-  )
-}
-
-// ── Revenue Forecast ──────────────────────────────────────────────────────────
-function RevenueForecast({ invoices }) {
-  const { data, recurringMRR, avgVariable } = useMemo(() => {
-    const now = new Date()
-    const actuals = {}
-    invoices.filter(i => i.status === 'paid' && (i.paid_date || i.issue_date)).forEach(i => {
-      const k = monthKey(i.paid_date || i.issue_date)
-      if (k) actuals[k] = (actuals[k] || 0) + (i.total || 0)
-    })
-    const recurringMRR = invoices
-      .filter(i => i.is_recurring && i.recurrence_interval === 'monthly' && !['void','draft'].includes(i.status))
-      .reduce((s, i) => s + (i.total || 0), 0)
-    const last3 = [-3,-2,-1].map(n => {
-      const k = monthKey(addMonths(now, n).toISOString())
-      return actuals[k] || 0
-    })
-    const avgVariable = Math.round(last3.reduce((s, v) => s + v, 0) / 3)
-    const chartData = []
-    for (let i = -5; i <= 6; i++) {
-      const m = addMonths(now, i)
-      const k = monthKey(m.toISOString())
-      const label = m.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-      const isActual = i <= 0
-      chartData.push({
-        month: label,
-        actual:   isActual ? Math.round(actuals[k] || 0) : null,
-        forecast: !isActual ? Math.round(recurringMRR + avgVariable) : null,
-      })
-    }
-    return { data: chartData, recurringMRR, avgVariable }
-  }, [invoices])
-
-  const todayLabel = new Date().toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-
-  return (
-    <Card
-      title="Revenue Forecast"
-      subtitle={`6-month projection — MRR ${fmtCurrency(recurringMRR)} + avg variable ${fmtCurrency(avgVariable)}`}
-      extra={
-        <div className="flex items-center gap-3 text-xs text-slate-400">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-emerald-500 rounded inline-block" /> Actual</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-1 bg-violet-500 rounded inline-block" /> Forecast</span>
+    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2.5 text-xs">
+      <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1.5">{label}</p>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span className="text-slate-500">{p.name}:</span>
+          <span className="font-semibold text-slate-900 dark:text-white">
+            {prefix === '$' ? fmt$(p.value) : p.value}
+          </span>
         </div>
-      }
-    >
-      <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-          <defs>
-            <linearGradient id="aGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id="fGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
-          <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => '$' + (v/1000).toFixed(0) + 'k'} />
-          <Tooltip contentStyle={ttStyle} formatter={v => [fmtCurrency(v)]} />
-          <ReferenceLine x={todayLabel} stroke="#64748b" strokeDasharray="4 4" label={{ value: 'Today', fill: '#94a3b8', fontSize: 10 }} />
-          <Area type="monotone" dataKey="actual" name="Actual" stroke="#10b981" fill="url(#aGrad)" strokeWidth={2} dot={false} connectNulls={false} />
-          <Area type="monotone" dataKey="forecast" name="Forecast" stroke="#8b5cf6" fill="url(#fGrad)" strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </Card>
-  )
-}
-
-// ── Resolution Time by Tech ───────────────────────────────────────────────────
-function ResolutionTimeByTech({ tickets, timeEntries, range }) {
-  const data = useMemo(() => {
-    const map = {}
-    // Use actual logged time per tech on resolved tickets — more accurate than wall-clock time
-    tickets.forEach(t => {
-      if (!['resolved','closed'].includes(t.status)) return
-      if (!t.assigned_to || !t.created_at) return
-      const created = new Date(t.created_at)
-      if (created < range.start || created > range.end) return
-      const tech = t.assigned_to.split('@')[0]
-      if (!map[tech]) map[tech] = { total: 0, count: 0 }
-      map[tech].count++
-    })
-    // Sum actual logged minutes per tech for resolved tickets in range
-    timeEntries.forEach(e => {
-      if (!e.technician || !e.ticket_id) return
-      const date = new Date(e.date)
-      if (date < range.start || date > range.end) return
-      const tech = e.technician.split('@')[0]
-      if (!map[tech]) return // only count techs with resolved tickets
-      map[tech].total += e.minutes || 0
-    })
-    return Object.entries(map)
-      .filter(([, s]) => s.count > 0 && s.total > 0)
-      .map(([name, s]) => ({ name, avgMinutes: Math.round(s.total / s.count), count: s.count, avgLabel: fmtMins(s.total / s.count) }))
-      .sort((a, b) => a.avgMinutes - b.avgMinutes)
-  }, [tickets, timeEntries, range])
-
-  return (
-    <Card title="Avg Time Logged per Tech (Resolved Tickets)">
-      {data.length === 0 ? (
-        <p className="text-center text-slate-400 text-sm py-10">No resolved tickets with assigned technicians in this range</p>
-      ) : (
-        <ResponsiveContainer width="100%" height={Math.max(180, data.length * 44)}>
-          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 60, left: 10, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => fmtMins(v)} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#f1f5f9' }} width={80} />
-            <Tooltip contentStyle={ttStyle} formatter={v => [fmtMins(v), 'Avg Resolution']} />
-            <Bar dataKey="avgMinutes" name="Avg Resolution" radius={[0,4,4,0]}>
-              {data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-    </Card>
-  )
-}
-
-// ── Customer SLA Table ────────────────────────────────────────────────────────
-function CustomerSlaTable({ tickets, range }) {
-  const [sortCol, setSortCol] = useState('compliance')
-  const [sortAsc, setSortAsc] = useState(false)
-
-  const rows = useMemo(() => {
-    const map = {}
-    const now = new Date()
-    tickets.forEach(t => {
-      if (!t.customer_name) return
-      const created = new Date(t.created_at)
-      if (created < range.start || created > range.end) return
-      const n = t.customer_name
-      if (!map[n]) map[n] = { customer: n, total: 0, withSla: 0, breached: 0, met: 0, open: 0, resolved: 0 }
-      map[n].total++
-      const isResolved = ['resolved','closed'].includes(t.status)
-      if (isResolved) map[n].resolved++; else map[n].open++
-      if (!t.sla_due_date) return
-      map[n].withSla++
-      const due = new Date(t.sla_due_date)
-      const checkTime = isResolved && t.updated_at ? new Date(t.updated_at) : now
-      if (due < checkTime) map[n].breached++; else map[n].met++
-    })
-    return Object.values(map).map(r => ({ ...r, compliance: r.withSla > 0 ? Math.round((r.met / r.withSla) * 100) : null }))
-  }, [tickets, range])
-
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      const av = a[sortCol] ?? -1, bv = b[sortCol] ?? -1
-      if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av)
-      return sortAsc ? av - bv : bv - av
-    })
-  }, [rows, sortCol, sortAsc])
-
-  const toggle = (col) => { if (sortCol === col) setSortAsc(!sortAsc); else { setSortCol(col); setSortAsc(false) } }
-  const SortIcon = ({ col }) => sortCol === col ? (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : null
-  const compColor = (r) => r >= 90 ? 'text-emerald-500' : r >= 70 ? 'text-amber-500' : 'text-rose-500'
-  const compBar   = (r) => r >= 90 ? 'bg-emerald-500' : r >= 70 ? 'bg-amber-500' : 'bg-rose-500'
-
-  return (
-    <Card title="SLA Compliance by Customer">
-      {rows.length === 0 ? (
-        <p className="text-center text-slate-400 text-sm py-10">No ticket data in this range</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700 text-xs text-slate-400">
-                {[['customer','Customer'],['total','Total'],['open','Open'],['resolved','Resolved'],['withSla','With SLA'],['breached','Breached'],['compliance','Compliance']].map(([col, label]) => (
-                  <th key={col} onClick={() => toggle(col)}
-                    className="text-left py-2 px-2 font-medium cursor-pointer hover:text-slate-200 select-none">
-                    <span className="flex items-center gap-1">{label}<SortIcon col={col} /></span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(row => (
-                <tr key={row.customer} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                  <td className="py-2.5 px-2 font-medium text-slate-900 dark:text-white text-xs">{row.customer}</td>
-                  <td className="py-2.5 px-2 text-slate-500 text-xs">{row.total}</td>
-                  <td className="py-2.5 px-2 text-blue-500 text-xs">{row.open}</td>
-                  <td className="py-2.5 px-2 text-emerald-500 text-xs">{row.resolved}</td>
-                  <td className="py-2.5 px-2 text-slate-500 text-xs">{row.withSla}</td>
-                  <td className="py-2.5 px-2 text-xs">{row.breached > 0 ? <span className="text-rose-500 font-semibold">{row.breached}</span> : <span className="text-emerald-500">0</span>}</td>
-                  <td className="py-2.5 px-2">
-                    {row.compliance !== null ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                          <div className={`h-1.5 rounded-full ${compBar(row.compliance)}`} style={{ width: row.compliance + '%' }} />
-                        </div>
-                        <span className={`text-xs font-semibold ${compColor(row.compliance)}`}>{row.compliance}%</span>
-                      </div>
-                    ) : <span className="text-slate-400 text-xs">—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  )
-}
-
-// ── AR Aging Table ────────────────────────────────────────────────────────────
-function InvoiceAgingTable({ invoices }) {
-  const BUCKETS = [
-    { label: 'Current',    cls: 'bg-emerald-100 text-emerald-700', max: 0 },
-    { label: '1-30 Days',  cls: 'bg-amber-100 text-amber-700',     max: 30 },
-    { label: '31-60 Days', cls: 'bg-orange-100 text-orange-700',   max: 60 },
-    { label: '61-90 Days', cls: 'bg-rose-100 text-rose-700',       max: 90 },
-    { label: '90+ Days',   cls: 'bg-red-200 text-red-800',         max: Infinity },
-  ]
-
-  const getBucket = (due) => {
-    const days = Math.floor((Date.now() - new Date(due)) / 86400000)
-    if (days <= 0) return 0
-    if (days <= 30) return 1
-    if (days <= 60) return 2
-    if (days <= 90) return 3
-    return 4
-  }
-
-  const unpaid = invoices.filter(i => ['sent','overdue','partial'].includes(i.status))
-  const custMap = {}
-  unpaid.forEach(inv => {
-    const n = inv.customer_name || 'Unknown'
-    const bal = Math.max(0, (inv.total || 0) - (inv.amount_paid || 0))
-    const b = getBucket(inv.due_date)
-    if (!custMap[n]) custMap[n] = { name: n, buckets: [0,0,0,0,0], total: 0 }
-    custMap[n].buckets[b] += bal
-    custMap[n].total += bal
-  })
-  const rows = Object.values(custMap).sort((a, b) => b.total - a.total)
-  const totals = [0,0,0,0,0]
-  rows.forEach(r => r.buckets.forEach((v, i) => { totals[i] += v }))
-  const grandTotal = totals.reduce((s, v) => s + v, 0)
-  const bucketCounts = BUCKETS.map((_, i) => unpaid.filter(inv => getBucket(inv.due_date) === i).length)
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {BUCKETS.map((b, i) => (
-          <div key={b.label} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${b.cls} inline-block mb-2`}>{b.label}</span>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(totals[i])}</p>
-            <p className="text-xs text-slate-400">{bucketCounts[i]} invoice{bucketCounts[i] !== 1 ? 's' : ''}</p>
-          </div>
-        ))}
-      </div>
-      <Card title="AR Aging Detail" extra={<span className="text-xs text-slate-400">Outstanding: <strong className="text-slate-700 dark:text-slate-300">{fmtCurrency(grandTotal)}</strong></span>}>
-        {rows.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-8">No outstanding invoices — all caught up!</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700 text-xs text-slate-400">
-                  <th className="text-left py-2 font-medium">Customer</th>
-                  {BUCKETS.map(b => <th key={b.label} className="text-right py-2 font-medium">{b.label}</th>)}
-                  <th className="text-right py-2 font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(row => (
-                  <tr key={row.name} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                    <td className="py-2.5 font-medium text-slate-900 dark:text-white text-xs">{row.name}</td>
-                    {row.buckets.map((v, i) => (
-                      <td key={i} className={`py-2.5 text-right text-xs ${v > 0 ? (i === 0 ? 'text-emerald-600' : i <= 2 ? 'text-amber-600' : 'text-rose-600 font-semibold') : 'text-slate-300 dark:text-slate-600'}`}>
-                        {v > 0 ? fmtCurrency(v) : '—'}
-                      </td>
-                    ))}
-                    <td className="py-2.5 text-right font-bold text-slate-900 dark:text-white text-xs">{fmtCurrency(row.total)}</td>
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-slate-300 dark:border-slate-600 font-bold text-xs">
-                  <td className="py-2.5 text-slate-900 dark:text-white">Total</td>
-                  {totals.map((v, i) => (
-                    <td key={i} className={`py-2.5 text-right ${v > 0 ? (i === 0 ? 'text-emerald-600' : i <= 2 ? 'text-amber-600' : 'text-rose-600') : 'text-slate-300 dark:text-slate-600'}`}>
-                      {v > 0 ? fmtCurrency(v) : '—'}
-                    </td>
-                  ))}
-                  <td className="py-2.5 text-right text-slate-900 dark:text-white">{fmtCurrency(grandTotal)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      ))}
     </div>
   )
 }
@@ -471,403 +76,422 @@ function InvoiceAgingTable({ invoices }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ReportsPage() {
   const supabase = createSupabaseBrowserClient()
-  const [tickets,     setTickets]     = useState([])
-  const [invoices,    setInvoices]    = useState([])
-  const [timeEntries, setTimeEntries] = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [range,       setRange]       = useState('30d')
+  const { data: orgData } = useOrg()
+  const orgId = orgData?.orgId ?? null
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      const [t, i, te] = await Promise.all([
-        supabase.from('tickets').select('*').order('created_at', { ascending: false }).limit(500),
-        supabase.from('invoices').select('*').order('issue_date', { ascending: false }).limit(500),
-        supabase.from('time_entries').select('*').order('date', { ascending: false }).limit(1000),
-      ])
-      setTickets(t.data ?? [])
-      setInvoices(i.data ?? [])
-      setTimeEntries(te.data ?? [])
-      setLoading(false)
-    }
-    load()
-  }, [])
+  // ── Revenue by month ──────────────────────────────────────────────────────
+  const { data: revenueData } = useQuery({
+    queryKey:  ['reports-revenue', orgId],
+    enabled:   !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn:   async () => {
+      const { data } = await supabase
+        .from('invoices')
+        .select('issue_date, total, amount_paid, status')
+        .gte('issue_date', new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0])
+        .neq('status', 'void')
+      return data ?? []
+    },
+  })
 
-  const selectedRange = getRange(range)
+  // ── Ticket volume by month ────────────────────────────────────────────────
+  const { data: ticketData } = useQuery({
+    queryKey:  ['reports-tickets', orgId],
+    enabled:   !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn:   async () => {
+      const { data } = await supabase
+        .from('tickets')
+        .select('created_at, status, priority, assigned_to, first_response_at, sla_due_date')
+        .gte('created_at', new Date(Date.now() - 365 * 86400000).toISOString())
+      return data ?? []
+    },
+  })
 
-  const rangeTickets  = useMemo(() => tickets.filter(t => inRange(t.created_at, selectedRange)), [tickets, range])
-  const rangeEntries  = useMemo(() => timeEntries.filter(e => inRange(e.date, selectedRange)),   [timeEntries, range])
+  // ── Time entries ──────────────────────────────────────────────────────────
+  const { data: timeData } = useQuery({
+    queryKey:  ['reports-time', orgId],
+    enabled:   !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn:   async () => {
+      const { data } = await supabase
+        .from('time_entries')
+        .select('date, minutes, billable, technician, customer_name')
+        .gte('date', new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0])
+      return data ?? []
+    },
+  })
 
-  const kpis = useMemo(() => {
-    const revenue = invoices
-      .filter(i => i.status === 'paid' && inRange(i.paid_date || i.issue_date, selectedRange))
-      .reduce((s, i) => s + (i.total || 0), 0)
-    const billableHours = Math.round(rangeEntries.filter(e => e.billable).reduce((s, e) => s + e.minutes, 0) / 60)
-    const withSla = rangeTickets.filter(t => t.sla_due_date)
-    const now = new Date()
-    const breached = withSla.filter(t => {
-      const resolved = ['resolved','closed'].includes(t.status)
-      const check = resolved && t.updated_at ? new Date(t.updated_at) : now
-      return new Date(t.sla_due_date) < check
-    })
-    const slaRate = withSla.length ? Math.round((breached.length / withSla.length) * 100) : 0
-    return { revenue, billableHours, slaRate, ticketCount: rangeTickets.length }
-  }, [rangeTickets, rangeEntries, invoices])
+  // ── Contracts for MRR ─────────────────────────────────────────────────────
+  const { data: contractData } = useQuery({
+    queryKey:  ['reports-contracts', orgId],
+    enabled:   !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn:   async () => {
+      const { data } = await supabase
+        .from('contracts')
+        .select('value, billing_cycle, status')
+        .in('status', ['signed', 'active'])
+      return data ?? []
+    },
+  })
 
-  const revenueByCustomer = useMemo(() => {
-    const map = {}
-    invoices.filter(i => i.status === 'paid' && inRange(i.paid_date || i.issue_date, selectedRange)).forEach(i => {
-      const n = i.customer_name || 'Unknown'
-      map[n] = (map[n] || 0) + (i.total || 0)
-    })
-    return Object.entries(map).map(([name, revenue]) => ({ name, revenue: Math.round(revenue) })).sort((a, b) => b.revenue - a.revenue).slice(0, 8)
-  }, [invoices, range])
+  // ── Customer revenue ──────────────────────────────────────────────────────
+  const { data: customerRevData } = useQuery({
+    queryKey:  ['reports-customers', orgId],
+    enabled:   !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn:   async () => {
+      const { data } = await supabase
+        .from('invoices')
+        .select('customer_name, total, status')
+        .eq('status', 'paid')
+      return data ?? []
+    },
+  })
 
-  const ticketsByPriority = useMemo(() => {
-    const map = { critical: 0, high: 0, medium: 0, low: 0 }
-    rangeTickets.forEach(t => { if (map[t.priority] !== undefined) map[t.priority]++ })
-    return Object.entries(map).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
-  }, [rangeTickets])
+  // ── Computed metrics ──────────────────────────────────────────────────────
+  const metrics = useMemo(() => {
+    const invoices    = revenueData ?? []
+    const tickets     = ticketData  ?? []
+    const time        = timeData    ?? []
+    const contracts   = contractData ?? []
 
-  const hoursByCustomer = useMemo(() => {
-    const map = {}
-    rangeEntries.filter(e => e.billable).forEach(e => {
-      const n = e.customer_name || 'Unknown'
-      map[n] = (map[n] || 0) + (e.minutes || 0)
-    })
-    return Object.entries(map).map(([name, mins]) => ({ name, hours: Math.round(mins / 60 * 10) / 10 })).sort((a, b) => b.hours - a.hours).slice(0, 8)
-  }, [rangeEntries])
+    // MRR from contracts
+    const mrr = contracts.reduce((sum, c) => {
+      const val = Number(c.value || 0)
+      if (c.billing_cycle === 'monthly')   return sum + val
+      if (c.billing_cycle === 'quarterly') return sum + val / 3
+      if (c.billing_cycle === 'annually')  return sum + val / 12
+      return sum
+    }, 0)
 
-  const techPerf = useMemo(() => {
-    const map = {}
-    rangeTickets.forEach(t => {
-      const tech = t.assigned_to || 'Unassigned'
-      if (!map[tech]) map[tech] = { tickets: 0, resolved: 0, breached: 0 }
-      map[tech].tickets++
-      if (['resolved','closed'].includes(t.status)) map[tech].resolved++
-      if (t.sla_due_date) {
-        const check = ['resolved','closed'].includes(t.status) && t.updated_at ? new Date(t.updated_at) : new Date()
-        if (new Date(t.sla_due_date) < check) map[tech].breached++
+    // Revenue
+    const collected  = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.total || 0), 0)
+    const outstanding = invoices.filter(i => ['sent','overdue','partial'].includes(i.status))
+                                .reduce((s, i) => s + Math.max(0, Number(i.total||0) - Number(i.amount_paid||0)), 0)
+
+    // Tickets
+    const open     = tickets.filter(t => !['resolved','closed'].includes(t.status)).length
+    const resolved = tickets.filter(t => t.status === 'resolved').length
+    const critical = tickets.filter(t => t.priority === 'critical' && !['resolved','closed'].includes(t.status)).length
+    const unassigned = tickets.filter(t => !t.assigned_to && !['resolved','closed'].includes(t.status)).length
+
+    // SLA compliance
+    const withSla   = tickets.filter(t => t.sla_due_date && t.status === 'resolved' && t.first_response_at)
+    const slaMetCount = withSla.filter(t => new Date(t.first_response_at) <= new Date(t.sla_due_date)).length
+    const slaRate   = withSla.length > 0 ? Math.round((slaMetCount / withSla.length) * 100) : null
+
+    // Time
+    const totalMins   = time.reduce((s, e) => s + (e.minutes || 0), 0)
+    const billableMins = time.filter(e => e.billable).reduce((s, e) => s + (e.minutes || 0), 0)
+    const billableRate = totalMins > 0 ? Math.round((billableMins / totalMins) * 100) : 0
+
+    return { mrr, collected, outstanding, open, resolved, critical, unassigned, slaRate, totalMins, billableMins, billableRate }
+  }, [revenueData, ticketData, timeData, contractData])
+
+  // ── Monthly revenue chart data ────────────────────────────────────────────
+  const revenueChartData = useMemo(() => {
+    const invoices = revenueData ?? []
+    const map: Record<string, { month: string, collected: number, outstanding: number }> = {}
+
+    invoices.forEach(inv => {
+      if (!inv.issue_date) return
+      const key = inv.issue_date.slice(0, 7) // YYYY-MM
+      if (!map[key]) map[key] = { month: fmtMonth(inv.issue_date), collected: 0, outstanding: 0 }
+      if (inv.status === 'paid') map[key].collected += Number(inv.total || 0)
+      else if (['sent','overdue','partial'].includes(inv.status)) {
+        map[key].outstanding += Math.max(0, Number(inv.total||0) - Number(inv.amount_paid||0))
       }
     })
-    rangeEntries.forEach(e => {
-      const tech = e.technician || 'Unknown'
-      if (!map[tech]) map[tech] = { tickets: 0, resolved: 0, breached: 0, mins: 0 }
-      map[tech].mins = (map[tech].mins || 0) + (e.minutes || 0)
+
+    return Object.entries(map).sort(([a],[b]) => a.localeCompare(b)).map(([,v]) => v)
+  }, [revenueData])
+
+  // ── Monthly ticket chart data ─────────────────────────────────────────────
+  const ticketChartData = useMemo(() => {
+    const tickets = ticketData ?? []
+    const map: Record<string, { month: string, created: number, resolved: number }> = {}
+
+    tickets.forEach(t => {
+      if (!t.created_at) return
+      const key = t.created_at.slice(0, 7)
+      if (!map[key]) map[key] = { month: fmtMonth(t.created_at), created: 0, resolved: 0 }
+      map[key].created++
+      if (t.status === 'resolved') map[key].resolved++
+    })
+
+    return Object.entries(map).sort(([a],[b]) => a.localeCompare(b)).slice(-6).map(([,v]) => v)
+  }, [ticketData])
+
+  // ── Monthly hours chart data ──────────────────────────────────────────────
+  const hoursChartData = useMemo(() => {
+    const time = timeData ?? []
+    const map: Record<string, { month: string, billable: number, nonBillable: number }> = {}
+
+    time.forEach(e => {
+      if (!e.date) return
+      const key = e.date.slice(0, 7)
+      if (!map[key]) map[key] = { month: fmtMonth(e.date), billable: 0, nonBillable: 0 }
+      const hrs = (e.minutes || 0) / 60
+      if (e.billable) map[key].billable += hrs
+      else map[key].nonBillable += hrs
+    })
+
+    return Object.entries(map).sort(([a],[b]) => a.localeCompare(b)).map(([,v]) => ({
+      ...v,
+      billable:    Math.round(v.billable * 10) / 10,
+      nonBillable: Math.round(v.nonBillable * 10) / 10,
+    }))
+  }, [timeData])
+
+  // ── Top customers ─────────────────────────────────────────────────────────
+  const topCustomers = useMemo(() => {
+    const data = customerRevData ?? []
+    const map: Record<string, number> = {}
+    data.forEach(i => {
+      const name = i.customer_name || 'Unknown'
+      map[name] = (map[name] || 0) + Number(i.total || 0)
     })
     return Object.entries(map)
-      .filter(([n]) => n !== 'Unassigned' && n !== 'Unknown')
-      .map(([name, d]) => ({
-        name,
-        tickets: d.tickets,
-        resolved: d.resolved,
-        rate: d.tickets ? Math.round((d.resolved / d.tickets) * 100) : 0,
-        hours: Math.round((d.mins || 0) / 60 * 10) / 10,
-        breached: d.breached,
-      }))
-      .sort((a, b) => b.resolved - a.resolved)
-  }, [rangeTickets, rangeEntries])
+      .sort(([,a],[,b]) => b - a)
+      .slice(0, 5)
+      .map(([name, revenue]) => ({ name, revenue }))
+  }, [customerRevData])
 
-  const techUtil = useMemo(() => {
-    const map = {}
-    rangeEntries.forEach(e => {
-      const tech = e.technician || 'Unknown'
-      if (!map[tech]) map[tech] = { billable: 0, total: 0 }
-      map[tech].total += e.minutes || 0
-      if (e.billable) map[tech].billable += e.minutes || 0
-    })
-    return Object.entries(map)
-      .filter(([t]) => t !== 'Unknown')
-      .map(([tech, d]) => ({
-        tech,
-        billableHours: Math.round(d.billable / 60 * 10) / 10,
-        totalHours: Math.round(d.total / 60 * 10) / 10,
-        utilization: d.total > 0 ? Math.round((d.billable / d.total) * 100) : 0,
-      }))
-      .sort((a, b) => b.utilization - a.utilization)
-  }, [rangeEntries])
+  // ── Priority breakdown ────────────────────────────────────────────────────
+  const priorityData = useMemo(() => {
+    const tickets = (ticketData ?? []).filter(t => !['resolved','closed'].includes(t.status))
+    const counts = { critical: 0, high: 0, medium: 0, low: 0 }
+    tickets.forEach(t => { if (counts[t.priority] !== undefined) counts[t.priority]++ })
+    return [
+      { name: 'Critical', value: counts.critical, color: '#f43f5e' },
+      { name: 'High',     value: counts.high,     color: '#f97316' },
+      { name: 'Medium',   value: counts.medium,   color: '#f59e0b' },
+      { name: 'Low',      value: counts.low,      color: '#10b981' },
+    ].filter(d => d.value > 0)
+  }, [ticketData])
 
-  const frtData = useMemo(() => {
-    const map = {}
-    tickets.filter(t => t.first_response_at && t.created_at).forEach(t => {
-      const tech = t.assigned_to || 'Unassigned'
-      const mins = Math.round((new Date(t.first_response_at) - new Date(t.created_at)) / 60000)
-      if (!map[tech]) map[tech] = { total: 0, count: 0 }
-      map[tech].total += mins; map[tech].count++
-    })
-    return Object.entries(map)
-      .filter(([t]) => t !== 'Unassigned')
-      .map(([tech, d]) => ({ tech, avgMins: Math.round(d.total / d.count), count: d.count }))
-      .sort((a, b) => a.avgMins - b.avgMins)
-  }, [tickets])
-
-  const profitData = useMemo(() => {
-    const map = {}
-    invoices.filter(i => i.status === 'paid' && inRange(i.paid_date || i.issue_date, selectedRange)).forEach(i => {
-      const n = i.customer_name || 'Unknown'
-      if (!map[n]) map[n] = { revenue: 0, cost: 0 }
-      map[n].revenue += i.total || 0
-    })
-    rangeEntries.filter(e => e.billable && e.hourly_rate).forEach(e => {
-      const n = e.customer_name || 'Unknown'
-      if (!map[n]) map[n] = { revenue: 0, cost: 0 }
-      map[n].cost += ((e.minutes || 0) / 60) * (e.hourly_rate || 0)
-    })
-    return Object.entries(map)
-      .map(([name, d]) => ({ name, revenue: Math.round(d.revenue), cost: Math.round(d.cost), profit: Math.round(d.revenue - d.cost) }))
-      .sort((a, b) => b.profit - a.profit).slice(0, 10)
-  }, [invoices, rangeEntries, range])
-
-  const sel = "px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-
-  if (loading) return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div className="h-7 w-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
-        <div className="h-9 w-40 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{Array(4).fill(0).map((_,i) => <div key={i} className="h-24 bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse" />)}</div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">{Array(4).fill(0).map((_,i) => <div key={i} className="h-64 bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse" />)}</div>
-    </div>
-  )
+  const isLoading = !revenueData && !ticketData
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Reports</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Performance metrics for <strong>{RANGE_LABELS[range]}</strong></p>
-        </div>
-        <select value={range} onChange={e => setRange(e.target.value)} className={sel}>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="6m">Last 6 months</option>
-          <option value="12m">Last 12 months</option>
-        </select>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Revenue',        value: fmtCurrency(kpis.revenue),        icon: TrendingUp,  color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
-          { label: 'Billable Hours', value: kpis.billableHours + 'h',          icon: Clock,       color: 'text-violet-500',  bg: 'bg-violet-50 dark:bg-violet-950/30' },
-          { label: 'Tickets Opened', value: kpis.ticketCount,                  icon: Ticket,      color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
-          { label: 'SLA Breach Rate',value: kpis.slaRate + '%',                icon: AlertTriangle, color: kpis.slaRate > 20 ? 'text-rose-500' : 'text-emerald-500', bg: kpis.slaRate > 20 ? 'bg-rose-50 dark:bg-rose-950/30' : 'bg-emerald-50 dark:bg-emerald-950/30' },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center flex-shrink-0`}>
-              <Icon className={`w-5 h-5 ${color}`} />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
-              <p className="text-xs text-slate-400">{label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Ticket Volume */}
-      <TicketVolumeChart tickets={tickets} range={selectedRange} />
-
-      {/* Revenue Forecast */}
-      <RevenueForecast invoices={invoices} />
-
-      {/* Resolution time + Priority */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ResolutionTimeByTech tickets={tickets} timeEntries={timeEntries} range={selectedRange} />
-        <div className="space-y-4">
-          <Card title="Ticket Priority Breakdown">
-            {ticketsByPriority.length === 0 ? (
-              <p className="text-center text-slate-400 text-sm py-6">No ticket data</p>
-            ) : (
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width={130} height={130}>
-                  <PieChart>
-                    <Pie data={ticketsByPriority} dataKey="value" cx="50%" cy="50%" outerRadius={52} innerRadius={30}>
-                      {ticketsByPriority.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip contentStyle={ttStyle} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex-1 space-y-2">
-                  {ticketsByPriority.map((p, i) => (
-                    <div key={p.name} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
-                        <span className="capitalize text-slate-900 dark:text-white">{p.name}</span>
-                      </div>
-                      <span className="text-xs font-semibold text-slate-400">{p.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
-          <Card title="Billable Hours by Customer">
-            {hoursByCustomer.length === 0 ? (
-              <p className="text-center text-slate-400 text-sm py-4">No billable time in this range</p>
-            ) : (
-              <div className="space-y-2">
-                {hoursByCustomer.map(({ name, hours }) => (
-                  <div key={name} className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400 w-24 truncate">{name}</span>
-                    <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                      <div className="bg-violet-500 h-2 rounded-full" style={{ width: `${Math.min(100, (hours / (hoursByCustomer[0]?.hours || 1)) * 100)}%` }} />
-                    </div>
-                    <span className="text-xs font-medium text-slate-900 dark:text-white w-10 text-right">{hours}h</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      {/* Customer SLA Table */}
-      <CustomerSlaTable tickets={tickets} range={selectedRange} />
-
-      {/* Revenue by Customer */}
-      <Card title="Revenue by Customer">
-        {revenueByCustomer.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-10">No paid invoices in this range</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={revenueByCustomer} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => '$' + v.toLocaleString()} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#f1f5f9' }} width={110} />
-              <Tooltip contentStyle={ttStyle} formatter={v => [fmtCurrency(v), 'Revenue']} />
-              <Bar dataKey="revenue" fill="#10b981" radius={[0,4,4,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </Card>
-
-      {/* Customer Profitability */}
-      <Card title="Customer Profitability" subtitle="Revenue collected vs. time cost (billable hours × hourly rate) per customer">
-        {profitData.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-8">No profitability data in this range</p>
-        ) : (
-          <div className="space-y-3 mt-2">
-            {profitData.map(row => (
-              <div key={row.name} className="flex items-center gap-3">
-                <span className="text-xs text-slate-400 w-32 truncate flex-shrink-0">{row.name}</span>
-                <div className="flex-1 flex items-center gap-2">
-                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden relative">
-                    <div className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full" style={{ width: `${Math.min(100, Math.max(0, (row.revenue / (profitData[0]?.revenue || 1)) * 100))}%` }} />
-                    <div className="absolute inset-y-0 left-0 bg-rose-500/60 rounded-full" style={{ width: `${Math.min(100, Math.max(0, (row.cost / (profitData[0]?.revenue || 1)) * 100))}%` }} />
-                  </div>
-                  <span className={`text-xs font-semibold w-20 text-right ${row.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {row.profit >= 0 ? '+' : ''}{fmtCurrency(row.profit)}
-                  </span>
-                </div>
-                <span className="text-xs text-slate-400 w-28 text-right hidden sm:block">{fmtCurrency(row.revenue)} / {fmtCurrency(row.cost)}</span>
-              </div>
-            ))}
-            <div className="flex items-center gap-3 text-xs text-slate-400 pt-1">
-              <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-emerald-500 inline-block" /> Revenue</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-rose-400 inline-block" /> Time Cost</span>
-              <span className="ml-auto">Profit = Revenue − Time Cost</span>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      {/* Technician Performance */}
-      <Card title="Technician Performance">
-        {techPerf.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-8">No technician data in this range</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700 text-xs text-slate-400">
-                  {['Technician','Assigned','Resolved','Resolution %','Hours Logged','SLA Breaches'].map(h => (
-                    <th key={h} className="text-left py-2 font-medium last:text-right">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {techPerf.map(row => (
-                  <tr key={row.name} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 font-medium text-slate-900 dark:text-white text-xs">{row.name}</td>
-                    <td className="py-2.5 text-slate-400 text-xs">{row.tickets}</td>
-                    <td className="py-2.5 text-emerald-600 font-medium text-xs">{row.resolved}</td>
-                    <td className="py-2.5 text-xs">
-                      <span className={`font-semibold ${row.rate >= 80 ? 'text-emerald-600' : row.rate >= 60 ? 'text-amber-600' : 'text-rose-600'}`}>{row.rate}%</span>
-                    </td>
-                    <td className="py-2.5 text-slate-400 text-xs">{row.hours}h</td>
-                    <td className="py-2.5 text-right text-xs">{row.breached > 0 ? <span className="text-rose-600 font-medium">{row.breached}</span> : <span className="text-emerald-600">0</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      {/* First Response Time + Tech Utilization */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="First Response Time" extra={frtData.length > 0 && (() => {
-          const avg = Math.round(frtData.reduce((s, r) => s + r.avgMins * r.count, 0) / frtData.reduce((s, r) => s + r.count, 0))
-          return <span className={`text-sm font-bold ${avg <= 60 ? 'text-emerald-500' : avg <= 240 ? 'text-amber-500' : 'text-rose-500'}`}>Avg: {fmtMins(avg)}</span>
-        })()}>
-          {frtData.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-6">No first-response data yet. Tracked when technicians reply to client tickets.</p>
-          ) : (
-            <div className="space-y-3">
-              {frtData.map(row => (
-                <div key={row.tech} className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400 w-36 truncate flex-shrink-0">{row.tech}</span>
-                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                    <div className={`h-2 rounded-full ${row.avgMins <= 60 ? 'bg-emerald-500' : row.avgMins <= 240 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                      style={{ width: `${Math.min(100, (row.avgMins / (frtData[frtData.length-1]?.avgMins || 1)) * 100)}%` }} />
-                  </div>
-                  <span className={`text-xs font-semibold w-16 text-right ${row.avgMins <= 60 ? 'text-emerald-600' : row.avgMins <= 240 ? 'text-amber-600' : 'text-rose-600'}`}>{fmtMins(row.avgMins)}</span>
-                  <span className="text-[11px] text-slate-400 w-14 text-right">{row.count} ticket{row.count !== 1 ? 's' : ''}</span>
-                </div>
-              ))}
-              <div className="flex items-center gap-3 text-[11px] text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-700">
-                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-emerald-500 inline-block" /> ≤1h</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-amber-500 inline-block" /> 1-4h</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-rose-500 inline-block" /> &gt;4h</span>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        <Card title="Technician Utilization" subtitle="Billable ÷ total logged hours — target ≥75%">
-          {techUtil.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-6">No time entries in this range</p>
-          ) : (
-            <div className="space-y-3">
-              {techUtil.map(row => (
-                <div key={row.tech} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-900 dark:text-white font-medium truncate max-w-[160px]">{row.tech}</span>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-slate-400">{row.billableHours}h bill / {row.totalHours}h total</span>
-                      <span className={`font-bold w-10 text-right ${row.utilization >= 75 ? 'text-emerald-600' : row.utilization >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>{row.utilization}%</span>
-                    </div>
-                  </div>
-                  <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div className={`h-2 rounded-full ${row.utilization >= 75 ? 'bg-emerald-500' : row.utilization >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                      style={{ width: row.utilization + '%' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* AR Aging */}
       <div>
-        <h2 className="text-base font-semibold text-slate-900 dark:text-white mb-3">Accounts Receivable Aging</h2>
-        <InvoiceAgingTable invoices={invoices} />
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Reports</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Business performance overview — last 12 months</p>
       </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array(8).fill(0).map((_,i) => (
+            <div key={i} className="h-28 bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              label="Monthly Recurring Revenue"
+              value={fmt$(metrics.mrr)}
+              sub={`${(contractData ?? []).length} active contract${(contractData ?? []).length !== 1 ? 's' : ''}`}
+              icon={TrendingUp}
+              color="bg-amber-500"
+            />
+            <KpiCard
+              label="Revenue Collected"
+              value={fmt$(metrics.collected)}
+              sub="Paid invoices, last 12 months"
+              icon={DollarSign}
+              color="bg-emerald-500"
+            />
+            <KpiCard
+              label="Outstanding"
+              value={fmt$(metrics.outstanding)}
+              sub="Sent, overdue & partial"
+              icon={AlertTriangle}
+              color={metrics.outstanding > 0 ? 'bg-rose-500' : 'bg-slate-400'}
+            />
+            <KpiCard
+              label="Annualized MRR"
+              value={fmt$(metrics.mrr * 12)}
+              sub="Projected from current contracts"
+              icon={TrendingUp}
+              color="bg-violet-500"
+            />
+            <KpiCard
+              label="Open Tickets"
+              value={metrics.open}
+              sub={`${metrics.critical} critical · ${metrics.unassigned} unassigned`}
+              icon={Ticket}
+              color={metrics.critical > 0 ? 'bg-rose-500' : 'bg-blue-500'}
+            />
+            <KpiCard
+              label="Resolved Tickets"
+              value={metrics.resolved}
+              sub="Last 12 months"
+              icon={CheckCircle2}
+              color="bg-emerald-500"
+            />
+            <KpiCard
+              label="SLA Compliance"
+              value={metrics.slaRate !== null ? `${metrics.slaRate}%` : '—'}
+              sub="First response within SLA target"
+              icon={CheckCircle2}
+              color={metrics.slaRate === null ? 'bg-slate-400' : metrics.slaRate >= 90 ? 'bg-emerald-500' : metrics.slaRate >= 70 ? 'bg-amber-500' : 'bg-rose-500'}
+            />
+            <KpiCard
+              label="Hours Logged"
+              value={fmtHrs(metrics.totalMins)}
+              sub={`${metrics.billableRate}% billable · ${fmtHrs(metrics.billableMins)} billable`}
+              icon={Clock}
+              color="bg-violet-500"
+            />
+          </div>
+
+          {/* Revenue + Top Customers */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Revenue Chart */}
+            <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <h2 className="font-semibold text-slate-900 dark:text-white mb-4">Revenue by Month</h2>
+              {revenueChartData.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 text-sm">No invoice data yet</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={revenueChartData} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
+                    <Bar dataKey="collected"   name="Collected"   fill="#10b981" radius={[4,4,0,0]} />
+                    <Bar dataKey="outstanding" name="Outstanding" fill="#f59e0b" radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              <div className="flex items-center gap-4 mt-3">
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /><span className="text-xs text-slate-400">Collected</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-400" /><span className="text-xs text-slate-400">Outstanding</span></div>
+              </div>
+            </div>
+
+            {/* Top Customers */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <h2 className="font-semibold text-slate-900 dark:text-white mb-4">Top Customers by Revenue</h2>
+              {topCustomers.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 text-sm">No paid invoices yet</div>
+              ) : (
+                <div className="space-y-3">
+                  {topCustomers.map((c, i) => {
+                    const maxRev = topCustomers[0].revenue
+                    return (
+                      <div key={c.name}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-400 w-4">#{i+1}</span>
+                            <span className="text-sm font-medium text-slate-900 dark:text-white truncate max-w-[140px]">{c.name}</span>
+                          </div>
+                          <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{fmt$(c.revenue)}</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-amber-400"
+                            style={{ width: `${(c.revenue / maxRev) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Ticket Volume + Hours */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Ticket Volume */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <h2 className="font-semibold text-slate-900 dark:text-white mb-4">Ticket Volume — Last 6 Months</h2>
+              {ticketChartData.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 text-sm">No ticket data</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={ticketChartData} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip content={<ChartTooltip prefix="" />} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
+                    <Bar dataKey="created"  name="Created"  fill="#3b82f6" radius={[4,4,0,0]} />
+                    <Bar dataKey="resolved" name="Resolved" fill="#10b981" radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              <div className="flex items-center gap-4 mt-3">
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-blue-500" /><span className="text-xs text-slate-400">Created</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500" /><span className="text-xs text-slate-400">Resolved</span></div>
+              </div>
+            </div>
+
+            {/* Hours Logged */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <h2 className="font-semibold text-slate-900 dark:text-white mb-4">Hours Logged by Month</h2>
+              {hoursChartData.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 text-sm">No time entries yet</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={hoursChartData}>
+                    <defs>
+                      <linearGradient id="billableGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ChartTooltip prefix="" />} cursor={{ stroke: 'rgba(148,163,184,0.3)' }} />
+                    <Area type="monotone" dataKey="billable" name="Billable hrs" stroke="#8b5cf6" strokeWidth={2} fill="url(#billableGrad)" />
+                    <Area type="monotone" dataKey="nonBillable" name="Non-billable hrs" stroke="#94a3b8" strokeWidth={1.5} fill="none" strokeDasharray="4 2" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+              <div className="flex items-center gap-4 mt-3">
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-violet-500" /><span className="text-xs text-slate-400">Billable</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-slate-400" /><span className="text-xs text-slate-400">Non-billable</span></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Open tickets by priority */}
+          {priorityData.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <h2 className="font-semibold text-slate-900 dark:text-white mb-4">Open Tickets by Priority</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Critical', key: 'critical', color: 'bg-rose-500',   text: 'text-rose-600',   bg: 'bg-rose-50 dark:bg-rose-950/20' },
+                  { label: 'High',     key: 'high',     color: 'bg-orange-400', text: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950/20' },
+                  { label: 'Medium',   key: 'medium',   color: 'bg-amber-400',  text: 'text-amber-600',  bg: 'bg-amber-50 dark:bg-amber-950/20' },
+                  { label: 'Low',      key: 'low',      color: 'bg-emerald-400',text: 'text-emerald-600',bg: 'bg-emerald-50 dark:bg-emerald-950/20' },
+                ].map(p => {
+                  const tickets = (ticketData ?? []).filter(t =>
+                    t.priority === p.key && !['resolved','closed'].includes(t.status)
+                  ).length
+                  return (
+                    <div key={p.key} className={`rounded-xl p-4 ${p.bg}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-2.5 h-2.5 rounded-full ${p.color}`} />
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">{p.label}</span>
+                      </div>
+                      <p className={`text-3xl font-bold ${p.text}`}>{tickets}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">open tickets</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
