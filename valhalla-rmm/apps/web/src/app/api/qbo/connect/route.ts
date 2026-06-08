@@ -25,7 +25,10 @@ function parseSupabaseCookie(raw: string): string | null {
 export async function GET(req: NextRequest) {
   const clientId    = process.env.QBO_CLIENT_ID
   const redirectUri = process.env.QBO_REDIRECT_URI
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+  // ── Validate env vars ───────────────────────────────────────────────────────
   if (!clientId || !redirectUri) {
     return new NextResponse(
       `Missing Vercel env vars:\n${!clientId ? '✗ QBO_CLIENT_ID\n' : ''}${!redirectUri ? '✗ QBO_REDIRECT_URI\n' : ''}\nAdd them in Vercel Dashboard → Settings → Environment Variables.`,
@@ -33,18 +36,26 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  // Try to get orgId to encode in state as a fallback for the callback
-  let orgIdSuffix = ''
-  try {
-    const supabase    = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-    const cookieStore = cookies()
+  // ── Verify the caller is an authenticated Valhalla user ─────────────────────
+  // Blocks anyone who isn't logged in from starting an OAuth flow
+  if (!supabaseUrl || !serviceKey) {
+    return new NextResponse('Server misconfiguration: missing Supabase credentials', { status: 500 })
+  }
 
-    for (const cookie of cookieStore.getAll()) {
-      if (!cookie.name.includes('auth-token')) continue
-      const accessToken = parseSupabaseCookie(cookie.value)
-      if (!accessToken) continue
+  const cookieStore = cookies()
+  const supabase    = createClient(supabaseUrl, serviceKey)
+  let authenticated = false
+  let orgIdSuffix   = ''
+
+  for (const cookie of cookieStore.getAll()) {
+    if (!cookie.name.includes('auth-token')) continue
+    const accessToken = parseSupabaseCookie(cookie.value)
+    if (!accessToken) continue
+    try {
       const { data: { user } } = await supabase.auth.getUser(accessToken)
       if (user) {
+        authenticated = true
+        // Encode orgId into state so the callback can find the org reliably
         const { data: member } = await supabase
           .from('organization_members')
           .select('organization_id')
@@ -54,12 +65,16 @@ export async function GET(req: NextRequest) {
           orgIdSuffix = `_${member.organization_id}`
         }
       }
-      break
-    }
-  } catch { /* non-fatal — callback has fallback */ }
+    } catch { /* ignore and try next cookie */ }
+    break
+  }
 
-  const state = `${crypto.randomUUID()}${orgIdSuffix}`
+  if (!authenticated) {
+    return new NextResponse('Unauthorized — log in to Valhalla RMM first', { status: 401 })
+  }
 
+  // ── Build OAuth redirect ────────────────────────────────────────────────────
+  const state  = `${crypto.randomUUID()}${orgIdSuffix}`
   const params = new URLSearchParams({
     client_id:     clientId,
     redirect_uri:  redirectUri,
@@ -72,7 +87,7 @@ export async function GET(req: NextRequest) {
   response.cookies.set('qbo_oauth_state', state, {
     httpOnly: true,
     secure:   true,
-    maxAge:   600,
+    maxAge:   600, // 10 minutes
     path:     '/',
   })
   return response
