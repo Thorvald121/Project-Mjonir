@@ -7,6 +7,29 @@ import { cookies } from 'next/headers'
 
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 
+// ── AES-GCM encryption (Web Crypto API — works in Node.js 18+) ────────────────
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16)
+  }
+  return bytes
+}
+
+async function encryptToken(plaintext: string, keyHex: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw', hexToBytes(keyHex), { name: 'AES-GCM' }, false, ['encrypt']
+  )
+  const iv        = crypto.getRandomValues(new Uint8Array(12))
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext)
+  )
+  const combined = new Uint8Array(iv.length + encrypted.byteLength)
+  combined.set(iv)
+  combined.set(new Uint8Array(encrypted), iv.length)
+  return btoa(String.fromCharCode(...combined))
+}
+
 function errorPage(title: string, detail: string) {
   return new NextResponse(
     `<!DOCTYPE html><html><body style="font-family:monospace;padding:40px;max-width:600px">
@@ -19,16 +42,13 @@ function errorPage(title: string, detail: string) {
   )
 }
 
-// Supabase stores session cookies as "base64-{base64encodedJSON}" in newer versions
 function parseSupabaseCookie(raw: string): string | null {
   try {
     let val = decodeURIComponent(raw)
-    // Handle base64-encoded format: "base64-eyJ..."
     if (val.startsWith('base64-')) {
       val = Buffer.from(val.slice(7), 'base64').toString('utf-8')
     }
     const parsed = JSON.parse(val)
-    // Could be [accessToken, refreshToken] array or { access_token: '...' }
     if (Array.isArray(parsed) && typeof parsed[0] === 'string') return parsed[0]
     if (parsed?.access_token) return parsed.access_token
     return null
@@ -46,12 +66,12 @@ export async function GET(req: NextRequest) {
 
   if (error) return errorPage('QBO denied access', error)
 
-  // ── Validate env vars ───────────────────────────────────────────────────────
   const clientId     = process.env.QBO_CLIENT_ID
   const clientSecret = process.env.QBO_CLIENT_SECRET
   const redirectUri  = process.env.QBO_REDIRECT_URI
   const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const encKey       = process.env.QBO_ENCRYPTION_KEY   // optional — tokens stored plaintext if missing
   const appUrl       = process.env.NEXT_PUBLIC_APP_URL || 'https://valhalla-rmm.com'
 
   const missing = [
@@ -63,24 +83,18 @@ export async function GET(req: NextRequest) {
   ].filter(Boolean)
 
   if (missing.length > 0) {
-    return errorPage(
-      'Missing Vercel environment variables',
-      `These must be set in Vercel Dashboard → Settings → Environment Variables:\n\n${missing.map(v => `✗ ${v}`).join('\n')}`
-    )
+    return errorPage('Missing Vercel environment variables',
+      `Add these in Vercel Dashboard → Settings → Environment Variables:\n\n${missing.map(v => `✗ ${v}`).join('\n')}`)
   }
 
   if (!code || !realmId) {
-    return errorPage('Missing params from QBO', `code: ${code ? '✓' : '✗ missing'}\nrealmId: ${realmId ? '✓' : '✗ missing'}`)
+    return errorPage('Missing params from QBO', `code: ${code ? '✓' : '✗'}\nrealmId: ${realmId ? '✓' : '✗'}`)
   }
 
-  // ── Validate CSRF state ─────────────────────────────────────────────────────
   const cookieStore = cookies()
   const savedState  = cookieStore.get('qbo_oauth_state')?.value
   if (!state || state !== savedState) {
-    return errorPage(
-      'State mismatch — session may have expired',
-      `Try connecting again. State cookies expire after 10 minutes.`
-    )
+    return errorPage('State mismatch — session may have expired', 'Try connecting again.')
   }
 
   // ── Exchange code for tokens ────────────────────────────────────────────────
@@ -96,67 +110,63 @@ export async function GET(req: NextRequest) {
       },
       body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri! }),
     })
-    if (!tokenRes.ok) {
-      const body = await tokenRes.text()
-      return errorPage(`Token exchange failed (HTTP ${tokenRes.status})`, body)
-    }
+    if (!tokenRes.ok) return errorPage(`Token exchange failed (HTTP ${tokenRes.status})`, await tokenRes.text())
     tokens = await tokenRes.json()
   } catch (e) {
     return errorPage('Network error during token exchange', String(e))
   }
 
-  // ── Get orgId from session cookie ───────────────────────────────────────────
+  // ── Encrypt tokens before storing ──────────────────────────────────────────
+  let accessToken  = tokens.access_token
+  let refreshToken = tokens.refresh_token
+
+  if (encKey) {
+    try {
+      accessToken  = await encryptToken(tokens.access_token, encKey)
+      refreshToken = await encryptToken(tokens.refresh_token, encKey)
+    } catch (e) {
+      console.error('Token encryption failed — storing plaintext as fallback:', e)
+      // Fall through and store plaintext — better connected than broken
+    }
+  }
+
+  // ── Get orgId from session ──────────────────────────────────────────────────
   const supabase = createClient(supabaseUrl!, serviceKey!)
   let orgId: string | null = null
 
-  // Method 1: Parse Supabase auth cookie (handles both JSON and base64 formats)
-  const allCookies = cookieStore.getAll()
-  for (const cookie of allCookies) {
+  for (const cookie of cookieStore.getAll()) {
     if (!cookie.name.includes('auth-token')) continue
-    const accessToken = parseSupabaseCookie(cookie.value)
-    if (!accessToken) continue
+    const accessTokenSession = parseSupabaseCookie(cookie.value)
+    if (!accessTokenSession) continue
     try {
-      const { data: { user } } = await supabase.auth.getUser(accessToken)
+      const { data: { user } } = await supabase.auth.getUser(accessTokenSession)
       if (user) {
-        const { data: member } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', user.id)
-          .single()
+        const { data: member } = await supabase.from('organization_members')
+          .select('organization_id').eq('user_id', user.id).single()
         orgId = member?.organization_id ?? null
         if (orgId) break
       }
     } catch { /* try next cookie */ }
   }
 
-  // Method 2: Extract orgId encoded in state by connect route ({uuid}_{orgId})
   if (!orgId && state?.includes('_')) {
-    const parts = state.split('_')
-    // state format from connect route: "{uuid}_{orgId}" where orgId is a UUID
-    // UUID is 36 chars, so if parts[1] looks like a UUID, use it
-    const candidate = parts.slice(1).join('_')
+    const candidate = state.split('_').slice(1).join('_')
     if (candidate.length > 30) orgId = candidate
   }
 
   if (!orgId) {
-    const cookieNames = allCookies.map(c => c.name).join('\n')
-    return errorPage(
-      'Could not identify your organization',
-      `No valid session found. Try: log out of Valhalla RMM, log back in, then connect QBO again.\n\nCookies found:\n${cookieNames}`
-    )
+    return errorPage('Could not identify your organization',
+      'Log out of Valhalla RMM, log back in, then try connecting QBO again.')
   }
 
   // ── Save tokens ─────────────────────────────────────────────────────────────
-  const { error: updateErr } = await supabase
-    .from('organizations')
-    .update({
-      qbo_realm_id:      realmId,
-      qbo_access_token:  tokens.access_token,
-      qbo_refresh_token: tokens.refresh_token,
-      qbo_token_expiry:  new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-      qbo_connected_at:  new Date().toISOString(),
-    })
-    .eq('id', orgId)
+  const { error: updateErr } = await supabase.from('organizations').update({
+    qbo_realm_id:      realmId,
+    qbo_access_token:  accessToken,
+    qbo_refresh_token: refreshToken,
+    qbo_token_expiry:  new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+    qbo_connected_at:  new Date().toISOString(),
+  }).eq('id', orgId)
 
   if (updateErr) return errorPage('Failed to save tokens to database', updateErr.message)
 
