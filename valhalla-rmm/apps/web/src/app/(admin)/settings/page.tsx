@@ -1,9 +1,10 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
+import QboSettingsPanel from '@/components/QboSettingsPanel'
 import {
   Loader2, Save, Shield, User, Clock,
   Building2, Zap, ChevronRight, CheckCircle2,
@@ -115,7 +116,7 @@ function OrgSection({ org, onSaved }) {
           <input value={form.logo_url} onChange={e => sf('logo_url', e.target.value)} placeholder="https://..." className={inp} />
           {form.logo_url && (
             <div className="flex items-center gap-2">
-              <img src={form.logo_url} alt="Logo preview" className="w-8 h-8 rounded object-contain border border-slate-200 dark:border-slate-700 bg-white p-0.5" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <img src={form.logo_url} alt="Logo preview" className="w-8 h-8 rounded object-contain border border-slate-200 dark:border-slate-700 bg-white p-0.5" onError={e => { e.target.style.display = 'none' }} />
               <span className="text-xs text-slate-400">Preview</span>
             </div>
           )}
@@ -153,9 +154,9 @@ function SlaSection({ org, onSaved }) {
   const [savedNotif,  setSavedNotif]  = useState(false)
 
   useEffect(() => {
-    if (org?.sla_config) { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
-    if (org?.escalation_config) { try { setEsc(typeof org.escalation_config === 'string' ? JSON.parse(org.escalation_config) : org.escalation_config) } catch {} }
-    if (org?.notification_config) { try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
+    if (org?.sla_config)         { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
+    if (org?.escalation_config)  { try { setEsc(typeof org.escalation_config === 'string' ? JSON.parse(org.escalation_config) : org.escalation_config) } catch {} }
+    if (org?.notification_config){ try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
   }, [org])
 
   const saveEsc = async () => {
@@ -226,7 +227,6 @@ function SlaSection({ org, onSaved }) {
           </button>
         </div>
       </div>
-
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
         <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Notification Preferences</p>
         <div className="space-y-3">
@@ -259,17 +259,25 @@ function SlaSection({ org, onSaved }) {
   )
 }
 
+// ── Integrations ──────────────────────────────────────────────────────────────
 function IntegrationsSection({ org }) {
   const items = [
-    { name: 'Gmail', icon: Mail, description: 'Inbound email → automatic ticket creation.', hint: 'The Gmail account must match your Support Email in Organization settings.', status: org?.company_email ? 'configured' : 'not_configured', statusLabel: org?.company_email ? `Configured (${org.company_email})` : 'No email configured' },
-    { name: 'Stripe', icon: Zap, description: 'Invoice payment links and MSP subscription billing.', hint: 'Add STRIPE_SECRET_KEY in Supabase Dashboard → Settings → Edge Function Secrets.', status: 'manual', statusLabel: 'Via Supabase secrets' },
-    { name: 'Resend', icon: Mail, description: 'Transactional email delivery for invoices and notifications.', hint: 'RESEND_API_KEY is configured in Supabase Edge Function Secrets.', status: 'configured', statusLabel: 'Configured via secrets' },
-    { name: 'Anthropic AI', icon: Zap, description: 'AI-powered ticket triage — auto-assigns priority and category.', hint: 'ANTHROPIC_API_KEY is configured in Supabase Edge Function Secrets.', status: 'configured', statusLabel: 'Configured via secrets' },
+    { name: 'Gmail',        icon: Mail,  description: 'Inbound email → automatic ticket creation.',                hint: 'The Gmail account must match your Support Email in Organization settings.',                status: org?.company_email ? 'configured' : 'not_configured', statusLabel: org?.company_email ? `Configured (${org.company_email})` : 'No email configured' },
+    { name: 'Stripe',       icon: Zap,   description: 'Invoice payment links and MSP subscription billing.',        hint: 'Add STRIPE_SECRET_KEY in Supabase Dashboard → Settings → Edge Function Secrets.',          status: 'manual',      statusLabel: 'Via Supabase secrets' },
+    { name: 'Resend',       icon: Mail,  description: 'Transactional email delivery for invoices and notifications.',hint: 'RESEND_API_KEY is configured in Supabase Edge Function Secrets.',                          status: 'configured',  statusLabel: 'Configured via secrets' },
+    { name: 'Anthropic AI', icon: Zap,   description: 'AI-powered ticket triage — auto-assigns priority and category.',hint: 'ANTHROPIC_API_KEY is configured in Supabase Edge Function Secrets.',                   status: 'configured',  statusLabel: 'Configured via secrets' },
   ]
   const SCLS = { configured: 'bg-emerald-100 text-emerald-700', not_configured: 'bg-amber-100 text-amber-700', manual: 'bg-blue-100 text-blue-700' }
+
   return (
-    <Section title="Integrations" description="External services connected to Valhalla IT.">
-      <div className="space-y-3">
+    <Section title="Integrations" description="External services connected to Valhalla RMM.">
+      {/* ── QuickBooks Online ── */}
+      <Suspense fallback={<div className="h-32 rounded-2xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}>
+        <QboSettingsPanel />
+      </Suspense>
+
+      {/* ── Other integrations ── */}
+      <div className="space-y-3 pt-2">
         {items.map(item => (
           <div key={item.name} className="flex items-start gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
             <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
@@ -297,16 +305,16 @@ function IntegrationsSection({ org }) {
 
 function TeamSection({ orgId }) {
   const supabase = createSupabaseBrowserClient()
-  const [members,  setMembers]  = useState([])
-  const [loading,  setLoading]  = useState(true)
+  const [members,     setMembers]     = useState([])
+  const [loading,     setLoading]     = useState(true)
   const [invEmail,    setInvEmail]    = useState('')
   const [invRole,     setInvRole]     = useState('technician')
   const [invCustomer, setInvCustomer] = useState('')
   const [customers,   setCustomers]   = useState([])
-  const [contactLinks,setContactLinks]= useState({}) // email → [customer_id]
+  const [contactLinks,setContactLinks]= useState({})
   const [inviting,    setInviting]    = useState(false)
-  const [err,      setErr]      = useState(null)
-  const [success,  setSuccess]  = useState(null)
+  const [err,         setErr]         = useState(null)
+  const [success,     setSuccess]     = useState(null)
 
   useEffect(() => { if (orgId) { loadMembers(); loadCustomers() } }, [orgId])
 
@@ -323,7 +331,6 @@ function TeamSection({ orgId }) {
       supabase.from('customer_contacts').select('id,customer_id,email,name').not('email', 'is', null),
     ])
     setCustomers(custRes.data ?? [])
-    // Build a map of email → [customer_id, ...] from customer_contacts
     const linkMap = {}
     for (const c of (contactRes.data ?? [])) {
       if (!c.email) continue
@@ -335,32 +342,21 @@ function TeamSection({ orgId }) {
 
   useRealtimeRefresh(['organization_members'], loadMembers)
 
-
   const inviteMember = async () => {
     if (!invEmail.trim()) return
     setInviting(true); setErr(null); setSuccess(null)
     try {
-      const redirectTo = invRole === 'client'
-        ? `${window.location.origin}/auth/confirm`
-        : `${window.location.origin}/auth/confirm`
       const { data, error } = await supabase.functions.invoke('invite-user', {
-        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: redirectTo, customer_id: invRole === 'client' && invCustomer ? invCustomer : undefined }
+        body: { email: invEmail.trim(), role: invRole, organization_id: orgId, redirect_to: `${window.location.origin}/auth/confirm`, customer_id: invRole === 'client' && invCustomer ? invCustomer : undefined }
       })
       if (error) { setErr(error.message); return }
       if (data?.error) { setErr(data.error); return }
-
-      // If inviting a client and a customer is selected, add to customer_contacts
       if (invRole === 'client' && invCustomer) {
-        const cust = customers.find(c => c.id === invCustomer)
         await supabase.from('customer_contacts').upsert({
-          organization_id: orgId,
-          customer_id:     invCustomer,
-          email:           invEmail.trim(),
-          name:            invEmail.trim().split('@')[0],
-          role:            'contact',
+          organization_id: orgId, customer_id: invCustomer, email: invEmail.trim(),
+          name: invEmail.trim().split('@')[0], role: 'contact',
         }, { onConflict: 'customer_id,email', ignoreDuplicates: true })
       }
-
       setSuccess(`Invite sent to ${invEmail.trim()}`)
       setInvEmail(''); setInvCustomer('')
       loadMembers()
@@ -368,24 +364,16 @@ function TeamSection({ orgId }) {
     finally { setInviting(false) }
   }
 
-  const updateRole = async (memberId, role) => {
-    await supabase.from('organization_members').update({ role }).eq('id', memberId)
-    loadMembers()
-  }
-
-  const removeMember = async (memberId) => {
-    if (!confirm('Remove this team member?')) return
-    await supabase.from('organization_members').delete().eq('id', memberId)
-    loadMembers()
-  }
+  const updateRole   = async (id, role) => { await supabase.from('organization_members').update({ role }).eq('id', id); loadMembers() }
+  const removeMember = async (id) => { if (!confirm('Remove this team member?')) return; await supabase.from('organization_members').delete().eq('id', id); loadMembers() }
 
   const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
 
   return (
-    <Section title="Team Members" description="Manage who has access to your Valhalla IT account.">
+    <Section title="Team Members" description="Manage who has access to your Valhalla RMM account.">
       <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
         <p className="text-sm font-medium text-slate-900 dark:text-white">Invite Team Member or Client</p>
-        <p className="text-xs text-slate-400">They will receive an email with a link to set their password. <strong>Clients</strong> will be directed to the client portal at <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/portal</code> — they must use a separate browser or incognito window to log in there.</p>
+        <p className="text-xs text-slate-400">They will receive an email with a link to set their password. <strong>Clients</strong> must use a separate browser or incognito window to log in to the portal at <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/portal</code>.</p>
         <div className="flex gap-2 flex-wrap">
           <input value={invEmail} onChange={e => setInvEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && inviteMember()}
             placeholder="email@company.com" type="email"
@@ -407,9 +395,8 @@ function TeamSection({ orgId }) {
             <select value={invCustomer} onChange={e => setInvCustomer(e.target.value)}
               className="mt-1 w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500">
               <option value="">— No customer linked</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.contact_email ? ` (${c.contact_email})` : ''}</option>)}
+              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <p className="text-xs text-slate-400 mt-1">Sets this email as the contact email on the selected customer so their portal shows linked tickets, invoices and devices.</p>
           </div>
         )}
         {err     && <p className="text-xs text-rose-600">{err}</p>}
@@ -446,23 +433,17 @@ function TeamSection({ orgId }) {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <select value={member.role} onChange={e => updateRole(member.id, e.target.value)}
                       className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none">
-                      <option value="owner">Owner</option>
-                      <option value="admin">Admin</option>
-                      <option value="technician">Technician</option>
-                      <option value="client">Client</option>
+                      <option value="owner">Owner</option><option value="admin">Admin</option>
+                      <option value="technician">Technician</option><option value="client">Client</option>
                     </select>
-                    <button
-                      title="Send password reset email"
+                    <button title="Send password reset email"
                       onClick={async () => {
                         if (!confirm(`Send password reset email to ${member.user_email}?`)) return
-                        const { error } = await supabase.auth.resetPasswordForEmail(member.user_email, {
-                          redirectTo: `${window.location.origin}/auth/confirm`,
-                        })
+                        const { error } = await supabase.auth.resetPasswordForEmail(member.user_email, { redirectTo: `${window.location.origin}/auth/confirm` })
                         if (error) alert('Error: ' + error.message)
                         else alert(`Password reset email sent to ${member.user_email}`)
                       }}
-                      className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors text-xs"
-                    >✉</button>
+                      className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors text-xs">✉</button>
                     {member.role !== 'owner' && (
                       <button onClick={() => removeMember(member.id)} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors text-xs">✕</button>
                     )}
@@ -471,64 +452,30 @@ function TeamSection({ orgId }) {
                 <div className="flex items-start gap-2 pl-11">
                   <span className="text-xs text-slate-400 flex-shrink-0 pt-1.5">Customers:</span>
                   <div className="flex-1 space-y-1">
-                    {/* Currently linked customers */}
                     {(contactLinks[member.user_email] || []).map(custId => {
                       const cust = customers.find(c => c.id === custId)
                       if (!cust) return null
                       return (
                         <div key={custId} className="flex items-center gap-1.5">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            member.customer_id === custId
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 ring-1 ring-amber-400'
-                              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                          }`}>
-                            {cust.name}
-                            {member.customer_id === custId && <span className="ml-1 text-[10px]">✓ portal</span>}
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${member.customer_id === custId ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 ring-1 ring-amber-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                            {cust.name}{member.customer_id === custId && <span className="ml-1 text-[10px]">✓ portal</span>}
                           </span>
-                          <button
-                            onClick={async () => {
-                              await supabase.from('customer_contacts').delete().eq('customer_id', custId).eq('email', member.user_email)
-                              // Clear organization_members.customer_id if it matches
-                              if (member.customer_id === custId) {
-                                await supabase.from('organization_members')
-                                  .update({ customer_id: null })
-                                  .eq('id', member.id)
-                              }
-                              loadCustomers()
-                              loadMembers()
-                            }}
-                            className="text-slate-300 hover:text-rose-500 transition-colors text-xs leading-none">✕</button>
+                          <button onClick={async () => {
+                            await supabase.from('customer_contacts').delete().eq('customer_id', custId).eq('email', member.user_email)
+                            if (member.customer_id === custId) await supabase.from('organization_members').update({ customer_id: null }).eq('id', member.id)
+                            loadCustomers(); loadMembers()
+                          }} className="text-slate-300 hover:text-rose-500 transition-colors text-xs leading-none">✕</button>
                         </div>
                       )
                     })}
-                    {/* Add another customer */}
-                    <select
-                      value=""
-                      onChange={async (e) => {
-                        const custId = e.target.value
-                        if (!custId) return
-                        // Write to customer_contacts for contact lookup
-                        await supabase.from('customer_contacts').upsert({
-                          organization_id: orgId,
-                          customer_id:     custId,
-                          email:           member.user_email,
-                          name:            member.display_name || member.user_email.split('@')[0],
-                          role:            'contact',
-                        }, { onConflict: 'customer_id,email', ignoreDuplicates: true })
-                        // Also update organization_members.customer_id — this is what the portal uses
-                        await supabase.from('organization_members')
-                          .update({ customer_id: custId })
-                          .eq('id', member.id)
-                        loadCustomers()
-                        loadMembers()
-                      }}
-                      className="px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    >
+                    <select value="" onChange={async (e) => {
+                      const custId = e.target.value; if (!custId) return
+                      await supabase.from('customer_contacts').upsert({ organization_id: orgId, customer_id: custId, email: member.user_email, name: member.display_name || member.user_email.split('@')[0], role: 'contact' }, { onConflict: 'customer_id,email', ignoreDuplicates: true })
+                      await supabase.from('organization_members').update({ customer_id: custId }).eq('id', member.id)
+                      loadCustomers(); loadMembers()
+                    }} className="px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500">
                       <option value="">+ Link a customer…</option>
-                      {customers
-                        .filter(c => !(contactLinks[member.user_email] || []).includes(c.id))
-                        .map(c => <option key={c.id} value={c.id}>{c.name}</option>)
-                      }
+                      {customers.filter(c => !(contactLinks[member.user_email] || []).includes(c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -544,41 +491,34 @@ function TeamSection({ orgId }) {
 function AccountSection({ user }) {
   const supabase = createSupabaseBrowserClient()
   const router   = useRouter()
-
-  const [signature,     setSignature]     = useState('')
-  const [sigSaving,     setSigSaving]     = useState(false)
-  const [sigSaved,      setSigSaved]      = useState(false)
-
-  const [mfaStatus,  setMfaStatus]  = useState<'loading'|'enrolled'|'none'>('loading')
-  const [enrolling,  setEnrolling]  = useState(false)
-  const [qrCode,     setQrCode]     = useState<string|null>(null)
-  const [secret,     setSecret]     = useState<string|null>(null)
-  const [factorId,   setFactorId]   = useState<string|null>(null)
-  const [verifyCode, setVerifyCode] = useState('')
-  const [verifyErr,  setVerifyErr]  = useState<string|null>(null)
-  const [removing,   setRemoving]   = useState(false)
-  const [confirmed,  setConfirmed]  = useState(false)
+  const [signature, setSignature] = useState('')
+  const [sigSaving, setSigSaving] = useState(false)
+  const [sigSaved,  setSigSaved]  = useState(false)
+  const [mfaStatus, setMfaStatus] = useState('loading')
+  const [enrolling, setEnrolling] = useState(false)
+  const [qrCode,    setQrCode]    = useState(null)
+  const [secret,    setSecret]    = useState(null)
+  const [factorId,  setFactorId]  = useState(null)
+  const [verifyCode,setVerifyCode]= useState('')
+  const [verifyErr, setVerifyErr] = useState(null)
+  const [removing,  setRemoving]  = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
 
   useEffect(() => {
     supabase.auth.mfa.listFactors().then(({ data }) => {
-      const has = data?.totp && data.totp.length > 0
-      setMfaStatus(has ? 'enrolled' : 'none')
+      setMfaStatus(data?.totp?.length > 0 ? 'enrolled' : 'none')
     })
-    // Load saved signature
     if (user?.id) {
-      supabase.from('organization_members').select('signature')
-        .eq('user_id', user.id).single()
+      supabase.from('organization_members').select('signature').eq('user_id', user.id).single()
         .then(({ data }) => { if (data?.signature) setSignature(data.signature) })
     }
   }, [user?.id])
 
   const startEnroll = async () => {
     setEnrolling(true); setVerifyErr(null)
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Valhalla IT' })
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Valhalla RMM' })
     if (error) { setVerifyErr(error.message); setEnrolling(false); return }
-    setQrCode(data.totp.qr_code)
-    setSecret(data.totp.secret)
-    setFactorId(data.id)
+    setQrCode(data.totp.qr_code); setSecret(data.totp.secret); setFactorId(data.id)
   }
 
   const confirmEnroll = async () => {
@@ -588,47 +528,31 @@ function AccountSection({ user }) {
     if (cErr) { setVerifyErr(cErr.message); return }
     const { error: vErr } = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.id, code: verifyCode })
     if (vErr) { setVerifyErr('Invalid code — try again'); return }
-    setConfirmed(true)
-    setMfaStatus('enrolled')
-    setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode('')
-    setEnrolling(false)
+    setConfirmed(true); setMfaStatus('enrolled')
+    setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode(''); setEnrolling(false)
   }
 
   const cancelEnroll = async () => {
     if (factorId) await supabase.auth.mfa.unenroll({ factorId })
-    setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode('')
-    setEnrolling(false); setVerifyErr(null)
+    setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode(''); setEnrolling(false); setVerifyErr(null)
   }
 
   const removeMfa = async () => {
-    if (!confirm('Remove 2FA from your account? You will only need your password to log in.')) return
+    if (!confirm('Remove 2FA from your account?')) return
     setRemoving(true)
     const { data } = await supabase.auth.mfa.listFactors()
-    for (const f of (data?.totp ?? [])) {
-      await supabase.auth.mfa.unenroll({ factorId: f.id })
-    }
+    for (const f of (data?.totp ?? [])) await supabase.auth.mfa.unenroll({ factorId: f.id })
     setMfaStatus('none'); setRemoving(false)
   }
 
   const saveSignature = async () => {
     if (!user?.id) return
     setSigSaving(true)
-    await supabase.from('organization_members')
-      .update({ signature: signature.trim() || null })
-      .eq('user_id', user.id)
-    setSigSaving(false)
-    setSigSaved(true)
-    setTimeout(() => setSigSaved(false), 2500)
+    await supabase.from('organization_members').update({ signature: signature.trim() || null }).eq('user_id', user.id)
+    setSigSaving(false); setSigSaved(true); setTimeout(() => setSigSaved(false), 2500)
   }
 
-  const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/login') }
-
-  const ROLE_CLS = {
-    owner: 'bg-amber-100 text-amber-700',
-    admin: 'bg-violet-100 text-violet-700',
-    technician: 'bg-blue-100 text-blue-700',
-    client: 'bg-slate-100 text-slate-600'
-  }
+  const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
 
   return (
     <Section title="My Account" description="Your personal account details and security settings.">
@@ -638,13 +562,10 @@ function AccountSection({ user }) {
       <FieldRow label="Role">
         <div className="flex items-center gap-2 pt-1">
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 ${ROLE_CLS[user?.role] ?? 'bg-slate-100 text-slate-600'}`}>
-            <Shield className="w-3 h-3" />
-            {user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Unknown'}
+            <Shield className="w-3 h-3" />{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Unknown'}
           </span>
         </div>
       </FieldRow>
-
-      {/* 2FA Section */}
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -652,96 +573,56 @@ function AccountSection({ user }) {
               <Shield className="w-4 h-4 text-violet-500" /> Two-Factor Authentication
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
-              {mfaStatus === 'enrolled'
-                ? 'Your account is protected with TOTP 2FA.'
-                : 'Add an extra layer of security with an authenticator app.'}
+              {mfaStatus === 'enrolled' ? 'Your account is protected with TOTP 2FA.' : 'Add an extra layer of security with an authenticator app.'}
             </p>
           </div>
-          {mfaStatus === 'loading' && <div className="w-16 h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />}
-          {mfaStatus === 'enrolled' && !removing && (
-            <button onClick={removeMfa} disabled={removing}
-              className="flex-shrink-0 px-3 py-1.5 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors">
-              Remove 2FA
-            </button>
-          )}
-          {mfaStatus === 'none' && !enrolling && (
-            <button onClick={startEnroll}
-              className="flex-shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors">
-              Enable 2FA
-            </button>
-          )}
+          {mfaStatus === 'loading'   && <div className="w-16 h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />}
+          {mfaStatus === 'enrolled'  && <button onClick={removeMfa} disabled={removing} className="flex-shrink-0 px-3 py-1.5 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors">Remove 2FA</button>}
+          {mfaStatus === 'none' && !enrolling && <button onClick={startEnroll} className="flex-shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors">Enable 2FA</button>}
         </div>
-
-        {/* Confirmed banner */}
         {confirmed && (
           <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400">
-            <Shield className="w-4 h-4 flex-shrink-0" />
-            2FA enabled successfully. You'll need your authenticator on next login.
+            <Shield className="w-4 h-4 flex-shrink-0" /> 2FA enabled. You'll need your authenticator on next login.
           </div>
         )}
-
-        {/* Enrollment flow */}
         {enrolling && qrCode && (
           <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-4">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Scan with your authenticator app</p>
             <p className="text-xs text-slate-500">Use Google Authenticator, Authy, 1Password, or any TOTP app.</p>
-            {/* QR code as image */}
-            <div className="flex justify-center">
-              <img src={qrCode} alt="2FA QR Code" className="w-48 h-48 border-4 border-white rounded-lg shadow" />
-            </div>
-            {/* Manual entry secret */}
+            <div className="flex justify-center"><img src={qrCode} alt="2FA QR Code" className="w-48 h-48 border-4 border-white rounded-lg shadow" /></div>
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
               <p className="text-xs text-slate-400 mb-1">Or enter manually:</p>
               <p className="text-sm font-mono text-slate-700 dark:text-slate-300 break-all select-all">{secret}</p>
             </div>
-            {/* Verify code */}
             <div className="space-y-2">
               <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Enter the 6-digit code to confirm</p>
-              <input
-                type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+              <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
                 value={verifyCode} onChange={e => { setVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6)); setVerifyErr(null) }}
                 placeholder="000000"
                 className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-center text-xl font-mono tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white dark:bg-slate-800 dark:text-white"
-                autoFocus
-              />
+                autoFocus />
               {verifyErr && <p className="text-xs text-rose-600">{verifyErr}</p>}
               <div className="flex gap-2 pt-1">
                 <button onClick={cancelEnroll} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Cancel</button>
-                <button onClick={confirmEnroll} disabled={verifyCode.length !== 6}
-                  className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
-                  Confirm & Enable
-                </button>
+                <button onClick={confirmEnroll} disabled={verifyCode.length !== 6} className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">Confirm & Enable</button>
               </div>
             </div>
           </div>
         )}
       </div>
-
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5 space-y-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-            Email Signature
-          </p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">Email Signature</p>
           <p className="text-xs text-slate-400 mt-0.5">Automatically appended to every client reply you send. Plain text only.</p>
         </div>
-        <textarea
-          value={signature}
-          onChange={e => { setSignature(e.target.value); setSigSaved(false) }}
-          rows={4}
+        <textarea value={signature} onChange={e => { setSignature(e.target.value); setSigSaved(false) }} rows={4}
           placeholder={`e.g.\n\nBest regards,\nJohn Smith\nValhalla IT | +1 (555) 123-4567`}
-          className={`w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none font-mono`}
-        />
+          className={`w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none font-mono`} />
         <div className="flex items-center gap-3">
-          <button onClick={saveSignature} disabled={sigSaving}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
+          <button onClick={saveSignature} disabled={sigSaving} className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors">
             {sigSaving ? 'Saving…' : sigSaved ? '✓ Saved' : 'Save Signature'}
           </button>
-          {signature && (
-            <button onClick={() => { setSignature(''); setSigSaved(false) }}
-              className="text-xs text-slate-400 hover:text-rose-500 transition-colors">
-              Clear
-            </button>
-          )}
+          {signature && <button onClick={() => { setSignature(''); setSigSaved(false) }} className="text-xs text-slate-400 hover:text-rose-500 transition-colors">Clear</button>}
         </div>
         {signature && (
           <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
@@ -750,9 +631,9 @@ function AccountSection({ user }) {
           </div>
         )}
       </div>
-
       <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
-        <button onClick={handleSignOut} className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+        <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }}
+          className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
           Sign Out
         </button>
       </div>
@@ -760,6 +641,7 @@ function AccountSection({ user }) {
   )
 }
 
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const supabase = createSupabaseBrowserClient()
   const [user,    setUser]    = useState(null)
