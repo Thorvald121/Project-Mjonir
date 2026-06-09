@@ -187,15 +187,22 @@ export default function RemoteTerminal({ deviceId, deviceHostname, orgId }: Prop
     })
 
     sessionChannel.subscribe(() => {
-      // Send initial resize once subscribed
+      // Once subscribed, resize and send a newline to force the shell prompt to redraw.
+      // This recovers any initial output missed before subscription was ready.
       setTimeout(() => {
-        fit.fit()
+        try { fit.fit() } catch {}
         sessionChannel.send({
           type:    'broadcast',
           event:   'resize',
           payload: { rows: term.rows, cols: term.cols },
         })
-      }, 200)
+        // Send a carriage return so the shell redraws the prompt
+        sessionChannel.send({
+          type:    'broadcast',
+          event:   'input',
+          payload: { data: '\r' },
+        })
+      }, 300)
     })
 
     channelRef.current = sessionChannel
