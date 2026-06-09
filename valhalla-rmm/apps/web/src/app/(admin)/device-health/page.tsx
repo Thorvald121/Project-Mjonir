@@ -252,7 +252,7 @@ export default function DeviceHealthPage() {
 
               return (
                 <div key={device.id}
-                  onClick={() => router.push(`/inventory`)}
+                  onClick={() => router.push(`/inventory/${device.id}`)}
                   className="grid grid-cols-[auto_1fr_1fr_120px_120px_120px_140px] gap-4 items-center px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer transition-colors">
 
                   {/* Status dot */}

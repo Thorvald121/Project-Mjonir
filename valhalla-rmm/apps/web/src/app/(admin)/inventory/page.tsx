@@ -805,8 +805,8 @@ Register-ScheduledTask -TaskName "Valhalla IT Agent" -Action $action -Trigger $t
                 const w = warrantyInfo(item.warranty_expiry)
                 return (
                   <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                    <td className="px-3 py-3">
-                      <p className="font-medium text-slate-900 dark:text-white">{item.name}</p>
+                    <td className="px-3 py-3 cursor-pointer" onClick={() => router.push(`/inventory/${item.id}`)}>
+                      <p className="font-medium text-slate-900 dark:text-white hover:text-amber-600 transition-colors">{item.name}</p>
                       {(item.vendor || item.manufacturer || item.model) && (
                         <p className="text-xs text-slate-400">{[item.vendor || item.manufacturer, item.model].filter(Boolean).join(' ')}</p>
                       )}
