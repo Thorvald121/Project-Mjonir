@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import QboSettingsPanel from '@/components/QboSettingsPanel'
+import AgentSettingsPanel from '@/components/AgentSettingsPanel'
 import {
   Loader2, Save, Shield, User, Clock,
   Building2, Zap, ChevronRight, CheckCircle2,
@@ -122,7 +123,7 @@ function OrgSection({ org, onSaved }) {
           )}
         </div>
       </FieldRow>
-      <FieldRow label="Portal Brand Color" hint="Accent color used in the client portal for buttons and highlights.">
+      <FieldRow label="Portal Brand Color" hint="Accent color used in the client portal.">
         <div className="flex items-center gap-3">
           <input type="color" value={form.brand_color} onChange={e => sf('brand_color', e.target.value)}
             className="w-10 h-10 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer bg-white p-0.5" />
@@ -154,32 +155,29 @@ function SlaSection({ org, onSaved }) {
   const [savedNotif,  setSavedNotif]  = useState(false)
 
   useEffect(() => {
-    if (org?.sla_config)         { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
-    if (org?.escalation_config)  { try { setEsc(typeof org.escalation_config === 'string' ? JSON.parse(org.escalation_config) : org.escalation_config) } catch {} }
-    if (org?.notification_config){ try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
+    if (org?.sla_config)          { try { setSla(typeof org.sla_config === 'string' ? JSON.parse(org.sla_config) : org.sla_config) } catch {} }
+    if (org?.escalation_config)   { try { setEsc(typeof org.escalation_config === 'string' ? JSON.parse(org.escalation_config) : org.escalation_config) } catch {} }
+    if (org?.notification_config) { try { setNotif(typeof org.notification_config === 'string' ? JSON.parse(org.notification_config) : org.notification_config) } catch {} }
   }, [org])
 
+  const saveSla = async () => {
+    setSavingSla(true)
+    await supabase.from('organizations').update({ sla_config: sla }).eq('id', org.id)
+    setSavingSla(false); setSavedSla(true); setTimeout(() => setSavedSla(false), 2000); onSaved()
+  }
   const saveEsc = async () => {
     setSavingEsc(true)
     await supabase.from('organizations').update({ escalation_config: esc }).eq('id', org.id)
     setSavingEsc(false); setSavedEsc(true); setTimeout(() => setSavedEsc(false), 2000)
   }
-
-  const saveSla = async () => {
-    setSavingSla(true)
-    await supabase.from('organizations').update({ sla_config: sla }).eq('id', org.id)
-    setSavingSla(false); setSavedSla(true)
-    setTimeout(() => setSavedSla(false), 2000); onSaved()
-  }
-
   const saveNotif = async () => {
     setSavingNotif(true)
     await supabase.from('organizations').update({ notification_config: notif }).eq('id', org.id)
-    setSavingNotif(false); setSavedNotif(true)
-    setTimeout(() => setSavedNotif(false), 2000); onSaved()
+    setSavingNotif(false); setSavedNotif(true); setTimeout(() => setSavedNotif(false), 2000); onSaved()
   }
 
   const PCLS = { critical: 'text-rose-500', high: 'text-orange-500', medium: 'text-amber-500', low: 'text-emerald-500' }
+
   return (
     <Section title="SLA & Alerts" description="Response time targets and notification preferences.">
       <div>
@@ -262,22 +260,26 @@ function SlaSection({ org, onSaved }) {
 // ── Integrations ──────────────────────────────────────────────────────────────
 function IntegrationsSection({ org }) {
   const items = [
-    { name: 'Gmail',        icon: Mail,  description: 'Inbound email → automatic ticket creation.',                hint: 'The Gmail account must match your Support Email in Organization settings.',                status: org?.company_email ? 'configured' : 'not_configured', statusLabel: org?.company_email ? `Configured (${org.company_email})` : 'No email configured' },
-    { name: 'Stripe',       icon: Zap,   description: 'Invoice payment links and MSP subscription billing.',        hint: 'Add STRIPE_SECRET_KEY in Supabase Dashboard → Settings → Edge Function Secrets.',          status: 'manual',      statusLabel: 'Via Supabase secrets' },
-    { name: 'Resend',       icon: Mail,  description: 'Transactional email delivery for invoices and notifications.',hint: 'RESEND_API_KEY is configured in Supabase Edge Function Secrets.',                          status: 'configured',  statusLabel: 'Configured via secrets' },
-    { name: 'Anthropic AI', icon: Zap,   description: 'AI-powered ticket triage — auto-assigns priority and category.',hint: 'ANTHROPIC_API_KEY is configured in Supabase Edge Function Secrets.',                   status: 'configured',  statusLabel: 'Configured via secrets' },
+    { name: 'Gmail',        icon: Mail,  description: 'Inbound email → automatic ticket creation.',                 hint: 'The Gmail account must match your Support Email in Organization settings.',       status: org?.company_email ? 'configured' : 'not_configured', statusLabel: org?.company_email ? `Configured (${org.company_email})` : 'No email configured' },
+    { name: 'Stripe',       icon: Zap,   description: 'Invoice payment links and automatic payment reconciliation.', hint: 'STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET configured in Supabase secrets.',   status: 'configured',  statusLabel: 'Configured via secrets' },
+    { name: 'Resend',       icon: Mail,  description: 'Transactional email delivery for invoices and notifications.',hint: 'RESEND_API_KEY is configured in Supabase Edge Function Secrets.',                status: 'configured',  statusLabel: 'Configured via secrets' },
+    { name: 'Anthropic AI', icon: Zap,   description: 'AI-powered ticket triage — auto-assigns priority and category.',hint: 'ANTHROPIC_API_KEY is configured in Supabase Edge Function Secrets.',           status: 'configured',  statusLabel: 'Configured via secrets' },
   ]
   const SCLS = { configured: 'bg-emerald-100 text-emerald-700', not_configured: 'bg-amber-100 text-amber-700', manual: 'bg-blue-100 text-blue-700' }
 
   return (
     <Section title="Integrations" description="External services connected to Valhalla RMM.">
-      {/* ── QuickBooks Online ── */}
+
+      {/* QuickBooks Online */}
       <Suspense fallback={<div className="h-32 rounded-2xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}>
         <QboSettingsPanel />
       </Suspense>
 
-      {/* ── Other integrations ── */}
-      <div className="space-y-3 pt-2">
+      {/* Asset Agent */}
+      <AgentSettingsPanel />
+
+      {/* Static integration status cards */}
+      <div className="space-y-3">
         {items.map(item => (
           <div key={item.name} className="flex items-start gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
             <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0">
@@ -367,13 +369,11 @@ function TeamSection({ orgId }) {
   const updateRole   = async (id, role) => { await supabase.from('organization_members').update({ role }).eq('id', id); loadMembers() }
   const removeMember = async (id) => { if (!confirm('Remove this team member?')) return; await supabase.from('organization_members').delete().eq('id', id); loadMembers() }
 
-  const ROLE_CLS = { owner: 'bg-amber-100 text-amber-700', admin: 'bg-violet-100 text-violet-700', technician: 'bg-blue-100 text-blue-700', client: 'bg-slate-100 text-slate-600' }
-
   return (
     <Section title="Team Members" description="Manage who has access to your Valhalla RMM account.">
       <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
         <p className="text-sm font-medium text-slate-900 dark:text-white">Invite Team Member or Client</p>
-        <p className="text-xs text-slate-400">They will receive an email with a link to set their password. <strong>Clients</strong> must use a separate browser or incognito window to log in to the portal at <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/portal</code>.</p>
+        <p className="text-xs text-slate-400">They will receive an email with a link to set their password. <strong>Clients</strong> must use a separate browser or incognito window to access the portal at <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/portal</code>.</p>
         <div className="flex gap-2 flex-wrap">
           <input value={invEmail} onChange={e => setInvEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && inviteMember()}
             placeholder="email@company.com" type="email"
@@ -416,8 +416,7 @@ function TeamSection({ orgId }) {
                     <span className="text-amber-600 font-semibold text-xs">{(member.display_name || member.user_email)?.[0]?.toUpperCase()}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <input
-                      defaultValue={member.display_name || ''}
+                    <input defaultValue={member.display_name || ''}
                       onBlur={async (e) => {
                         const val = e.target.value.trim()
                         if (val !== (member.display_name || '')) {
@@ -520,7 +519,6 @@ function AccountSection({ user }) {
     if (error) { setVerifyErr(error.message); setEnrolling(false); return }
     setQrCode(data.totp.qr_code); setSecret(data.totp.secret); setFactorId(data.id)
   }
-
   const confirmEnroll = async () => {
     if (!factorId || verifyCode.length !== 6) return
     setVerifyErr(null)
@@ -531,12 +529,10 @@ function AccountSection({ user }) {
     setConfirmed(true); setMfaStatus('enrolled')
     setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode(''); setEnrolling(false)
   }
-
   const cancelEnroll = async () => {
     if (factorId) await supabase.auth.mfa.unenroll({ factorId })
     setQrCode(null); setSecret(null); setFactorId(null); setVerifyCode(''); setEnrolling(false); setVerifyErr(null)
   }
-
   const removeMfa = async () => {
     if (!confirm('Remove 2FA from your account?')) return
     setRemoving(true)
@@ -544,7 +540,6 @@ function AccountSection({ user }) {
     for (const f of (data?.totp ?? [])) await supabase.auth.mfa.unenroll({ factorId: f.id })
     setMfaStatus('none'); setRemoving(false)
   }
-
   const saveSignature = async () => {
     if (!user?.id) return
     setSigSaving(true)
@@ -576,8 +571,8 @@ function AccountSection({ user }) {
               {mfaStatus === 'enrolled' ? 'Your account is protected with TOTP 2FA.' : 'Add an extra layer of security with an authenticator app.'}
             </p>
           </div>
-          {mfaStatus === 'loading'   && <div className="w-16 h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />}
-          {mfaStatus === 'enrolled'  && <button onClick={removeMfa} disabled={removing} className="flex-shrink-0 px-3 py-1.5 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors">Remove 2FA</button>}
+          {mfaStatus === 'loading'  && <div className="w-16 h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />}
+          {mfaStatus === 'enrolled' && <button onClick={removeMfa} disabled={removing} className="flex-shrink-0 px-3 py-1.5 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors">Remove 2FA</button>}
           {mfaStatus === 'none' && !enrolling && <button onClick={startEnroll} className="flex-shrink-0 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors">Enable 2FA</button>}
         </div>
         {confirmed && (
@@ -596,7 +591,7 @@ function AccountSection({ user }) {
             </div>
             <div className="space-y-2">
               <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Enter the 6-digit code to confirm</p>
-              <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+              <input type="text" inputMode="numeric" maxLength={6}
                 value={verifyCode} onChange={e => { setVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6)); setVerifyErr(null) }}
                 placeholder="000000"
                 className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-center text-xl font-mono tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white dark:bg-slate-800 dark:text-white"
