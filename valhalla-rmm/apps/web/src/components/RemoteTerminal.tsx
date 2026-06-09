@@ -1,8 +1,5 @@
 // @ts-nocheck
 // apps/web/src/components/RemoteTerminal.tsx
-//
-// xterm.js terminal component connected to Supabase Realtime.
-// Renders an interactive shell for the device the admin selects.
 
 'use client'
 
@@ -16,277 +13,269 @@ import {
   Loader2, AlertTriangle, RefreshCw, Wifi, WifiOff,
 } from 'lucide-react'
 
-type SessionStatus = 'idle' | 'connecting' | 'waiting_for_device' | 'active' | 'error' | 'closed'
+type Status = 'idle' | 'connecting' | 'waiting' | 'active' | 'error' | 'closed'
 
-interface Props {
-  deviceId:       string
-  deviceHostname: string
-  orgId:          string
-}
+export default function RemoteTerminal({ deviceId, deviceHostname, orgId }) {
+  const supabase = createSupabaseBrowserClient()
 
-export default function RemoteTerminal({ deviceId, deviceHostname, orgId }: Props) {
-  const supabase      = createSupabaseBrowserClient()
-  const termRef       = useRef<HTMLDivElement>(null)
-  const xtermRef      = useRef<XTerm | null>(null)
-  const fitRef        = useRef<FitAddon | null>(null)
-  const channelRef    = useRef<any>(null)
-  const ctrlChannelRef = useRef<any>(null)
-  const sessionIdRef  = useRef<string | null>(null)
+  const termContainerRef = useRef(null)   // the DOM div xterm attaches to
+  const xtermRef         = useRef(null)
+  const fitRef           = useRef(null)
+  const ctrlChRef        = useRef(null)
+  const sessChRef        = useRef(null)
+  const sessionIdRef     = useRef(null)
+  const pendingSidRef    = useRef(null)   // holds session ID waiting for DOM to be visible
 
-  const [status,      setStatus]      = useState<SessionStatus>('idle')
-  const [error,       setError]       = useState<string | null>(null)
-  const [fullscreen,  setFullscreen]  = useState(false)
-  const [mounted,     setMounted]     = useState(false)
+  const [status,     setStatus]     = useState<Status>('idle')
+  const [error,      setError]      = useState(null)
+  const [fullscreen, setFullscreen] = useState(false)
 
   // ── Cleanup ────────────────────────────────────────────────────────────────
   const cleanup = useCallback(() => {
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-      channelRef.current = null
-    }
-    if (ctrlChannelRef.current) {
-      supabase.removeChannel(ctrlChannelRef.current)
-      ctrlChannelRef.current = null
-    }
-    if (xtermRef.current) {
-      xtermRef.current.dispose()
-      xtermRef.current = null
-    }
-    sessionIdRef.current = null
+    if (ctrlChRef.current) { supabase.removeChannel(ctrlChRef.current); ctrlChRef.current = null }
+    if (sessChRef.current) { supabase.removeChannel(sessChRef.current); sessChRef.current = null }
+    if (xtermRef.current)  { try { xtermRef.current.dispose() } catch {}; xtermRef.current = null }
+    fitRef.current     = null
+    sessionIdRef.current  = null
+    pendingSidRef.current = null
   }, [])
 
+  useEffect(() => () => cleanup(), [cleanup])
+
+  // ── Init xterm AFTER the container div becomes visible ────────────────────
+  // This useEffect fires every time status changes. When status becomes 'active'
+  // and there is a pendingSidRef, the DOM div is now visible so xterm can open.
   useEffect(() => {
-    setMounted(true)
-    return cleanup
-  }, [cleanup])
+    if (status !== 'active') return
+    const sid = pendingSidRef.current
+    if (!sid) return
+    if (xtermRef.current) return  // already initialized
+    if (!termContainerRef.current) return
+
+    pendingSidRef.current = null
+
+    // Small RAF to ensure the browser has painted the visible div
+    requestAnimationFrame(() => {
+      if (!termContainerRef.current) return
+
+      const term = new XTerm({
+        cursorBlink:    true,
+        fontSize:       13,
+        fontFamily:     '"JetBrains Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
+        scrollback:     5000,
+        theme: {
+          background:      '#0f172a',
+          foreground:      '#e2e8f0',
+          cursor:          '#f59e0b',
+          selectionBackground: 'rgba(245,158,11,0.3)',
+          black:   '#1e293b', red:     '#f87171', green:   '#4ade80', yellow:  '#facc15',
+          blue:    '#60a5fa', magenta: '#c084fc', cyan:    '#22d3ee', white:   '#e2e8f0',
+          brightBlack: '#475569', brightRed: '#fca5a5', brightGreen: '#86efac',
+          brightYellow: '#fde047', brightBlue: '#93c5fd', brightMagenta: '#d8b4fe',
+          brightCyan: '#67e8f9', brightWhite: '#f8fafc',
+        },
+      })
+
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(termContainerRef.current)
+
+      // Fit must run after open
+      requestAnimationFrame(() => {
+        try { fit.fit() } catch {}
+      })
+
+      xtermRef.current = term
+      fitRef.current   = fit
+
+      // Focus so keystrokes work immediately
+      term.focus()
+
+      // Subscribe to session I/O channel
+      const sessionTopic   = `session-${sid}`
+      const sessionChannel = supabase.channel(sessionTopic)
+
+      // Receive terminal output from device
+      sessionChannel.on('broadcast', { event: 'output' }, ({ payload }) => {
+        term.write(payload?.data ?? '')
+      })
+
+      // Device closed session
+      sessionChannel.on('broadcast', { event: 'exit' }, () => {
+        term.writeln('\r\n\x1b[33m[Session ended]\x1b[0m')
+        setStatus('closed')
+      })
+
+      sessionChannel.subscribe(() => {
+        // Channel ready — send resize + carriage return to trigger prompt
+        requestAnimationFrame(() => {
+          try { fit.fit() } catch {}
+          sessionChannel.send({
+            type: 'broadcast', event: 'resize',
+            payload: { rows: term.rows, cols: term.cols },
+          })
+          // Carriage return forces shell to redraw the prompt
+          sessionChannel.send({
+            type: 'broadcast', event: 'input',
+            payload: { data: '\r' },
+          })
+        })
+      })
+
+      sessChRef.current = sessionChannel
+      sessionIdRef.current = sid
+
+      // Send keyboard input to device
+      term.onData((data) => {
+        sessChRef.current?.send({
+          type: 'broadcast', event: 'input', payload: { data },
+        })
+      })
+
+      // Auto-resize on container resize
+      const ro = new ResizeObserver(() => {
+        try {
+          fitRef.current?.fit()
+          sessChRef.current?.send({
+            type: 'broadcast', event: 'resize',
+            payload: { rows: term.rows, cols: term.cols },
+          })
+        } catch {}
+      })
+      ro.observe(termContainerRef.current)
+    })
+  }, [status])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Start session ──────────────────────────────────────────────────────────
   const startSession = useCallback(async () => {
     setStatus('connecting')
     setError(null)
 
-    // Create session in database
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: session, error: sessionErr } = await supabase
+    const { data: session, error: err } = await supabase
       .from('remote_sessions')
       .insert({
         organization_id: orgId,
         device_id:       deviceId,
         device_hostname: deviceHostname,
-        created_by:      user?.email ?? 'unknown',
+        created_by:      user?.email ?? '',
         status:          'pending',
       })
       .select('id, session_token')
       .single()
 
-    if (sessionErr || !session) {
+    if (err || !session) {
       setStatus('error')
-      setError('Failed to create session: ' + (sessionErr?.message ?? 'Unknown error'))
+      setError('Failed to create session: ' + (err?.message ?? 'unknown'))
       return
     }
 
     const sessionId    = session.id
     const sessionToken = session.session_token
-    sessionIdRef.current = sessionId
 
-    // ── Subscribe to device control channel (to receive session_ready) ──────
+    // Subscribe to device control channel
     const controlTopic = `device-control-${deviceId}`
-    const ctrlChannel  = supabase.channel(controlTopic)
+    const ctrl         = supabase.channel(controlTopic)
 
-    ctrlChannel.on('broadcast', { event: 'session_ready' }, ({ payload }) => {
+    // When device confirms session is ready, store the ID and flip status.
+    // The useEffect above will initialize xterm once the DOM re-renders.
+    ctrl.on('broadcast', { event: 'session_ready' }, ({ payload }) => {
       if (payload?.session_id === sessionId) {
-        setStatus('active')
-        connectTerminal(sessionId)
+        pendingSidRef.current = sessionId   // tell the useEffect which session to open
+        setStatus('active')                 // triggers re-render → useEffect fires
       }
     })
 
-    ctrlChannel.subscribe()
-    ctrlChannelRef.current = ctrlChannel
-
-    // ── Signal the device to start ───────────────────────────────────────────
-    await ctrlChannel.send({
-      type:    'broadcast',
-      event:   'start',
-      payload: { session_id: sessionId, session_token: sessionToken },
+    ctrl.subscribe(async () => {
+      // Channel ready — signal the device
+      await ctrl.send({
+        type: 'broadcast', event: 'start',
+        payload: { session_id: sessionId, session_token: sessionToken },
+      })
     })
 
-    setStatus('waiting_for_device')
+    ctrlChRef.current = ctrl
+    setStatus('waiting')
 
-    // Timeout if device doesn't respond in 30 seconds
+    // Timeout if device doesn't respond
     setTimeout(() => {
-      if (sessionIdRef.current === sessionId && status !== 'active') {
+      if (pendingSidRef.current === sessionId || status === 'waiting') {
         setStatus('error')
-        setError('Device did not respond. Make sure the Valhalla daemon is running on the device.')
+        setError('Device did not respond in 30 seconds. Make sure the Valhalla daemon is running.')
       }
     }, 30000)
   }, [deviceId, deviceHostname, orgId])
 
-  // ── Connect xterm.js to the session channel ────────────────────────────────
-  const connectTerminal = useCallback((sessionId: string) => {
-    if (!termRef.current || !mounted) return
-
-    // Init xterm
-    const term = new XTerm({
-      cursorBlink:     true,
-      fontSize:        13,
-      fontFamily:      '"JetBrains Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
-      theme: {
-        background: '#0f172a',
-        foreground: '#e2e8f0',
-        cursor:     '#f59e0b',
-        black:      '#1e293b', red:     '#f87171', green:   '#4ade80', yellow:  '#facc15',
-        blue:       '#60a5fa', magenta: '#c084fc', cyan:    '#22d3ee', white:   '#e2e8f0',
-        brightBlack: '#475569', brightRed: '#fca5a5', brightGreen: '#86efac', brightYellow: '#fde047',
-        brightBlue: '#93c5fd', brightMagenta: '#d8b4fe', brightCyan: '#67e8f9', brightWhite: '#f8fafc',
-      },
-      allowTransparency: false,
-      scrollback:        5000,
-    })
-
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(termRef.current)
-    fit.fit()
-
-    xtermRef.current = term
-    fitRef.current   = fit
-
-    // Send keyboard input to device
-    term.onData((data) => {
-      sessionChannel?.send({
-        type:    'broadcast',
-        event:   'input',
-        payload: { data },
-      })
-    })
-
-    // Handle resize
-    const resizeObserver = new ResizeObserver(() => {
-      try {
-        fit.fit()
-        sessionChannel?.send({
-          type:    'broadcast',
-          event:   'resize',
-          payload: { rows: term.rows, cols: term.cols },
-        })
-      } catch {}
-    })
-    if (termRef.current) resizeObserver.observe(termRef.current)
-
-    // ── Subscribe to session I/O channel ─────────────────────────────────────
-    const sessionTopic   = `session-${sessionId}`
-    const sessionChannel = supabase.channel(sessionTopic)
-
-    sessionChannel.on('broadcast', { event: 'output' }, ({ payload }) => {
-      term.write(payload?.data ?? '')
-    })
-
-    sessionChannel.on('broadcast', { event: 'exit' }, () => {
-      term.writeln('\r\n\x1b[33m[Session ended by device]\x1b[0m')
-      setStatus('closed')
-    })
-
-    sessionChannel.subscribe(() => {
-      // Once subscribed, resize and send a newline to force the shell prompt to redraw.
-      // This recovers any initial output missed before subscription was ready.
-      setTimeout(() => {
-        try { fit.fit() } catch {}
-        sessionChannel.send({
-          type:    'broadcast',
-          event:   'resize',
-          payload: { rows: term.rows, cols: term.cols },
-        })
-        // Send a carriage return so the shell redraws the prompt
-        sessionChannel.send({
-          type:    'broadcast',
-          event:   'input',
-          payload: { data: '\r' },
-        })
-      }, 300)
-    })
-
-    channelRef.current = sessionChannel
-  }, [mounted])
-
   // ── Close session ──────────────────────────────────────────────────────────
   const closeSession = useCallback(async () => {
-    const sessionId = sessionIdRef.current
-    if (sessionId && ctrlChannelRef.current) {
-      await ctrlChannelRef.current.send({
-        type:    'broadcast',
-        event:   'stop',
-        payload: { session_id: sessionId },
+    const sid = sessionIdRef.current
+    if (sid) {
+      ctrlChRef.current?.send({
+        type: 'broadcast', event: 'stop', payload: { session_id: sid },
       })
-      // Mark closed in DB
-      await supabase
-        .from('remote_sessions')
+      await supabase.from('remote_sessions')
         .update({ status: 'closed', closed_at: new Date().toISOString() })
-        .eq('id', sessionId)
+        .eq('id', sid)
     }
     cleanup()
     setStatus('idle')
   }, [cleanup])
 
-  // ── Toggle fullscreen ──────────────────────────────────────────────────────
+  // Refit on fullscreen toggle
   useEffect(() => {
-    if (fitRef.current) {
-      setTimeout(() => fitRef.current?.fit(), 100)
-    }
+    if (fitRef.current) requestAnimationFrame(() => { try { fitRef.current.fit() } catch {} })
   }, [fullscreen])
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  return (
-    <div className={`flex flex-col rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-950 ${fullscreen ? 'fixed inset-0 z-50 rounded-none' : ''}`}>
+  const containerCls = `flex flex-col rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-950 ${fullscreen ? 'fixed inset-0 z-50 rounded-none' : ''}`
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex-shrink-0">
+  return (
+    <div className={containerCls}>
+      {/* Title bar */}
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex-shrink-0 select-none">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-rose-500" />
+          <div className="w-3 h-3 rounded-full bg-rose-500 cursor-pointer" onClick={status === 'active' ? closeSession : undefined} />
           <div className="w-3 h-3 rounded-full bg-amber-400" />
           <div className="w-3 h-3 rounded-full bg-emerald-500" />
         </div>
         <Terminal className="w-3.5 h-3.5 text-slate-500 ml-2" />
-        <span className="text-xs text-slate-400 font-mono flex-1">
-          {status === 'idle'               && `${deviceHostname} — not connected`}
-          {status === 'connecting'         && 'Creating session…'}
-          {status === 'waiting_for_device' && `Waiting for ${deviceHostname}…`}
-          {status === 'active'             && `${deviceHostname} — connected`}
-          {status === 'error'              && 'Connection failed'}
-          {status === 'closed'             && 'Session ended'}
+        <span className="text-xs text-slate-400 font-mono flex-1 truncate">
+          {status === 'idle'        && `${deviceHostname} — not connected`}
+          {status === 'connecting'  && 'Creating session…'}
+          {status === 'waiting'     && `Waiting for ${deviceHostname}…`}
+          {status === 'active'      && `${deviceHostname}`}
+          {status === 'error'       && 'Connection failed'}
+          {status === 'closed'      && 'Session ended'}
         </span>
-
-        {/* Status indicator */}
-        <div className="flex items-center gap-1.5">
-          {(status === 'connecting' || status === 'waiting_for_device') && (
-            <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-          )}
-          {status === 'active' && (
-            <div className="flex items-center gap-1 text-emerald-400">
-              <Wifi className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-semibold">LIVE</span>
-            </div>
-          )}
-          {(status === 'error' || status === 'closed') && (
-            <WifiOff className="w-3.5 h-3.5 text-slate-500" />
-          )}
-        </div>
-
-        <button onClick={() => setFullscreen(p => !p)}
-          className="p-1 rounded hover:bg-slate-800 text-slate-500 transition-colors">
+        {(status === 'connecting' || status === 'waiting') && <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />}
+        {status === 'active' && (
+          <div className="flex items-center gap-1 text-emerald-400 flex-shrink-0">
+            <Wifi className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-bold uppercase">Live</span>
+          </div>
+        )}
+        <button onClick={() => setFullscreen(p => !p)} className="p-1 rounded hover:bg-slate-800 text-slate-500">
           {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
         </button>
-        {(status === 'active' || status === 'waiting_for_device') && (
-          <button onClick={closeSession}
-            className="p-1 rounded hover:bg-slate-800 text-slate-500 transition-colors">
+        {(status === 'active' || status === 'waiting') && (
+          <button onClick={closeSession} className="p-1 rounded hover:bg-slate-800 text-slate-500">
             <X className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
 
-      {/* Terminal / state panels */}
-      <div className="flex-1 relative min-h-[400px]">
+      {/* Content area */}
+      <div className="flex-1 relative" style={{ minHeight: '420px' }}>
 
-        {/* Idle state */}
+        {/* xterm container — always in DOM but hidden until active */}
+        <div
+          ref={termContainerRef}
+          onClick={() => xtermRef.current?.focus()}
+          className="absolute inset-0 p-0"
+          style={{ display: status === 'active' ? 'block' : 'none' }}
+        />
+
+        {/* Overlay states */}
         {status === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8">
             <div className="w-14 h-14 rounded-2xl bg-slate-800 flex items-center justify-center">
@@ -295,9 +284,9 @@ export default function RemoteTerminal({ deviceId, deviceHostname, orgId }: Prop
             <div className="text-center">
               <p className="text-slate-300 font-semibold">Remote Terminal</p>
               <p className="text-slate-500 text-sm mt-1">
-                Start a secure shell session on <span className="text-slate-400 font-mono">{deviceHostname}</span>
+                Start a shell session on <span className="text-slate-400 font-mono">{deviceHostname}</span>
               </p>
-              <p className="text-slate-600 text-xs mt-2">Requires Valhalla daemon running on device</p>
+              <p className="text-slate-600 text-xs mt-2">Requires the Valhalla daemon running on the device</p>
             </div>
             <button onClick={startSession}
               className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
@@ -306,22 +295,16 @@ export default function RemoteTerminal({ deviceId, deviceHostname, orgId }: Prop
           </div>
         )}
 
-        {/* Connecting */}
-        {(status === 'connecting' || status === 'waiting_for_device') && (
+        {(status === 'connecting' || status === 'waiting') && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8">
             <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
             <p className="text-slate-300 text-sm font-medium">
-              {status === 'connecting' ? 'Creating session…' : `Signaling ${deviceHostname}…`}
+              {status === 'connecting' ? 'Creating session…' : `Waiting for ${deviceHostname} to respond…`}
             </p>
-            {status === 'waiting_for_device' && (
-              <p className="text-slate-500 text-xs text-center max-w-xs">
-                Waiting for the device daemon to respond. This usually takes 1–3 seconds.
-              </p>
-            )}
+            {status === 'waiting' && <p className="text-slate-500 text-xs max-w-xs text-center">Usually takes 1–3 seconds</p>}
           </div>
         )}
 
-        {/* Error */}
         {status === 'error' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8">
             <div className="w-12 h-12 rounded-xl bg-rose-950/40 flex items-center justify-center">
@@ -331,16 +314,16 @@ export default function RemoteTerminal({ deviceId, deviceHostname, orgId }: Prop
               <p className="text-rose-300 font-semibold">Connection Failed</p>
               {error && <p className="text-slate-500 text-xs mt-2 max-w-sm">{error}</p>}
             </div>
-            <button onClick={() => setStatus('idle')}
+            <button onClick={() => { cleanup(); setStatus('idle') }}
               className="flex items-center gap-2 px-4 py-2 border border-slate-700 rounded-xl text-slate-400 hover:text-slate-300 text-sm transition-colors">
               <RefreshCw className="w-3.5 h-3.5" /> Try Again
             </button>
           </div>
         )}
 
-        {/* Closed */}
         {status === 'closed' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8">
+            <WifiOff className="w-8 h-8 text-slate-600" />
             <p className="text-slate-400 text-sm">Session ended</p>
             <button onClick={() => { cleanup(); setStatus('idle') }}
               className="flex items-center gap-2 px-4 py-2 border border-slate-700 rounded-xl text-slate-400 hover:text-slate-300 text-sm transition-colors">
@@ -348,13 +331,6 @@ export default function RemoteTerminal({ deviceId, deviceHostname, orgId }: Prop
             </button>
           </div>
         )}
-
-        {/* xterm.js container — always rendered when active so DOM exists */}
-        <div
-          ref={termRef}
-          className={`w-full h-full p-1 ${status === 'active' ? 'block' : 'hidden'}`}
-          style={{ minHeight: '400px' }}
-        />
       </div>
     </div>
   )
