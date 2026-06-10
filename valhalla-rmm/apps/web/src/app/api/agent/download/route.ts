@@ -21,17 +21,21 @@ export async function GET(req: NextRequest) {
   const platform     = searchParams.get('platform') || 'linux'
   const customerName = searchParams.get('customer') || ''
 
-  // Serve daemon script without auth
+  // Serve daemon script — read from filesystem directly to bypass auth middleware
   if (platform === 'daemon') {
     try {
-      const r = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/valhalla-daemon.py`)
-      if (!r.ok) return new NextResponse('Not found', { status: 404 })
-      const text = await r.text()
-      return new NextResponse(text, {
-        headers: { 'Content-Type': 'text/plain', 'Content-Disposition': 'attachment; filename="valhalla-daemon.py"' },
+      const { readFileSync } = await import('fs')
+      const { join }         = await import('path')
+      const script = readFileSync(join(process.cwd(), 'public', 'valhalla-daemon.py'), 'utf-8')
+      return new NextResponse(script, {
+        headers: {
+          'Content-Type':        'text/plain',
+          'Content-Disposition': 'attachment; filename="valhalla-daemon.py"',
+          'Cache-Control':       'no-store',
+        },
       })
     } catch {
-      return new NextResponse('Daemon script not found', { status: 404 })
+      return new NextResponse('Daemon script not found. Make sure valhalla-daemon.py is in apps/web/public/', { status: 404 })
     }
   }
 
