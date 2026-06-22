@@ -48,12 +48,13 @@ function CustomerSearch({ value, onChange, supabase, orgId }) {
     if (!query.trim()) { setResults([]); return }
     const t = setTimeout(async () => {
       setLoading(true)
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('customers')
-        .select('id, name, email')
+        .select('id, name, contact_email')
         .eq('organization_id', orgId)
         .ilike('name', `%${query}%`)
         .limit(8)
+      if (error) console.error('Customer search error:', error)
       setResults(data || [])
       setLoading(false)
     }, 250)
@@ -90,9 +91,14 @@ function CustomerSearch({ value, onChange, supabase, orgId }) {
               className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-white flex flex-col gap-0.5"
             >
               <span className="font-medium">{c.name}</span>
-              {c.email && <span className="text-slate-400 text-xs">{c.email}</span>}
+              {c.contact_email && <span className="text-slate-400 text-xs">{c.contact_email}</span>}
             </button>
           ))}
+        </div>
+      )}
+      {open && query.trim() && !loading && results.length === 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
+          <div className="px-3 py-2 text-xs text-slate-500">No customers found</div>
         </div>
       )}
     </div>
@@ -145,29 +151,28 @@ export default function ScheduleJobModal({
       if (!session) return
       setUserEmail(session.user.email)
 
-      const { data: mem } = await supabase
+      // Get current user's org membership (with display_name for default tech name)
+      const { data: mem, error: memErr } = await supabase
         .from('organization_members')
-        .select('organization_id, role')
+        .select('organization_id, role, display_name, user_email')
         .eq('user_id', session.user.id)
         .single()
-      if (!mem) return
+      if (memErr || !mem) {
+        console.error('Org membership fetch error:', memErr)
+        return
+      }
 
       setOrgId(mem.organization_id)
 
-      const { data: allMembers } = await supabase
+      // Get all techs in the org directly from organization_members
+      // No profiles table needed — user_email and display_name live here
+      const { data: allMembers, error: allErr } = await supabase
         .from('organization_members')
-        .select('user_id, role')
+        .select('user_id, user_email, display_name, role')
         .eq('organization_id', mem.organization_id)
-
-      // get profiles for display names
-      if (allMembers?.length) {
-        const userIds = allMembers.map(m => m.user_id)
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name, email')
-          .in('id', userIds)
-        setMembers(profiles || [])
-      }
+        .order('display_name', { ascending: true, nullsFirst: false })
+      if (allErr) console.error('Members fetch error:', allErr)
+      setMembers(allMembers || [])
 
       // pre-fill
       if (editJob) {
@@ -204,8 +209,8 @@ export default function ScheduleJobModal({
           ...prev,
           scheduled_start: startDefault,
           scheduled_end:   endDefault,
-          assigned_to:     session.user.email,
-          assigned_name:   session.user.user_metadata?.full_name || session.user.email,
+          assigned_to:     mem.user_email || session.user.email,
+          assigned_name:   mem.display_name || session.user.email,
         }))
 
         // pre-fill customer if triggered from customer page
@@ -488,18 +493,24 @@ export default function ScheduleJobModal({
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 appearance-none"
                 value={form.assigned_to}
                 onChange={e => {
-                  const m = members.find(m => m.email === e.target.value)
+                  const m = members.find(m => m.user_email === e.target.value)
                   set('assigned_to', e.target.value)
-                  set('assigned_name', m?.full_name || e.target.value)
+                  set('assigned_name', m?.display_name || e.target.value)
                 }}
               >
                 <option value="">Select technician…</option>
                 {members.map(m => (
-                  <option key={m.id} value={m.email}>{m.full_name || m.email}</option>
+                  <option key={m.user_id} value={m.user_email}>
+                    {m.display_name || m.user_email}
+                    {m.role ? ` (${m.role})` : ''}
+                  </option>
                 ))}
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
+            {members.length === 0 && (
+              <p className="text-xs text-rose-400 mt-1">No technicians found in this organization.</p>
+            )}
           </div>
 
           {/* Date/Time */}
