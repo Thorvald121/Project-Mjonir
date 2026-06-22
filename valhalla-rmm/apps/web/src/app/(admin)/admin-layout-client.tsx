@@ -14,7 +14,7 @@ import {
   TrendingUp, ClipboardList, ChevronLeft, ChevronRight, ChevronDown,
   Zap, UsersRound, Moon, Sun, Menu, Activity,
   FileCode2, FileBarChart, FileSignature, Shield, Star, Keyboard, Repeat,
-  Upload, Key, DollarSign, Plus,
+  Upload, Key, DollarSign, Plus, CalendarDays,
 } from 'lucide-react'
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ const NAV_GROUPS = [
     items: [
       { label: 'Dashboard',     icon: LayoutDashboard, href: '/dashboard' },
       { label: 'Tickets',       icon: Ticket,          href: '/tickets' },
+      { label: 'Schedule',      icon: CalendarDays,    href: '/schedule' },
       { label: 'Customers',     icon: Users,           href: '/customers' },
       { label: 'Time Tracking', icon: Clock,           href: '/time-tracking' },
       { label: 'Maintenance',   icon: Repeat,          href: '/maintenance' },
@@ -75,6 +76,7 @@ const ADMIN_ITEMS = [
 const REALTIME_TABLES = [
   'tickets', 'ticket_comments', 'customers', 'customer_contacts',
   'invoices', 'quotes', 'time_entries', 'knowledge_articles', 'organization_members',
+  'scheduled_jobs',
 ]
 
 // ── Inner layout — reads from OrgContext ──────────────────────────────────────

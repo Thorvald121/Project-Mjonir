@@ -5,642 +5,436 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
-  ArrowLeft, Building2, Phone, Mail, Edit, Plus, Clock,
-  FileText, Package, Ticket, DollarSign, TrendingUp, X,
-  CheckCircle2, AlertTriangle, Loader2, Save, Users,
-  Heart, TrendingDown, Minus, Star, RefreshCw, Terminal,
-  StickyNote, Trash2, Key, Calendar, ExternalLink,
-  FileSignature, MessageSquare,
+  ArrowLeft, Clock, User, Building2, Loader2,
+  Lock, Mail, MessageSquare, Send, AlertTriangle,
+  Tag, ChevronDown, Paperclip, Play, Square, Timer,
+  BookOpen, Search, X, Sparkles, HardDrive, GitMerge, Activity,
+  CheckCircle2, Plus, RotateCcw, CalendarPlus,
 } from 'lucide-react'
+import { calculateSlaDue, getSlaInfo, SLA_TARGETS } from '@/lib/sla'
+import ScheduleJobModal from '@/components/schedule/ScheduleJobModal'
 
-
-// ── License helpers ───────────────────────────────────────────────────────────
-const LIC_STATUS_CFG = {
-  active:   { label: 'Active',   cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' },
-  expiring: { label: 'Expiring', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
-  expired:  { label: 'Expired',  cls: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400' },
-  cancelled:{ label: 'Cancelled',cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' },
+const PRIORITY_CLS = {
+  critical: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300',
+  high:     'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300',
+  medium:   'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300',
+  low:      'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300',
 }
-function getLicStatus(l) {
-  if (l.status === 'cancelled') return 'cancelled'
-  if (!l.renewal_date) return 'active'
-  const days = Math.ceil((new Date(l.renewal_date + 'T00:00:00').getTime() - Date.now()) / 86400000)
-  if (days < 0)  return 'expired'
-  if (days <= 30) return 'expiring'
-  return 'active'
+const STATUS_CLS = {
+  open:        'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
+  in_progress: 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
+  waiting:     'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+  resolved:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+  closed:      'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
 }
-
-// ── MRR helper ────────────────────────────────────────────────────────────────
-function calcMrr(contract) {
-  if (!contract || !contract.value) return 0
-  const v = Number(contract.value)
-  if (contract.billing_cycle === 'monthly')   return v
-  if (contract.billing_cycle === 'quarterly') return v / 3
-  if (contract.billing_cycle === 'annual' || contract.billing_cycle === 'yearly') return v / 12
-  return v
+const lbl = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
+const fmtDate = (d) => {
+  if (!d) return '—'
+  try { return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return '—' }
 }
 
-// ── Sticky Notes ──────────────────────────────────────────────────────────────
-function StickyNotes({ customerId, orgId }) {
-  const supabase = createSupabaseBrowserClient()
-  const [notes,  setNotes]  = useState([])
-  const [text,   setText]   = useState('')
-  const [saving, setSaving] = useState(false)
+function LiveTimer({ startedAt }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const start = new Date(startedAt).getTime()
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000))
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [startedAt])
+  const h = Math.floor(elapsed / 3600)
+  const m = Math.floor((elapsed % 3600) / 60)
+  const s = elapsed % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return (
+    <span className="font-mono text-sm font-semibold text-violet-600 dark:text-violet-400">
+      {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`}
+    </span>
+  )
+}
+
+function SlaPanel({ ticket, onRecalculate }) {
+  const sla    = getSlaInfo(ticket?.sla_due_date, ticket?.status)
+  const target = SLA_TARGETS[ticket?.priority]
+  const isDone = ['resolved', 'closed'].includes(ticket?.status)
+
+  if (!ticket) return null
+
+  const stateColor = {
+    breached: 'text-rose-600 dark:text-rose-400',
+    warning:  'text-amber-600 dark:text-amber-400',
+    ok:       'text-emerald-600 dark:text-emerald-400',
+    done:     'text-slate-400',
+  }[sla.state]
+
+  const stateBg = {
+    breached: 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40',
+    warning:  'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40',
+    ok:       'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40',
+    done:     'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700',
+  }[sla.state]
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${stateBg}`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5">
+          {sla.state === 'breached' && <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />}
+          {sla.state === 'warning'  && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
+          {sla.state === 'ok'       && <CheckCircle2  className="w-3.5 h-3.5 text-emerald-500" />}
+          <p className={`text-xs font-semibold ${stateColor}`}>
+            {sla.state === 'done'     ? 'SLA complete'   : ''}
+            {sla.state === 'breached' ? 'SLA breached'   : ''}
+            {sla.state === 'warning'  ? 'SLA at risk'    : ''}
+            {sla.state === 'ok'       ? 'SLA on track'   : ''}
+          </p>
+        </div>
+        {!isDone && (
+          <button
+            onClick={onRecalculate}
+            title="Recalculate from current priority and creation date"
+            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-amber-500 transition-colors">
+            <RotateCcw className="w-3 h-3" /> Reset
+          </button>
+        )}
+      </div>
+
+      {sla.label && (
+        <p className={`text-sm font-bold ${stateColor}`}>{sla.label}</p>
+      )}
+
+      {ticket.sla_due_date && (
+        <p className="text-[11px] text-slate-400 mt-0.5">
+          Due {fmtDate(ticket.sla_due_date)}
+        </p>
+      )}
+
+      {target && (
+        <p className="text-[10px] text-slate-400 mt-1">
+          Target: {target.label} · {ticket.priority}
+        </p>
+      )}
+
+      {!ticket.sla_due_date && !isDone && (
+        <p className="text-xs text-slate-400">No SLA set — click Reset to auto-calculate</p>
+      )}
+    </div>
+  )
+}
+
+function SubTaskChecklist({ ticketId }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [tasks,   setTasks]   = useState([])
+  const [text,    setText]    = useState('')
+  const [adding,  setAdding]  = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const inputRef = useRef(null)
 
   const load = async () => {
-    const { data } = await supabase.from('customer_notes')
-      .select('*').eq('customer_id', customerId)
-      .order('created_at', { ascending: false }).limit(20)
-    setNotes(data ?? [])
+    const { data } = await supabase.from('ticket_tasks')
+      .select('*').eq('ticket_id', ticketId)
+      .order('created_at', { ascending: true })
+    setTasks(data ?? [])
   }
 
-  useEffect(() => { if (customerId) load() }, [customerId])
+  useEffect(() => { if (ticketId) load() }, [ticketId])
+  useEffect(() => { if (showAdd) setTimeout(() => inputRef.current?.focus(), 50) }, [showAdd])
 
-  const addNote = async () => {
-    if (!text.trim() || !orgId) return
-    setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('customer_notes').insert({
-      customer_id:     customerId,
-      organization_id: orgId,
-      content:         text.trim(),
-      author_email:    user?.email || null,
-    })
-    setText('')
+  const addTask = async () => {
+    if (!text.trim()) return
+    setAdding(true)
+    await supabase.from('ticket_tasks').insert({ ticket_id: ticketId, title: text.trim(), completed: false })
+    setText(''); setShowAdd(false)
     await load()
-    setSaving(false)
+    setAdding(false)
   }
 
-  const deleteNote = async (id) => {
-    await supabase.from('customer_notes').delete().eq('id', id)
-    setNotes(prev => prev.filter(n => n.id !== id))
+  const toggle = async (task) => {
+    await supabase.from('ticket_tasks').update({ completed: !task.completed, completed_at: !task.completed ? new Date().toISOString() : null }).eq('id', task.id)
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed: !t.completed } : t))
   }
 
+  const remove = async (id) => {
+    await supabase.from('ticket_tasks').delete().eq('id', id)
+    setTasks(prev => prev.filter(t => t.id !== id))
+  }
+
+  const done  = tasks.filter(t => t.completed).length
+  const total = tasks.length
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          Sub-tasks
+          {total > 0 && <span className="text-xs font-normal text-slate-400">{done}/{total}</span>}
+        </h3>
+        <button onClick={() => setShowAdd(s => !s)}
+          className="flex items-center gap-1 text-xs text-slate-400 hover:text-amber-500 transition-colors">
+          <Plus className="w-3.5 h-3.5" /> Add
+        </button>
+      </div>
+      {total > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+            <span>{pct}% complete</span><span>{done} of {total} done</span>
+          </div>
+          <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {tasks.map(task => (
+          <div key={task.id} className="flex items-center gap-2.5 group">
+            <button onClick={() => toggle(task)}
+              className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 dark:border-slate-600 hover:border-emerald-400'}`}>
+              {task.completed && (
+                <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </button>
+            <span className={`flex-1 text-sm leading-tight ${task.completed ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>{task.title}</span>
+            <button onClick={() => remove(task.id)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-300 hover:text-rose-500 transition-all">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+      {tasks.length === 0 && !showAdd && (
+        <p className="text-xs text-slate-400 text-center py-2">No sub-tasks yet — break this ticket into steps</p>
+      )}
+      {showAdd && (
+        <div className="flex gap-2 mt-2">
+          <input ref={inputRef} value={text} onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addTask(); if (e.key === 'Escape') { setShowAdd(false); setText('') } }}
+            placeholder="Sub-task description…"
+            className="flex-1 px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder:text-slate-400" />
+          <button onClick={addTask} disabled={!text.trim() || adding}
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors">
+            {adding ? '…' : 'Add'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ActivityTimeline({ ticketId }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [events,  setEvents]  = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!ticketId) return
+    const load = async () => {
+      setLoading(true)
+      const { data: auditRows } = await supabase
+        .from('audit_log').select('*')
+        .eq('table_name', 'tickets').eq('record_id', ticketId)
+        .order('created_at', { ascending: true }).limit(100)
+      const { data: timeRows } = await supabase
+        .from('time_entries').select('id,technician,minutes,description,billable,created_at')
+        .eq('ticket_id', ticketId).order('created_at', { ascending: true }).limit(50)
+
+      const events = []
+      for (const row of auditRows ?? []) {
+        if (row.action === 'INSERT') {
+          events.push({ id: row.id, type: 'created', at: row.created_at, actor: row.actor_name || row.actor_email || 'System', detail: 'Ticket created' })
+        } else if (row.action === 'UPDATE' && row.changed_fields) {
+          for (const field of Object.keys(row.changed_fields)) {
+            const { from: f, to: t } = row.changed_fields[field]
+            const detail = (() => {
+              if (field === 'status')       return `Status changed from "${f}" to "${t}"`
+              if (field === 'priority')     return `Priority changed from "${f}" to "${t}"`
+              if (field === 'assigned_to')  return t ? `Assigned to ${t}` : 'Unassigned'
+              if (field === 'category')     return `Category set to "${t}"`
+              if (field === 'sla_due_date') return `SLA due date set to ${t ? new Date(t).toLocaleDateString() : 'cleared'}`
+              if (field === 'title')        return `Title updated`
+              if (field === 'customer_name') return `Customer linked: ${t}`
+              return `${field.replace(/_/g,' ')} updated`
+            })()
+            events.push({ id: `${row.id}-${field}`, type: 'update', field, at: row.created_at, actor: row.actor_name || row.actor_email || 'System', detail })
+          }
+        }
+      }
+      for (const row of timeRows ?? []) {
+        const hrs  = Math.floor((row.minutes || 0) / 60)
+        const mins = (row.minutes || 0) % 60
+        const dur  = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
+        events.push({ id: `time-${row.id}`, type: 'time', at: row.created_at, actor: row.technician || 'Unknown', detail: `${dur} logged${row.description ? ` — ${row.description}` : ''}${row.billable ? '' : ' (non-billable)'}` })
+      }
+      events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+      setEvents(events)
+      setLoading(false)
+    }
+    load()
+  }, [ticketId])
+
+  const ICON_CFG = { created: { dot: 'bg-emerald-500' }, update: { dot: 'bg-blue-500' }, time: { dot: 'bg-violet-500' } }
   const fmtAgo = (d) => {
-    const s = Math.round((Date.now() - new Date(d).getTime()) / 1000)
-    if (s < 3600)  return `${Math.floor(s/60)}m ago`
-    if (s < 86400) return `${Math.floor(s/3600)}h ago`
+    const secs = Math.round((Date.now() - new Date(d).getTime()) / 1000)
+    if (secs < 3600)  return `${Math.floor(secs/60)}m ago`
+    if (secs < 86400) return `${Math.floor(secs/3600)}h ago`
     return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
+  if (loading) return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+      <div className="h-4 w-32 bg-slate-100 dark:bg-slate-800 rounded animate-pulse mb-4" />
+      {[1,2,3].map(i => <div key={i} className="h-3 bg-slate-100 dark:bg-slate-800 rounded animate-pulse mb-2.5" />)}
+    </div>
+  )
+  if (!events.length) return null
+
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 space-y-4">
-      <h3 className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-        <StickyNote className="w-4 h-4 text-amber-500" /> Sticky Notes
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+      <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-4 flex items-center gap-2">
+        <Activity className="w-4 h-4 text-slate-400" /> Activity Timeline
       </h3>
-      <div className="flex gap-2">
-        <textarea
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) addNote() }}
-          placeholder="Add a note… (⌘↵ to save)"
-          rows={2}
-          className="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none placeholder:text-slate-400"
-        />
-        <button onClick={addNote} disabled={!text.trim() || saving}
-          className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors self-start">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-        </button>
-      </div>
-      {notes.length === 0 ? (
-        <p className="text-xs text-slate-400 text-center py-2">No notes yet — add context that doesn't belong in a ticket</p>
-      ) : (
-        <div className="space-y-2">
-          {notes.map(note => (
-            <div key={note.id} className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2.5 group">
-              <p className="flex-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{note.content}</p>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <p className="text-[10px] text-slate-400">{fmtAgo(note.created_at)}</p>
-                <button onClick={() => deleteNote(note.id)}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-rose-500 transition-all">
-                  <Trash2 className="w-3 h-3" />
-                </button>
+      <div className="relative">
+        <div className="absolute left-[5px] top-2 bottom-2 w-px bg-slate-100 dark:bg-slate-800" />
+        <div className="space-y-3">
+          {events.map(ev => {
+            const cfg = ICON_CFG[ev.type] ?? ICON_CFG.update
+            return (
+              <div key={ev.id} className="flex items-start gap-3 pl-4 relative">
+                <span className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot} ring-2 ring-white dark:ring-slate-900`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 break-words leading-relaxed">{ev.detail}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{ev.actor} · {fmtAgo(ev.at)}</p>
+                </div>
               </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function WatchersField({ ticket, onUpdate }) {
+  const supabase = createSupabaseBrowserClient()
+  const [input,  setInput]  = useState('')
+  const [saving, setSaving] = useState(false)
+  const watchers = Array.isArray(ticket?.watchers) ? ticket.watchers : []
+
+  const add = async () => {
+    const email = input.trim().toLowerCase()
+    if (!email || !email.includes('@')) return
+    if (watchers.includes(email)) { setInput(''); return }
+    setSaving(true)
+    await supabase.from('tickets').update({ watchers: [...watchers, email] }).eq('id', ticket.id)
+    setSaving(false); setInput(''); onUpdate()
+  }
+
+  const remove = async (email) => {
+    await supabase.from('tickets').update({ watchers: watchers.filter(w => w !== email) }).eq('id', ticket.id)
+    onUpdate()
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {watchers.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {watchers.map(w => (
+            <div key={w} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span className="text-[11px] text-slate-600 dark:text-slate-300 max-w-[120px] truncate">{w}</span>
+              <button onClick={() => remove(w)} className="text-slate-300 hover:text-rose-500 transition-colors"><X className="w-3 h-3" /></button>
             </div>
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Customer Health Score ─────────────────────────────────────────────────────
-function computeHealth({ tickets, invoices, csatResponses }) {
-  let score = 100
-  const factors = []
-  const open     = tickets.filter(t => !['resolved','closed'].includes(t.status))
-  const critical = open.filter(t => t.priority === 'critical')
-  const breached = open.filter(t => t.sla_due_date && new Date(t.sla_due_date) < new Date())
-  const overdue  = invoices.filter(i => i.status === 'overdue')
-
-  if (open.length)     { const p = Math.min(32, open.length * 8);     score -= p; factors.push({ label: `${open.length} open ticket${open.length > 1 ? 's' : ''}`,             impact: -p, icon: AlertTriangle }) }
-  if (critical.length) { const p = Math.min(30, critical.length * 15); score -= p; factors.push({ label: `${critical.length} critical ticket${critical.length > 1 ? 's' : ''}`, impact: -p, icon: AlertTriangle }) }
-  if (breached.length) { const p = Math.min(40, breached.length * 20); score -= p; factors.push({ label: `${breached.length} SLA breach${breached.length > 1 ? 'es' : ''}`,      impact: -p, icon: Clock }) }
-  if (overdue.length)  { const p = Math.min(30, overdue.length * 15);  score -= p; factors.push({ label: `${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`,    impact: -p, icon: DollarSign }) }
-
-  if (csatResponses.length >= 2) {
-    const avg = csatResponses.reduce((s, r) => s + (r.score || 0), 0) / csatResponses.length
-    if (avg >= 4.5)   { score += 10; factors.push({ label: `CSAT avg ${avg.toFixed(1)} ⭐`, impact: +10, icon: Star }) }
-    else if (avg < 3) { score -= 15; factors.push({ label: `Low CSAT avg ${avg.toFixed(1)}`, impact: -15, icon: Star }) }
-  }
-
-  score = Math.max(0, Math.min(100, Math.round(score)))
-  if (!factors.length) factors.push({ label: 'No open issues', impact: 0, icon: null })
-  return { score, factors }
-}
-
-function CustomerHealthScore({ tickets, invoices, csatResponses = [] }) {
-  const { score, factors } = computeHealth({ tickets, invoices, csatResponses })
-  const g = score >= 85
-    ? { label: 'Excellent', color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', border: 'border-emerald-200 dark:border-emerald-800' }
-    : score >= 65
-    ? { label: 'Good',      color: 'text-blue-600',    bg: 'bg-blue-50 dark:bg-blue-950/30',    border: 'border-blue-200 dark:border-blue-800'    }
-    : score >= 45
-    ? { label: 'Fair',      color: 'text-amber-600',   bg: 'bg-amber-50 dark:bg-amber-950/30',  border: 'border-amber-200 dark:border-amber-800'  }
-    : { label: 'At Risk',   color: 'text-rose-600',    bg: 'bg-rose-50 dark:bg-rose-950/30',    border: 'border-rose-200 dark:border-rose-800'    }
-
-  const circ = 2 * Math.PI * 32
-  return (
-    <div className={`rounded-xl border ${g.border} ${g.bg} p-4`}>
-      <div className="flex items-center gap-2 mb-3">
-        <Heart className={`w-4 h-4 ${g.color}`} />
-        <span className="text-sm font-semibold text-slate-900 dark:text-white">Account Health</span>
-      </div>
-      <div className="flex items-center gap-5">
-        <div className="relative w-20 h-20 flex-shrink-0">
-          <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="32" fill="none" stroke="currentColor" strokeWidth="8" className="text-slate-200 dark:text-slate-700" />
-            <circle cx="40" cy="40" r="32" fill="none" strokeWidth="8" strokeLinecap="round"
-              stroke="currentColor" className={g.color}
-              strokeDasharray={circ} strokeDashoffset={circ * (1 - score / 100)} />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`text-xl font-bold ${g.color}`}>{score}</span>
-          </div>
-        </div>
-        <div className="flex-1">
-          <p className={`text-lg font-bold ${g.color} mb-2`}>{g.label}</p>
-          <div className="space-y-1.5">
-            {factors.map((f, i) => (
-              <div key={i} className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  {f.icon && <f.icon className={`w-3 h-3 flex-shrink-0 ${f.impact > 0 ? 'text-emerald-500' : f.impact === 0 ? 'text-slate-400' : 'text-rose-500'}`} />}
-                  <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{f.label}</span>
-                </div>
-                {f.impact !== 0 && (
-                  <span className={`text-xs font-semibold flex-shrink-0 flex items-center gap-0.5 ${f.impact > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {f.impact > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    {f.impact > 0 ? `+${f.impact}` : f.impact}
-                  </span>
-                )}
-                {f.impact === 0 && <Minus className="w-3 h-3 text-slate-400 flex-shrink-0" />}
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="flex gap-1">
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          placeholder="Add email & press Enter"
+          className="flex-1 px-2 py-1 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-600 dark:text-slate-300 bg-transparent placeholder:text-slate-300 focus:outline-none focus:border-amber-400" />
+        {input && (
+          <button onClick={add} disabled={saving} className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs transition-colors">
+            {saving ? '…' : '+'}
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Block Hours Burndown ──────────────────────────────────────────────────────
-function BlockHoursBurnDown({ customer, timeEntries }) {
-  const purchased   = customer.block_hours_total || 0
-  const periodStart = customer.block_hours_period_start ? new Date(customer.block_hours_period_start) : null
-
-  const relevant = timeEntries.filter(e => {
-    if (!e.billable) return false
-    if (!periodStart) return true
-    return new Date(e.date) >= periodStart
-  })
-
-  const consumedHours  = relevant.reduce((s, e) => s + (e.minutes || 0), 0) / 60
-  const remainingHours = Math.max(0, purchased - consumedHours)
-  const pct            = purchased > 0 ? Math.min(100, (consumedHours / purchased) * 100) : 0
-  const isOver         = consumedHours > purchased
-  const isWarning      = !isOver && pct >= 75
-
-  const barColor    = isOver ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
-  const statusCls   = isOver ? 'bg-rose-100 text-rose-700' : isWarning ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-  const statusLabel = isOver ? 'Over Budget' : isWarning ? 'Running Low' : 'On Track'
-
-  return (
-    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-violet-500" />
-          <p className="text-sm font-semibold text-slate-900 dark:text-white">Block Hours</p>
-        </div>
-        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${statusCls}`}>
-          {isOver || isWarning ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
-          {statusLabel}
-        </span>
-      </div>
-      <div className="grid grid-cols-3 gap-2 text-center">
-        {[
-          { label: 'Purchased', value: purchased,                  cls: 'text-slate-900 dark:text-white' },
-          { label: 'Consumed',  value: consumedHours.toFixed(1),   cls: isOver ? 'text-rose-600' : 'text-slate-900 dark:text-white' },
-          { label: isOver ? 'Over' : 'Remaining',
-            value: isOver ? `+${(consumedHours - purchased).toFixed(1)}` : remainingHours.toFixed(1),
-            cls: isOver ? 'text-rose-600' : remainingHours < purchased * 0.25 ? 'text-amber-600' : 'text-emerald-600' },
-        ].map(({ label, value, cls }) => (
-          <div key={label} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-2.5">
-            <p className={`text-xl font-bold ${cls}`}>{value}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
-      {purchased > 0 && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-slate-400">
-            <span>{pct.toFixed(0)}% consumed</span>
-            <span>{relevant.length} entries</span>
-          </div>
-          <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(100, pct)}%` }} />
-          </div>
-        </div>
-      )}
-      {periodStart && (
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
-          <RefreshCw className="w-3 h-3" />
-          Period started: <span className="font-medium text-slate-600 dark:text-slate-300">{periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Active Contract Card ──────────────────────────────────────────────────────
-function ActiveContractCard({ contract }) {
-  if (!contract) return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 flex flex-col items-center justify-center gap-2 min-h-[140px]">
-      <FileSignature className="w-8 h-8 text-slate-300 dark:text-slate-700" />
-      <p className="text-sm text-slate-400">No active contract</p>
-    </div>
-  )
-
-  const mrr       = calcMrr(contract)
-  const daysToEnd = contract.end_date
-    ? Math.ceil((new Date(contract.end_date).getTime() - Date.now()) / 86400000)
-    : null
-  const isExpiring = daysToEnd !== null && daysToEnd <= 60 && daysToEnd >= 0
-  const isExpired  = daysToEnd !== null && daysToEnd < 0
-
-  const borderCls = isExpired  ? 'border-rose-200 dark:border-rose-800'
-                  : isExpiring ? 'border-amber-200 dark:border-amber-800'
-                  : 'border-emerald-200 dark:border-emerald-800'
-  const bgCls     = isExpired  ? 'bg-rose-50 dark:bg-rose-950/20'
-                  : isExpiring ? 'bg-amber-50 dark:bg-amber-950/20'
-                  : 'bg-emerald-50 dark:bg-emerald-950/20'
-
-  const fmtD = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-
-  return (
-    <div className={`rounded-xl border ${borderCls} ${bgCls} p-4`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <FileSignature className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm font-semibold text-slate-900 dark:text-white">Active Contract</span>
-        </div>
-        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full capitalize">
-          {contract.status}
-        </span>
-      </div>
-
-      <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 truncate">{contract.title}</p>
-
-      <div className="space-y-1.5">
-        {[
-          { label: 'MRR',        value: mrr > 0 ? `$${mrr.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' },
-          { label: 'Billing',    value: contract.billing_cycle ? contract.billing_cycle.charAt(0).toUpperCase() + contract.billing_cycle.slice(1) : '—' },
-          { label: 'Start date', value: fmtD(contract.start_date) },
-          { label: 'Renewal',    value: contract.end_date ? fmtD(contract.end_date) : 'Ongoing' },
-          { label: 'Auto-renew', value: contract.auto_renew ? 'Yes' : 'No' },
-        ].map(r => (
-          <div key={r.label} className="flex items-center justify-between text-xs">
-            <span className="text-slate-500">{r.label}</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200">{r.value}</span>
-          </div>
-        ))}
-      </div>
-
-      {isExpiring && (
-        <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-800 flex items-center gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-          <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
-            Renews in {daysToEnd} day{daysToEnd !== 1 ? 's' : ''}
-          </span>
-        </div>
-      )}
-      {isExpired && (
-        <div className="mt-3 pt-3 border-t border-rose-200 dark:border-rose-800 flex items-center gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-          <span className="text-xs font-semibold text-rose-700 dark:text-rose-400">Contract has expired</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-
-const STATUS_CLS = {
-  active:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400',
-  inactive: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
-  prospect: 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400',
-}
-const PRIORITY_CLS = {
-  critical: 'bg-rose-100 text-rose-700',
-  high:     'bg-orange-100 text-orange-700',
-  medium:   'bg-amber-100 text-amber-700',
-  low:      'bg-emerald-100 text-emerald-700',
-}
-const TICKET_STATUS_CLS = {
-  open:        'bg-blue-100 text-blue-700',
-  in_progress: 'bg-violet-100 text-violet-700',
-  waiting:     'bg-amber-100 text-amber-700',
-  resolved:    'bg-emerald-100 text-emerald-700',
-  closed:      'bg-slate-100 text-slate-600',
-}
-const INV_STATUS_CLS = {
-  draft:   'bg-slate-100 text-slate-600',
-  sent:    'bg-blue-100 text-blue-700',
-  paid:    'bg-emerald-100 text-emerald-700',
-  partial: 'bg-violet-100 text-violet-700',
-  overdue: 'bg-rose-100 text-rose-700',
-  void:    'bg-slate-100 text-slate-400',
-}
-const CONTRACT_LABELS = {
-  managed:            'Managed Services',
-  time_and_materials: 'Time & Materials',
-  block_hours:        'Block Hours',
-  project:            'Project',
-}
-
-const lbl         = (s) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? ''
-const fmtDate     = (d) => { if (!d) return '—'; try { return new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
-const fmtCurrency = (n) => n != null ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
-
-// ── Stat Card ─────────────────────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, sub, color = 'text-amber-500', bg = 'bg-amber-50 dark:bg-amber-950/30' }) {
-  return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
-      <div className={`w-10 h-10 rounded-full ${bg} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-5 h-5 ${color}`} />
-      </div>
-      <div>
-        <p className={`text-xl font-bold ${color}`}>{value}</p>
-        <p className="text-xs text-slate-400">{label}</p>
-        {sub && <p className="text-[11px] text-slate-400">{sub}</p>}
-      </div>
-    </div>
-  )
-}
-
-// ── Edit Customer Dialog ──────────────────────────────────────────────────────
-function EditDialog({ open, onClose, onSaved, customer, orgId }) {
-  const supabase = createSupabaseBrowserClient()
-  const [form, setForm] = useState({})
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState(null)
-  const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
-
-  useEffect(() => {
-    if (!open || !customer) return
-    setForm({
-      name:             customer.name             ?? '',
-      status:           customer.status           ?? 'active',
-      contract_type:    customer.contract_type    ?? 'managed',
-      industry:         customer.industry         ?? '',
-      contact_name:     customer.contact_name     ?? '',
-      contact_email:    customer.contact_email    ?? '',
-      contact_phone:    customer.contact_phone    ?? '',
-      monthly_rate:     customer.monthly_rate     ?? '',
-      hourly_rate:      customer.hourly_rate      ?? '',
-      after_hours_rate: customer.after_hours_rate ?? '',
-      block_hours_total:        customer.block_hours_total        ?? '',
-      block_hours_period_start: customer.block_hours_period_start ?? '',
-      address:          customer.address          ?? '',
-      website:          customer.website          ?? '',
-      notes:            customer.notes            ?? '',
-    })
-    setErr(null)
-  }, [open, customer])
-
-  const handleSave = async () => {
-    if (!form.name?.trim()) { setErr('Name is required'); return }
-    setSaving(true); setErr(null)
-    const { error } = await supabase.from('customers').update({
-      name:              form.name.trim(),
-      status:            form.status,
-      contract_type:     form.contract_type     || null,
-      industry:          form.industry          || null,
-      contact_name:      form.contact_name      || null,
-      contact_email:     form.contact_email     || null,
-      contact_phone:     form.contact_phone     || null,
-      monthly_rate:      form.monthly_rate      ? parseFloat(form.monthly_rate)      : null,
-      hourly_rate:       form.hourly_rate       ? parseFloat(form.hourly_rate)       : null,
-      after_hours_rate:  form.after_hours_rate  ? parseFloat(form.after_hours_rate)  : null,
-      block_hours_total:        form.block_hours_total ? parseInt(form.block_hours_total) : null,
-      block_hours_period_start: form.block_hours_period_start || null,
-      address:           form.address           || null,
-      website:           form.website           || null,
-      notes:             form.notes             || null,
-    }).eq('id', customer.id)
-    if (error) { setErr(error.message); setSaving(false); return }
-    setSaving(false); onSaved()
-  }
-
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="font-semibold text-slate-900 dark:text-white">Edit Customer</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Company Name *</label>
-              <input value={form.name || ''} onChange={e => s('name', e.target.value)} className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</label>
-              <select value={form.status || 'active'} onChange={e => s('status', e.target.value)} className={`mt-1 ${inp}`}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="prospect">Prospect</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contract Type</label>
-              <select value={form.contract_type || 'managed'} onChange={e => s('contract_type', e.target.value)} className={`mt-1 ${inp}`}>
-                <option value="managed">Managed Services</option>
-                <option value="time_and_materials">Time & Materials</option>
-                <option value="block_hours">Block Hours</option>
-                <option value="project">Project</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Industry</label>
-              <input value={form.industry || ''} onChange={e => s('industry', e.target.value)} placeholder="Healthcare, Legal..." className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Website</label>
-              <input value={form.website || ''} onChange={e => s('website', e.target.value)} placeholder="https://..." className={`mt-1 ${inp}`} />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Address</label>
-              <input value={form.address || ''} onChange={e => s('address', e.target.value)} placeholder="123 Main St, City, State ZIP" className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Primary Contact</label>
-              <input value={form.contact_name || ''} onChange={e => s('contact_name', e.target.value)} className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Email</label>
-              <input type="email" value={form.contact_email || ''} onChange={e => s('contact_email', e.target.value)} className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Phone</label>
-              <input type="tel" value={form.contact_phone || ''} onChange={e => s('contact_phone', e.target.value)} className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Monthly Rate ($)</label>
-              <input type="number" min={0} value={form.monthly_rate || ''} onChange={e => s('monthly_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Hourly Rate ($)</label>
-              <input type="number" min={0} value={form.hourly_rate || ''} onChange={e => s('hourly_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">After-Hours Rate ($)</label>
-              <input type="number" min={0} value={form.after_hours_rate || ''} onChange={e => s('after_hours_rate', e.target.value)} placeholder="0.00" className={`mt-1 ${inp}`} />
-            </div>
-            {form.contract_type === 'block_hours' && (
-              <>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Block Hours Total</label>
-                  <input type="number" min={0} value={form.block_hours_total || ''} onChange={e => s('block_hours_total', e.target.value)} placeholder="40" className={`mt-1 ${inp}`} />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Period Start Date</label>
-                  <input type="date" value={form.block_hours_period_start || ''} onChange={e => s('block_hours_period_start', e.target.value)} className={`mt-1 ${inp}`} />
-                </div>
-              </>
-            )}
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
-              <textarea value={form.notes || ''} onChange={e => s('notes', e.target.value)} rows={3} className={`mt-1 ${inp} resize-none`} />
-            </div>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
-            <button onClick={handleSave} disabled={saving}
-              className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── New Ticket Dialog ─────────────────────────────────────────────────────────
-function NewTicketDialog({ open, onClose, onSaved, customer, orgId }) {
-  const supabase = createSupabaseBrowserClient()
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', category: 'other', assigned_to: '', contact_name: '', contact_email: '' })
-  const [techs, setTechs] = useState([])
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState(null)
-  const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
+function MergeTicketDialog({ ticket, open, onClose, onMerged }) {
+  const supabase  = createSupabaseBrowserClient()
+  const [tickets, setTickets] = useState([])
+  const [search,  setSearch]  = useState('')
+  const [target,  setTarget]  = useState(null)
+  const [merging, setMerging] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setForm({ title: '', description: '', priority: 'medium', category: 'other', assigned_to: '',
-      contact_name: customer?.contact_name || '', contact_email: customer?.contact_email || '' })
-    supabase.from('organization_members').select('id,user_email').in('role', ['owner','admin','technician']).then(({ data }) => setTechs(data ?? []))
+    setTarget(null); setSearch('')
+    supabase.from('tickets').select('id,title,status,priority,customer_name,created_at')
+      .not('id', 'eq', ticket.id).not('status', 'in', '("closed")')
+      .order('created_at', { ascending: false }).limit(100)
+      .then(({ data }) => setTickets(data ?? []))
   }, [open])
 
-  const handleSave = async () => {
-    if (!form.title.trim()) { setErr('Title is required'); return }
-    setSaving(true); setErr(null)
-    const { error } = await supabase.from('tickets').insert({
-      organization_id: orgId,
-      title:           form.title.trim(),
-      description:     form.description || null,
-      priority:        form.priority,
-      category:        form.category,
-      status:          'open',
-      customer_id:     customer.id,
-      customer_name:   customer.name,
-      assigned_to:     form.assigned_to || null,
-      contact_name:    form.contact_name || null,
-      contact_email:   form.contact_email || null,
+  const filtered = tickets.filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || (t.customer_name || '').toLowerCase().includes(search.toLowerCase()))
+
+  const handleMerge = async () => {
+    if (!target) return
+    setMerging(true)
+    await supabase.from('ticket_comments').update({ ticket_id: target.id }).eq('ticket_id', ticket.id)
+    await supabase.from('time_entries').update({ ticket_id: target.id }).eq('ticket_id', ticket.id)
+    await supabase.from('ticket_comments').insert({
+      ticket_id: target.id, organization_id: ticket.organization_id,
+      author_name: 'System', content: `Merged ticket: "${ticket.title}" (#${ticket.id.slice(-6).toUpperCase()})`,
+      is_staff: true, source: 'admin',
     })
-    if (error) { setErr(error.message); setSaving(false); return }
-    setSaving(false); onSaved(); onClose()
+    await supabase.from('tickets').update({ status: 'closed' }).eq('id', ticket.id)
+    setMerging(false)
+    onMerged(target.id)
   }
 
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="font-semibold text-slate-900 dark:text-white">New Ticket — {customer?.name}</h2>
+          <div className="flex items-center gap-2">
+            <GitMerge className="w-4 h-4 text-violet-500" />
+            <h2 className="font-semibold text-slate-900 dark:text-white">Merge Ticket</h2>
+          </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-5 space-y-4">
-          {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Title *</label>
-            <input value={form.title} onChange={e => s('title', e.target.value)} placeholder="Brief description of the issue" className={`mt-1 ${inp}`} />
+          <p className="text-sm text-slate-500">Select the ticket to merge <strong className="text-slate-700 dark:text-slate-300">into</strong>. All comments and time entries from <em>{ticket.title}</em> will be moved there, then this ticket will be closed.</p>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tickets…"
+              className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500" />
           </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</label>
-            <textarea value={form.description} onChange={e => s('description', e.target.value)} rows={3} className={`mt-1 ${inp} resize-none`} />
+          <div className="max-h-64 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-700 rounded-xl p-1">
+            {filtered.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-6">No tickets found</p>
+            ) : filtered.map(t => (
+              <button key={t.id} onClick={() => setTarget(t)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors ${target?.id === t.id ? 'bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{t.title}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{t.customer_name || 'No customer'} · {t.status}</p>
+              </button>
+            ))}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Priority</label>
-              <select value={form.priority} onChange={e => s('priority', e.target.value)} className={`mt-1 ${inp}`}>
-                {['critical','high','medium','low'].map(p => <option key={p} value={p}>{lbl(p)}</option>)}
-              </select>
+          {target && (
+            <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg px-3 py-2 text-sm text-violet-700 dark:text-violet-300">
+              Will merge into: <strong>{target.title}</strong>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Category</label>
-              <select value={form.category} onChange={e => s('category', e.target.value)} className={`mt-1 ${inp}`}>
-                {['hardware','software','network','security','account','email','printing','other'].map(c => <option key={c} value={c}>{lbl(c)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Assign To</label>
-              <select value={form.assigned_to} onChange={e => s('assigned_to', e.target.value)} className={`mt-1 ${inp}`}>
-                <option value="">Unassigned</option>
-                {techs.map(t => <option key={t.id} value={t.user_email}>{t.user_email}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Name</label>
-              <input value={form.contact_name} onChange={e => s('contact_name', e.target.value)} className={`mt-1 ${inp}`} />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Email</label>
-              <input type="email" value={form.contact_email} onChange={e => s('contact_email', e.target.value)} className={`mt-1 ${inp}`} />
-            </div>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
-            <button onClick={handleSave} disabled={!form.title.trim() || saving}
-              className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {saving ? 'Creating…' : 'Create Ticket'}
+          )}
+          <div className="flex gap-2 pt-1">
+            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+            <button onClick={handleMerge} disabled={!target || merging}
+              className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors">
+              {merging ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitMerge className="w-4 h-4" />}
+              {merging ? 'Merging…' : 'Merge Ticket'}
             </button>
           </div>
         </div>
@@ -649,834 +443,1015 @@ function NewTicketDialog({ open, onClose, onSaved, customer, orgId }) {
   )
 }
 
-// ── Contact Dialog ────────────────────────────────────────────────────────────
-function ContactDialog({ open, onClose, onSaved, contact, customerId, orgId }) {
-  const supabase = createSupabaseBrowserClient()
-  const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'contact', notes: '', is_primary: false })
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState(null)
-  const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
+function AssetPicker({ ticket, orgId, onLinked }) {
+  const supabase    = createSupabaseBrowserClient()
+  const btnRef      = useRef(null)
+  const [assets,    setAssets]    = useState([])
+  const [search,    setSearch]    = useState('')
+  const [open,      setOpen]      = useState(false)
+  const [linked,    setLinked]    = useState(ticket?.linked_asset_id || null)
+  const [assetName, setAssetName] = useState(null)
+  const [dropPos,   setDropPos]   = useState({ top: 0, left: 0, width: 0 })
+
+  useEffect(() => {
+    if (linked) {
+      supabase.from('inventory_items').select('name,model,vendor').eq('id', linked).single()
+        .then(({ data }) => { if (data) setAssetName([data.name, data.vendor, data.model].filter(Boolean).join(' · ')) })
+    }
+  }, [linked])
 
   useEffect(() => {
     if (!open) return
-    setForm(contact ? {
-      name:       contact.name       ?? '',
-      email:      contact.email      ?? '',
-      phone:      contact.phone      ?? '',
-      role:       contact.role       ?? 'contact',
-      notes:      contact.notes      ?? '',
-      is_primary: contact.is_primary ?? false,
-    } : { name: '', email: '', phone: '', role: 'contact', notes: '', is_primary: false })
-    setErr(null)
-  }, [open, contact])
+    supabase.from('inventory_items').select('id,name,vendor,model,serial_number,asset_tag,status,category,customer_id,customer_name').order('name').limit(200)
+      .then(({ data }) => setAssets(data ?? []))
+  }, [open])
 
-  const handleSave = async () => {
-    if (!form.name.trim()) { setErr('Name is required'); return }
-    setSaving(true); setErr(null)
-    const payload = {
-      organization_id: orgId,
-      customer_id:     customerId,
-      name:            form.name.trim(),
-      email:           form.email || null,
-      phone:           form.phone || null,
-      role:            form.role  || 'contact',
-      notes:           form.notes || null,
-      is_primary:      form.is_primary || false,
+  const openDropdown = () => {
+    if (btnRef.current) {
+      const rect       = btnRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      const dropHeight = 280
+      const goUp       = spaceBelow < dropHeight && rect.top > dropHeight
+      setDropPos({ top: goUp ? rect.top + window.scrollY - dropHeight - 4 : rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: Math.max(rect.width, 300) })
     }
-    const { error } = contact
-      ? await supabase.from('customer_contacts').update(payload).eq('id', contact.id)
-      : await supabase.from('customer_contacts').insert(payload)
-    if (error) { setErr(error.message); setSaving(false); return }
-    setSaving(false); onSaved()
+    setOpen(true)
   }
 
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="font-semibold text-slate-900 dark:text-white">{contact ? 'Edit Contact' : 'Add Contact'}</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          {err && <p className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">{err}</p>}
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Name *</label>
-            <input value={form.name} onChange={e => s('name', e.target.value)} placeholder="Jane Smith" className={`mt-1 ${inp}`} autoFocus />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</label>
-              <input type="email" value={form.email} onChange={e => s('email', e.target.value)} placeholder="jane@company.com" className={`mt-1 ${inp}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Phone</label>
-              <input type="tel" value={form.phone} onChange={e => s('phone', e.target.value)} placeholder="+1 555 000 0000" className={`mt-1 ${inp}`} />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Role</label>
-            <select value={form.role} onChange={e => s('role', e.target.value)} className={`mt-1 ${inp}`}>
-              <option value="contact">General Contact</option>
-              <option value="billing">Billing</option>
-              <option value="technical">Technical</option>
-              <option value="manager">Manager</option>
-              <option value="executive">Executive</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
-            <textarea value={form.notes} onChange={e => s('notes', e.target.value)} rows={2} placeholder="Any notes about this contact..." className={`mt-1 ${inp} resize-none`} />
-          </div>
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-            <input type="checkbox" id="is_primary" checked={form.is_primary} onChange={e => s('is_primary', e.target.checked)} className="w-4 h-4 accent-amber-500" />
-            <label htmlFor="is_primary" className="cursor-pointer">
-              <p className="text-sm font-medium text-slate-900 dark:text-white">Primary Contact</p>
-              <p className="text-xs text-slate-400">Used as default for tickets and invoices</p>
-            </label>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
-            <button onClick={handleSave} disabled={!form.name.trim() || saving}
-              className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {saving ? 'Saving…' : contact ? 'Save Changes' : 'Add Contact'}
-            </button>
-          </div>
-        </div>
-      </div>
+  const link = async (assetId, name) => {
+    await supabase.from('tickets').update({ linked_asset_id: assetId }).eq('id', ticket.id)
+    setLinked(assetId); setAssetName(name); setOpen(false); setSearch('')
+    onLinked?.()
+  }
+
+  const unlink = async () => {
+    await supabase.from('tickets').update({ linked_asset_id: null }).eq('id', ticket.id)
+    setLinked(null); setAssetName(null)
+    onLinked?.()
+  }
+
+  if (linked && assetName) return (
+    <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 min-w-0 overflow-hidden">
+      <HardDrive className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+      <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1 min-w-0">{assetName}</span>
+      <button onClick={unlink} className="text-slate-300 hover:text-rose-500 transition-colors flex-shrink-0 ml-auto"><X className="w-3.5 h-3.5" /></button>
     </div>
+  )
+
+  return (
+    <>
+      <button ref={btnRef} onClick={openDropdown}
+        className="w-full flex items-center gap-2 px-3 py-2 border border-dashed border-slate-300 dark:border-slate-600 rounded-lg text-xs text-slate-400 hover:border-amber-400 hover:text-amber-500 transition-colors">
+        <HardDrive className="w-3.5 h-3.5" />
+        {linked ? 'Loading…' : 'Link an asset…'}
+      </button>
+      {open && typeof window !== 'undefined' && (
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+          <div style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: Math.max(dropPos.width, 280), zIndex: 9999 }}
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+            <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets…"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {(() => {
+                const q = search.trim().toLowerCase()
+                const filtered = assets.filter(a => !q || a.name?.toLowerCase().includes(q) || a.vendor?.toLowerCase().includes(q) || a.model?.toLowerCase().includes(q) || a.serial_number?.toLowerCase().includes(q) || a.asset_tag?.toLowerCase().includes(q))
+                const sorted = [...filtered].sort((a, b) => (a.customer_id === ticket?.customer_id ? -1 : 0) - (b.customer_id === ticket?.customer_id ? -1 : 0))
+                if (sorted.length === 0) return <div className="px-4 py-5 text-center text-xs text-slate-400">{assets.length === 0 ? 'No assets in inventory yet.' : 'No assets match your search.'}</div>
+                return sorted.map(a => {
+                  const label = [a.vendor, a.model].filter(Boolean).join(' ')
+                  const isCustomerAsset = a.customer_id === ticket?.customer_id
+                  return (
+                    <button key={a.id} onClick={() => link(a.id, [a.name, label].filter(Boolean).join(' · '))}
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{a.name}</p>
+                          <p className="text-[11px] text-slate-400 truncate">{label}{a.serial_number ? ` · S/N: ${a.serial_number}` : ''}{a.customer_name && !isCustomerAsset ? ` · ${a.customer_name}` : ''}</p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {isCustomerAsset && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">this customer</span>}
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 capitalize">{a.status?.replace('_',' ')}</span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+        </>
+      )}
+    </>
   )
 }
 
-// ── License Dialog ────────────────────────────────────────────────────────────
-const LIC_BLANK = {
-  name: '', vendor: '', category: 'software', status: 'active',
-  license_key: '', seats: '', cost: '', billing_cycle: 'annual',
-  renewal_date: '', purchase_date: '', contact_name: '', contact_email: '',
-  contact_phone: '', website: '', notes: '',
-}
-const LIC_CATS = ['software','hardware','saas','subscription','support','domain','ssl','other']
-
-function LicenseDialog({ open, onClose, onSaved, editing, customerId, customerName, orgId }) {
+function AiTriagePanel({ ticket, onTriageComplete }) {
   const supabase = createSupabaseBrowserClient()
-  const [form, setForm] = useState({ ...LIC_BLANK })
-  const [saving, setSaving] = useState(false)
-  const s = (k, v) => setForm(p => ({ ...p, [k]: v }))
-  const inp2 = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+  const [loading,    setLoading]    = useState(false)
+  const [triage,     setTriage]     = useState(() => { if (ticket?.ai_triage) { try { return JSON.parse(ticket.ai_triage) } catch {} } return null })
+  const [expanded,   setExpanded]   = useState(false)
+  const [kbArticles, setKbArticles] = useState([])
 
-  useEffect(() => {
-    if (editing) {
-      setForm({
-        name: editing.name||'', vendor: editing.vendor||'', category: editing.category||'software',
-        status: editing.status||'active', license_key: editing.license_key||'',
-        seats: editing.seats??'', cost: editing.cost??'', billing_cycle: editing.billing_cycle||'annual',
-        renewal_date: editing.renewal_date||'', purchase_date: editing.purchase_date||'',
-        contact_name: editing.contact_name||'', contact_email: editing.contact_email||'',
-        contact_phone: editing.contact_phone||'', website: editing.website||'', notes: editing.notes||'',
+  const PRIORITY_CLS = { critical: 'bg-rose-100 text-rose-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-amber-100 text-amber-700', low: 'bg-emerald-100 text-emerald-700' }
+
+  const runTriage = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('https://yetrdrgagfovphrerpie.supabase.co/functions/v1/ai-triage-ticket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '', 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}` },
+        body: JSON.stringify({ ticket_id: ticket.id, title: ticket.title, description: ticket.description || '', organization_id: ticket.organization_id }),
       })
-    } else {
-      setForm({ ...LIC_BLANK })
-    }
-  }, [editing, open])
-
-  const save = async () => {
-    if (!form.name.trim() || !orgId) return
-    setSaving(true)
-    const payload = {
-      ...form,
-      organization_id: orgId,
-      customer_id:   customerId || null,
-      customer_name: customerName || null,
-      seats: form.seats ? Number(form.seats) : null,
-      cost:  form.cost  ? Number(form.cost)  : null,
-      renewal_date:  form.renewal_date  || null,
-      purchase_date: form.purchase_date || null,
-    }
-    if (editing) {
-      await supabase.from('vendor_licenses').update(payload).eq('id', editing.id)
-    } else {
-      await supabase.from('vendor_licenses').insert(payload)
-    }
-    setSaving(false)
-    onSaved()
+      const data = await res.json()
+      if (data.triage) {
+        setTriage(data.triage); setExpanded(true)
+        if (data.triage.suggested_kb_ids?.length > 0) {
+          const { data: articles } = await supabase.from('knowledge_articles').select('id,title,content,category').in('id', data.triage.suggested_kb_ids)
+          setKbArticles(articles ?? [])
+        }
+        onTriageComplete?.(data.triage)
+      }
+    } catch (err) { console.error('Triage error:', err) }
+    setLoading(false)
   }
 
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
-          <h2 className="font-bold text-slate-900 dark:text-white">{editing ? 'Edit License' : 'Add License'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-5 space-y-3 overflow-y-auto flex-1">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Name *</label>
-              <input value={form.name} onChange={e => s('name', e.target.value)} placeholder="e.g. Microsoft 365 Business" className={`mt-1 ${inp2}`} autoFocus />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Vendor</label>
-              <input value={form.vendor} onChange={e => s('vendor', e.target.value)} placeholder="e.g. Microsoft" className={`mt-1 ${inp2}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Category</label>
-              <select value={form.category} onChange={e => s('category', e.target.value)} className={`mt-1 ${inp2}`}>
-                {LIC_CATS.map(c => <option key={c} value={c} className="capitalize">{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cost ($)</label>
-              <input type="number" min={0} step="0.01" value={form.cost} onChange={e => s('cost', e.target.value)} placeholder="0.00" className={`mt-1 ${inp2}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Billing Cycle</label>
-              <select value={form.billing_cycle} onChange={e => s('billing_cycle', e.target.value)} className={`mt-1 ${inp2}`}>
-                <option value="monthly">Monthly</option>
-                <option value="annual">Annual</option>
-                <option value="one_time">One-time</option>
-                <option value="multi_year">Multi-year</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Seats</label>
-              <input type="number" min={1} value={form.seats} onChange={e => s('seats', e.target.value)} placeholder="e.g. 25" className={`mt-1 ${inp2}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Renewal Date</label>
-              <input type="date" value={form.renewal_date} onChange={e => s('renewal_date', e.target.value)} className={`mt-1 ${inp2}`} />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">License Key</label>
-              <input value={form.license_key} onChange={e => s('license_key', e.target.value)} placeholder="XXXXX-XXXXX-XXXXX" className={`mt-1 ${inp2} font-mono`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Vendor Contact</label>
-              <input value={form.contact_name} onChange={e => s('contact_name', e.target.value)} placeholder="Contact name" className={`mt-1 ${inp2}`} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact Email</label>
-              <input value={form.contact_email} onChange={e => s('contact_email', e.target.value)} placeholder="support@vendor.com" className={`mt-1 ${inp2}`} />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Portal / Website URL</label>
-              <input value={form.website} onChange={e => s('website', e.target.value)} placeholder="https://portal.vendor.com" className={`mt-1 ${inp2}`} />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Notes</label>
-              <textarea value={form.notes} onChange={e => s('notes', e.target.value)} rows={2} className={`mt-1 ${inp2} resize-none`} />
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex-shrink-0">
-          <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
-          <button onClick={save} disabled={!form.name.trim() || saving}
-            className="flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Add License'}
-          </button>
-        </div>
-      </div>
-    </div>
+  if (!triage && !loading) return (
+    <button onClick={runTriage} className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors font-medium">
+      <Sparkles className="w-3.5 h-3.5" /> Run AI Triage
+    </button>
   )
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
-export default function CustomerDetailPage() {
-  const params   = useParams()
-  const router   = useRouter()
-  const supabase = createSupabaseBrowserClient()
-  const idRef    = useRef(null)
-  idRef.current  = params?.id
-
-  const [customer,      setCustomer]      = useState(null)
-  const [tickets,       setTickets]       = useState([])
-  const [invoices,      setInvoices]      = useState([])
-  const [timeEntries,   setTimeEntries]   = useState([])
-  const [inventory,     setInventory]     = useState([])
-  const [contacts,      setContacts]      = useState([])
-  const [csatResponses, setCsatResponses] = useState([])
-  const [contract,      setContract]      = useState(null)   // ← NEW
-  const [activity,      setActivity]      = useState([])     // ← NEW
-  const [loading,       setLoading]       = useState(true)
-  const [error,         setError]         = useState(null)
-  const [orgId,         setOrgId]         = useState(null)
-  const [editOpen,      setEditOpen]      = useState(false)
-  const [ticketOpen,    setTicketOpen]    = useState(false)
-  const [activeTab,     setActiveTab]     = useState('tickets')
-  const [contactOpen,   setContactOpen]   = useState(false)
-  const [editingContact,setEditingContact]= useState(null)
-  const [licenses,      setLicenses]      = useState([])
-  const [licOpen,       setLicOpen]       = useState(false)
-  const [licEditing,    setLicEditing]    = useState(null)
-
-  const loadAll = useCallback(async () => {
-    const id = idRef.current
-    if (!id) return
-    const [cust, t, inv, te, items, ctcts, csat, lic, cont] = await Promise.all([
-      supabase.from('customers').select('*').eq('id', id).single(),
-      supabase.from('tickets').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
-      supabase.from('invoices').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(100),
-      supabase.from('time_entries').select('*').eq('customer_id', id).order('date', { ascending: false }).limit(200),
-      supabase.from('inventory_items').select('*').eq('customer_id', id).order('name').limit(100),
-      supabase.from('customer_contacts').select('*').eq('customer_id', id).order('is_primary', { ascending: false }).order('name'),
-      supabase.from('csat_responses').select('score,submitted_at').eq('customer_name', id).limit(50),
-      supabase.from('vendor_licenses').select('*').eq('customer_id', id).order('renewal_date', { ascending: true, nullsFirst: false }),
-      // ── NEW: most recent active/signed contract ──────────────────────────
-      supabase.from('contracts')
-        .select('id, title, value, billing_cycle, status, start_date, end_date, auto_renew')
-        .eq('customer_id', id)
-        .in('status', ['active', 'signed'])
-        .order('start_date', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ])
-
-    setLicenses(lic.data ?? [])
-    if (cust.error) { setError('Customer not found'); setLoading(false); return }
-    setCustomer(cust.data)
-    setTickets(t.data ?? [])
-    setInvoices(inv.data ?? [])
-    setTimeEntries(te.data ?? [])
-    setInventory(items.data ?? [])
-    setContacts(ctcts.data ?? [])
-    setContract(cont.data ?? null)  // ← NEW
-
-    // CSAT by customer name
-    const { data: csatData } = await supabase.from('csat_responses')
-      .select('score,submitted_at')
-      .eq('customer_name', cust.data?.name)
-      .limit(50)
-    setCsatResponses(csatData ?? [])
-
-    // ── NEW: recent activity (last 8 comments across all this customer's tickets) ──
-    const ticketIds = (t.data ?? []).map(tk => tk.id)
-    if (ticketIds.length > 0) {
-      const titleMap = {}
-      ;(t.data ?? []).forEach(tk => { titleMap[tk.id] = tk.title })
-      const { data: comments } = await supabase
-        .from('ticket_comments')
-        .select('id, ticket_id, author_name, author_email, content, created_at, is_staff, source')
-        .in('ticket_id', ticketIds)
-        .order('created_at', { ascending: false })
-        .limit(8)
-      setActivity((comments ?? []).map(c => ({ ...c, ticket_title: titleMap[c.ticket_id] ?? 'Unknown Ticket' })))
-    } else {
-      setActivity([])
-    }
-
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
-      if (member) setOrgId(member.organization_id)
-    }
-    init()
-    loadAll()
-  }, [params?.id])
-
-  // ── Computed stats ────────────────────────────────────────────────────────
-  const openTickets   = tickets.filter(t => !['resolved','closed'].includes(t.status))
-  const totalRevenue  = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (i.total || 0), 0)
-  const outstanding   = invoices.filter(i => ['sent','overdue','partial'].includes(i.status)).reduce((s, i) => s + Math.max(0, (i.total || 0) - (i.amount_paid || 0)), 0)
-  const billableHours = Math.round(timeEntries.filter(e => e.billable).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
-  const unbilledHours = Math.round(timeEntries.filter(e => e.billable && !e.invoice_id).reduce((s, e) => s + (e.minutes || 0), 0) / 60)
-
-  const blockTotal     = customer?.block_hours_total || 0
-  const blockUsed      = blockTotal > 0 ? Math.round(timeEntries.filter(e => !e.invoice_id).reduce((s, e) => s + (e.minutes || 0), 0) / 60) : 0
-  const blockRemaining = Math.max(0, blockTotal - blockUsed)
-  const blockPct       = blockTotal > 0 ? Math.min(100, Math.round((blockUsed / blockTotal) * 100)) : 0
-
-  const TABS = [
-    { id: 'tickets',  label: 'Tickets',      count: tickets.length },
-    { id: 'contacts', label: 'Contacts',     count: contacts.length },
-    { id: 'invoices', label: 'Invoices',     count: invoices.length },
-    { id: 'time',     label: 'Time Entries', count: timeEntries.length },
-    { id: 'assets',   label: 'Assets',       count: inventory.length },
-    { id: 'licenses', label: 'Licenses',     count: licenses.length },
-    { id: 'activity', label: 'Activity',     count: activity.length },  // ← NEW
-  ]
 
   if (loading) return (
-    <div className="max-w-6xl space-y-4 animate-pulse">
-      <div className="h-5 w-36 bg-slate-100 dark:bg-slate-800 rounded" />
-      <div className="h-28 bg-slate-100 dark:bg-slate-800 rounded-xl" />
-      <div className="grid grid-cols-4 gap-4">{Array(4).fill(0).map((_,i) => <div key={i} className="h-20 bg-slate-100 dark:bg-slate-800 rounded-xl" />)}</div>
-    </div>
-  )
-
-  if (error || !customer) return (
-    <div className="text-center py-20 text-slate-400">
-      <p className="text-lg font-medium mb-2">{error || 'Customer not found'}</p>
-      <button onClick={() => router.push('/customers')} className="text-amber-500 hover:underline text-sm">← Back to Customers</button>
+    <div className="flex items-center gap-2 px-3 py-2 text-xs text-violet-600 dark:text-violet-400">
+      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyzing ticket…
     </div>
   )
 
   return (
-    <div className="max-w-6xl space-y-5">
-      {/* Back */}
-      <button onClick={() => router.push('/customers')}
-        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Back to Customers
+    <div className="rounded-xl border border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 overflow-hidden">
+      <button className="w-full flex items-center justify-between px-4 py-3 text-sm" onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Sparkles className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+          <span className="font-medium text-violet-700 dark:text-violet-300">AI Triage</span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PRIORITY_CLS[triage?.priority] ?? ''}`}>{triage?.priority}</span>
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 capitalize">{triage?.category?.replace('_',' ')}</span>
+          <span className="text-[10px] text-violet-500">{triage?.confidence}% confidence</span>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-violet-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
-
-      {/* Header card */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-xl bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-7 h-7 text-amber-600" />
-            </div>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-violet-200 dark:border-violet-800/50 pt-3">
+          <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed">{triage?.reasoning}</p>
+          {kbArticles.length > 0 && (
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{customer.name}</h1>
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CLS[customer.status] ?? ''}`}>{lbl(customer.status)}</span>
-                {customer.contract_type && (
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                    {CONTRACT_LABELS[customer.contract_type] ?? lbl(customer.contract_type)}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-4 mt-2">
-                {customer.contact_name  && <span className="flex items-center gap-1.5 text-sm text-slate-500"><Users className="w-3.5 h-3.5" />{customer.contact_name}</span>}
-                {customer.contact_email && <a href={`mailto:${customer.contact_email}`} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-amber-600 transition-colors"><Mail className="w-3.5 h-3.5" />{customer.contact_email}</a>}
-                {customer.contact_phone && <a href={`tel:${customer.contact_phone}`} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-amber-600 transition-colors"><Phone className="w-3.5 h-3.5" />{customer.contact_phone}</a>}
-                {customer.industry      && <span className="text-sm text-slate-400">{customer.industry}</span>}
-              </div>
-              {customer.address && <p className="text-xs text-slate-400 mt-1">{customer.address}</p>}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => {
-              const url = `${window.location.origin}/agent?org=${orgId}&customer=${customer.id}&name=${encodeURIComponent(customer.name)}`
-              navigator.clipboard.writeText(url)
-                .then(() => alert('Agent link copied! Send this URL to the client so they can register their devices.'))
-                .catch(() => window.prompt('Copy this agent link:', url))
-            }}
-              className="flex items-center gap-2 px-3 py-2 border border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400 rounded-lg text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-colors">
-              <Terminal className="w-4 h-4" /> Agent Link
-            </button>
-            <button onClick={() => setTicketOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
-              <Plus className="w-4 h-4" /> New Ticket
-            </button>
-            <button onClick={() => setEditOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-          </div>
-        </div>
-
-        {/* Rates */}
-        {(customer.monthly_rate || customer.hourly_rate || customer.after_hours_rate) && (
-          <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-            {customer.monthly_rate     && <div className="text-sm"><span className="text-slate-400">Monthly: </span><strong className="text-slate-900 dark:text-white">{fmtCurrency(customer.monthly_rate)}</strong></div>}
-            {customer.hourly_rate      && <div className="text-sm"><span className="text-slate-400">Hourly: </span><strong className="text-slate-900 dark:text-white">{fmtCurrency(customer.hourly_rate)}/hr</strong></div>}
-            {customer.after_hours_rate && <div className="text-sm"><span className="text-slate-400">After-hours: </span><strong className="text-slate-900 dark:text-white">{fmtCurrency(customer.after_hours_rate)}/hr</strong></div>}
-            {customer.website          && <a href={customer.website} target="_blank" rel="noreferrer" className="text-sm text-amber-500 hover:underline">{customer.website}</a>}
-          </div>
-        )}
-
-        {/* Block hours burndown */}
-        {customer.contract_type === 'block_hours' && blockTotal > 0 && (
-          <BlockHoursBurnDown customer={customer} timeEntries={timeEntries} />
-        )}
-
-        {/* Notes */}
-        {customer.notes && (
-          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Notes</p>
-            <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{customer.notes}</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── NEW: Account Health + Active Contract side by side ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <CustomerHealthScore tickets={tickets} invoices={invoices} csatResponses={csatResponses} />
-        <ActiveContractCard contract={contract} />
-      </div>
-
-      {/* Sticky Notes */}
-      <StickyNotes customerId={customer?.id} orgId={orgId} />
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Ticket}     label="Open Tickets"   value={openTickets.length}        color="text-amber-500"   bg="bg-amber-50 dark:bg-amber-950/30"    sub={`${tickets.length} total`} />
-        <StatCard icon={DollarSign} label="Total Revenue"  value={fmtCurrency(totalRevenue)} color="text-emerald-500" bg="bg-emerald-50 dark:bg-emerald-950/30" sub={outstanding > 0 ? `${fmtCurrency(outstanding)} outstanding` : undefined} />
-        <StatCard icon={Clock}      label="Billable Hours" value={billableHours + 'h'}        color="text-violet-500"  bg="bg-violet-50 dark:bg-violet-950/30"   sub={unbilledHours > 0 ? `${unbilledHours}h unbilled` : undefined} />
-        <StatCard icon={Package}    label="Assets"         value={inventory.length}           color="text-blue-500"    bg="bg-blue-50 dark:bg-blue-950/30" />
-      </div>
-
-      {/* Tabs */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        {/* Tab bar — overflow-x-auto so it scrolls on narrow screens */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
-          {TABS.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${activeTab === tab.id ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}>
-              {tab.label}
-              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${activeTab === tab.id ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>{tab.count}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Tickets tab */}
-        {activeTab === 'tickets' && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {tickets.length === 0 ? (
-              <div className="p-12 text-center">
-                <Ticket className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm mb-3">No tickets yet for this customer</p>
-                <button onClick={() => setTicketOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
-                  <Plus className="w-4 h-4" /> Create First Ticket
-                </button>
-              </div>
-            ) : tickets.map(t => (
-              <div key={t.id} onClick={() => router.push(`/tickets/${t.id}`)}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-900 dark:text-white text-sm truncate">{t.title}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{t.assigned_to || 'Unassigned'} · {fmtDate(t.created_at)}</p>
-                </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PRIORITY_CLS[t.priority] ?? ''}`}>{t.priority}</span>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${TICKET_STATUS_CLS[t.status] ?? ''}`}>{lbl(t.status)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Invoices tab */}
-        {activeTab === 'invoices' && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {invoices.length === 0 ? (
-              <div className="p-12 text-center">
-                <FileText className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">No invoices yet for this customer</p>
-              </div>
-            ) : invoices.map(inv => (
-              <div key={inv.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-900 dark:text-white text-sm">{inv.invoice_number}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Issued {fmtDate(inv.issue_date)} · Due {fmtDate(inv.due_date)}</p>
-                </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${INV_STATUS_CLS[inv.status] ?? ''}`}>{lbl(inv.status)}</span>
-                <p className="font-bold text-slate-900 dark:text-white text-sm">{fmtCurrency(inv.total)}</p>
-              </div>
-            ))}
-            {invoices.length > 0 && (
-              <div className="px-4 py-3 flex justify-between text-xs text-slate-400">
-                <span>{invoices.length} invoices</span>
-                <span>Total collected: <strong className="text-slate-700 dark:text-slate-300">{fmtCurrency(totalRevenue)}</strong></span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Time Entries tab */}
-        {activeTab === 'time' && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {timeEntries.length === 0 ? (
-              <div className="p-12 text-center">
-                <Clock className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">No time entries yet for this customer</p>
-              </div>
-            ) : timeEntries.map(e => (
-              <div key={e.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-900 dark:text-white text-sm truncate">{e.description || e.ticket_title || 'Time entry'}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{e.technician || '—'} · {fmtDate(e.date)}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {e.billable && !e.invoice_id && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Unbilled</span>}
-                  {e.billable && e.invoice_id  && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Billed</span>}
-                  {!e.billable                 && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Non-billable</span>}
-                  <p className="font-semibold text-slate-900 dark:text-white text-sm w-14 text-right">
-                    {Math.floor((e.minutes || 0) / 60)}h {(e.minutes || 0) % 60 > 0 ? ((e.minutes || 0) % 60) + 'm' : ''}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {timeEntries.length > 0 && (
-              <div className="px-4 py-3 flex justify-between text-xs text-slate-400">
-                <span>{timeEntries.length} entries</span>
-                <span>Billable: <strong className="text-slate-700 dark:text-slate-300">{billableHours}h</strong> · Unbilled: <strong className="text-amber-600">{unbilledHours}h</strong></span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Contacts tab */}
-        {activeTab === 'contacts' && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {contacts.length === 0 ? (
-              <div className="p-12 text-center">
-                <Users className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm mb-3">No contacts yet for this customer</p>
-                <button onClick={() => { setEditingContact(null); setContactOpen(true) }}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition-colors">
-                  <Plus className="w-4 h-4" /> Add First Contact
-                </button>
-              </div>
-            ) : (
-              <>
-                {contacts.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                    <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
-                      <span className="text-amber-700 font-semibold text-sm">{c.name?.[0]?.toUpperCase()}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-slate-900 dark:text-white text-sm">{c.name}</p>
-                        {c.is_primary && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Primary</span>}
-                        {c.role && c.role !== 'contact' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 capitalize">{c.role}</span>}
-                      </div>
-                      <div className="flex flex-wrap gap-3 mt-0.5">
-                        {c.email && <a href={`mailto:${c.email}`} className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-600 transition-colors"><Mail className="w-3 h-3" />{c.email}</a>}
-                        {c.phone && <a href={`tel:${c.phone}`} className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-600 transition-colors"><Phone className="w-3 h-3" />{c.phone}</a>}
-                      </div>
-                      {c.notes && <p className="text-xs text-slate-400 mt-0.5 truncate">{c.notes}</p>}
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button onClick={() => { setEditingContact(c); setContactOpen(true) }}
-                        className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={async () => {
-                        if (!confirm(`Remove ${c.name}?`)) return
-                        await supabase.from('customer_contacts').delete().eq('id', c.id)
-                        loadAll()
-                      }} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+              <p className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><BookOpen className="w-3 h-3" /> Suggested KB Articles</p>
+              <div className="space-y-2">
+                {kbArticles.map(a => (
+                  <div key={a.id} className="flex items-start gap-2 text-xs">
+                    <BookOpen className="w-3 h-3 text-violet-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium text-slate-900 dark:text-white">{a.title}</p>
+                      <p className="text-slate-400 line-clamp-1">{a.content?.replace(/[#*`]/g,'').slice(0,80)}</p>
                     </div>
                   </div>
                 ))}
-                <div className="px-4 py-3">
-                  <button onClick={() => { setEditingContact(null); setContactOpen(true) }}
-                    className="flex items-center gap-2 text-sm text-amber-600 hover:text-amber-700 font-medium transition-colors">
-                    <Plus className="w-4 h-4" /> Add Contact
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Assets tab */}
-        {activeTab === 'assets' && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {inventory.length === 0 ? (
-              <div className="p-12 text-center">
-                <Package className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm mb-1">No assets assigned to this customer</p>
-                <p className="text-xs text-slate-400">Assign inventory items from the Inventory page</p>
               </div>
-            ) : inventory.map(item => {
-              const warrantyDays = item.warranty_expiry ? Math.round((new Date(item.warranty_expiry) - Date.now()) / 86400000) : null
-              const warnExpiring = warrantyDays !== null && warrantyDays >= 0 && warrantyDays <= 30
-              const warnExpired  = warrantyDays !== null && warrantyDays < 0
-              return (
-                <div key={item.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-900 dark:text-white text-sm">{item.name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {[item.vendor, item.model].filter(Boolean).join(' ')}
-                      {item.serial_number && ` · SN: ${item.serial_number}`}
-                      {item.location && ` · ${item.location}`}
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 capitalize">{item.category}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${item.status === 'deployed' ? 'bg-blue-100 text-blue-700' : item.status === 'in_stock' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{lbl(item.status)}</span>
-                  {(warnExpiring || warnExpired) && (
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${warnExpired ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
-                      <AlertTriangle className="w-2.5 h-2.5" />
-                      {warnExpired ? 'Warranty expired' : `${warrantyDays}d left`}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Licenses tab */}
-        {activeTab === 'licenses' && (
-          <div>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
-              <p className="text-sm text-slate-500 dark:text-slate-400">{licenses.length} license{licenses.length !== 1 ? 's' : ''}</p>
-              <button onClick={() => { setLicEditing(null); setLicOpen(true) }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition-colors">
-                <Plus className="w-3.5 h-3.5" /> Add License
-              </button>
             </div>
-            {licenses.length === 0 ? (
-              <div className="p-12 text-center">
-                <Key className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">No licenses tracked for this customer</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {licenses.map(l => {
-                  const st  = getLicStatus(l)
-                  const cfg = LIC_STATUS_CFG[st]
-                  const days = l.renewal_date ? Math.ceil((new Date(l.renewal_date + 'T00:00:00').getTime() - Date.now()) / 86400000) : null
-                  return (
-                    <div key={l.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${st === 'expired' ? 'bg-rose-100 dark:bg-rose-950/40' : st === 'expiring' ? 'bg-amber-100 dark:bg-amber-950/40' : 'bg-violet-100 dark:bg-violet-950/40'}`}>
-                        <Key className={`w-4 h-4 ${st === 'expired' ? 'text-rose-600' : st === 'expiring' ? 'text-amber-600' : 'text-violet-600 dark:text-violet-400'}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-slate-900 dark:text-white text-sm">{l.name}</p>
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 capitalize">{l.category}</span>
-                        </div>
-                        {l.vendor && <p className="text-xs text-slate-400 mt-0.5">{l.vendor}</p>}
-                        <div className="flex flex-wrap gap-3 mt-1">
-                          {l.renewal_date && (
-                            <span className={`flex items-center gap-1 text-xs ${days !== null && days <= 30 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400'}`}>
-                              <Calendar className="w-3 h-3" />
-                              Renews {new Date(l.renewal_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                              {days !== null && days >= 0 && days <= 60 && ` (${days}d)`}
-                            </span>
-                          )}
-                          {l.cost  && <span className="text-xs text-slate-400">${Number(l.cost).toLocaleString()} / {l.billing_cycle || 'year'}</span>}
-                          {l.seats && <span className="text-xs text-slate-400">{l.seats} seats</span>}
-                        </div>
-                        {l.notes && <p className="text-xs text-slate-400 italic mt-1">{l.notes}</p>}
-                      </div>
-                      <div className="flex gap-1 flex-shrink-0">
-                        {l.website && (
-                          <a href={l.website.startsWith('http') ? l.website : `https://${l.website}`} target="_blank" rel="noreferrer"
-                            className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-blue-500 transition-colors">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-                        <button onClick={() => { setLicEditing(l); setLicOpen(true) }}
-                          className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={async () => {
-                          if (!confirm('Delete this license?')) return
-                          await supabase.from('vendor_licenses').delete().eq('id', l.id)
-                          setLicenses(prev => prev.filter(x => x.id !== l.id))
-                        }} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-400 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            {licOpen && (
-              <LicenseDialog
-                open={licOpen}
-                onClose={() => { setLicOpen(false); setLicEditing(null) }}
-                onSaved={async () => {
-                  const { data } = await supabase.from('vendor_licenses').select('*').eq('customer_id', params?.id).order('renewal_date', { ascending: true, nullsFirst: false })
-                  setLicenses(data ?? [])
-                  setLicOpen(false); setLicEditing(null)
-                }}
-                editing={licEditing}
-                customerId={params?.id}
-                customerName={customer?.name}
-                orgId={orgId}
-              />
-            )}
-          </div>
-        )}
+          )}
+          <button onClick={runTriage} className="text-[11px] text-violet-500 hover:text-violet-700 hover:underline">Re-run triage</button>
+        </div>
+      )}
+    </div>
+  )
+}
 
-        {/* ── NEW: Activity tab ─────────────────────────────────────────────── */}
-        {activeTab === 'activity' && (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {activity.length === 0 ? (
-              <div className="p-12 text-center">
-                <MessageSquare className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">No recent activity</p>
+function CannedRepliesPicker({ ticket, onSelect }) {
+  const supabase = createSupabaseBrowserClient()
+  const [open,    setOpen]    = useState(false)
+  const [search,  setSearch]  = useState('')
+  const [replies, setReplies] = useState([])
+
+  useEffect(() => {
+    supabase.from('canned_replies').select('*').eq('is_active', true).order('category').order('name')
+      .then(({ data }) => setReplies(data ?? []))
+  }, [])
+
+  const filtered   = replies.filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.body.toLowerCase().includes(search.toLowerCase()) || (r.category || '').toLowerCase().includes(search.toLowerCase()))
+  const categories = [...new Set(filtered.map(r => r.category || 'General'))].sort()
+
+  const apply = (reply) => {
+    let body = reply.body
+    if (ticket) {
+      body = body
+        .replace(/\{\{contact_name\}\}/g, ticket.contact_name || '')
+        .replace(/\{\{ticket_title\}\}/g, ticket.title || '')
+        .replace(/\{\{customer_name\}\}/g, ticket.customer_name || '')
+    }
+    onSelect(body); setOpen(false); setSearch('')
+  }
+
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 h-7 px-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors">
+        <BookOpen className="w-3.5 h-3.5" /> Templates
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute z-50 bottom-full mb-2 left-0 w-80 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-slate-200 dark:border-slate-700">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search templates…"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
               </div>
-            ) : activity.map(comment => {
-              const s = Math.round((Date.now() - new Date(comment.created_at).getTime()) / 1000)
-              const ago = s < 3600 ? `${Math.floor(s / 60)}m ago`
-                        : s < 86400 ? `${Math.floor(s / 3600)}h ago`
-                        : new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-              const initial = (comment.author_name || comment.author_email || '?')[0].toUpperCase()
-              return (
-                <div key={comment.id}
-                  onClick={() => router.push(`/tickets/${comment.ticket_id}`)}
-                  className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer transition-colors">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold border ${
-                    comment.is_staff
-                      ? 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
-                      : 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
-                  }`}>
-                    {initial}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                        {comment.author_name || comment.author_email}
-                      </span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        comment.is_staff
-                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
-                          : 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
-                      }`}>
-                        {comment.is_staff ? 'Staff' : 'Client'}
-                      </span>
-                      {comment.source === 'internal' && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                          Internal note
-                        </span>
-                      )}
-                      <span className="text-xs text-slate-400 ml-auto">{ago}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                      {comment.content}
-                    </p>
-                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-1 font-medium truncate">
-                      ↳ {comment.ticket_title}
-                    </p>
-                  </div>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-slate-400">{replies.length === 0 ? 'No canned replies yet. Create some in Settings → Canned Replies.' : 'No matches found.'}</div>
+              ) : categories.map(cat => (
+                <div key={cat}>
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">{cat}</div>
+                  {filtered.filter(r => (r.category || 'General') === cat).map(reply => (
+                    <button key={reply.id} onClick={() => apply(reply)}
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-0">
+                      <p className="text-xs font-medium text-slate-900 dark:text-white">{reply.name}</p>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{reply.body.slice(0, 80)}…</p>
+                    </button>
+                  ))}
                 </div>
-              )
-            })}
-            {activity.length > 0 && (
-              <div className="px-4 py-3 text-xs text-slate-400 text-center">
-                Showing last {activity.length} comment{activity.length !== 1 ? 's' : ''} across all tickets
-              </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function TicketDetailClient() {
+  const params   = useParams()
+  const router   = useRouter()
+  const supabase = createSupabaseBrowserClient()
+
+  const [ticket,       setTicket]       = useState(null)
+  const [comments,     setComments]     = useState([])
+  const [techUsers,    setTechUsers]    = useState([])
+  const [customers,    setCustomers]    = useState([])
+  const [custSearch,   setCustSearch]   = useState('')
+  const [custOpen,     setCustOpen]     = useState(false)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [updating,     setUpdating]     = useState(false)
+  const [noteMode,     setNoteMode]     = useState('internal')
+  const [noteText,     setNoteText]     = useState('')
+  const [aiOpen,       setAiOpen]       = useState(false)
+  const [aiLoading,    setAiLoading]    = useState(false)
+  const [aiSuggestions,setAiSuggestions]= useState([])
+  const [submitting,   setSubmitting]   = useState(false)
+  const [attachment,   setAttachment]   = useState(null)
+  const [signature,    setSignature]    = useState('')
+  const [csatResponse, setCsatResponse] = useState(null)
+  const [editFields,   setEditFields]   = useState({ contact_name: '', contact_email: '', sla_due_date: '', assigned_to: '', customer_id: '', customer_name: '' })
+  const [techSearch,   setTechSearch]   = useState('')
+  const [techOpen,     setTechOpen]     = useState(false)
+  const [timerSaving,  setTimerSaving]  = useState(false)
+  const [mergeOpen,    setMergeOpen]    = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+
+  const idRef        = useRef(null)
+  const orgIdRef     = useRef(null)
+  const myEmailRef   = useRef(null)
+  const myNameRef    = useRef(null)
+  const ticketRef    = useRef(null)
+  const fileInputRef = useRef(null)
+  const refreshRef   = useRef(null)
+
+  const id = params?.id
+  idRef.current = id
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from('organization_members').select('signature,display_name,user_email')
+        .eq('user_id', user.id).single()
+        .then(({ data }) => {
+          if (data?.signature)    setSignature(data.signature)
+          if (data?.display_name) myNameRef.current = data.display_name
+          else if (data?.user_email) myNameRef.current = data.user_email.split('@')[0]
+        })
+    })
+  }, [])
+
+  const loadTicket = useCallback(async () => {
+    const currentId = idRef.current
+    if (!currentId) return
+    const { data, error: err } = await supabase.from('tickets').select('*').eq('id', currentId).single()
+    if (err) { setError(err.message); setLoading(false); return }
+    setTicket(data)
+    ticketRef.current = data
+    setEditFields({
+      contact_name:  data.contact_name  ?? '',
+      contact_email: data.contact_email ?? '',
+      sla_due_date:  data.sla_due_date  ? data.sla_due_date.slice(0, 16) : '',
+      assigned_to:   data.assigned_to   ?? '',
+      customer_id:   data.customer_id   ?? '',
+      customer_name: data.customer_name ?? '',
+    })
+    setLoading(false)
+  }, [])
+
+  const loadComments = useCallback(async () => {
+    const currentId = idRef.current
+    if (!currentId) return
+    const { data } = await supabase.from('ticket_comments').select('*').eq('ticket_id', currentId).order('created_at', { ascending: true })
+    setComments(data ?? [])
+  }, [])
+
+  const loadTechs = useCallback(async () => {
+    const { data } = await supabase.from('organization_members').select('id,user_email,display_name').in('role', ['owner','admin','technician'])
+    setTechUsers(data ?? [])
+  }, [])
+
+  const loadCustomers = useCallback(async () => {
+    const { data } = await supabase.from('customers').select('id,name').eq('status','active').order('name').limit(200)
+    setCustomers(data ?? [])
+  }, [])
+
+  refreshRef.current = () => { loadTicket(); loadComments() }
+  useEffect(() => {
+    const tables = ['tickets', 'ticket_comments', 'time_entries']
+    const h = (e) => { if (!tables.length || tables.includes(e.detail?.table)) refreshRef.current() }
+    window.addEventListener('supabase:change', h)
+    return () => window.removeEventListener('supabase:change', h)
+  }, [])
+
+  useEffect(() => {
+    if (!id) return
+    idRef.current = id
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      myEmailRef.current = user?.email ?? null
+      if (!myNameRef.current) myNameRef.current = user?.email?.split('@')[0] ?? 'Staff'
+      const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user?.id).single()
+      if (member) orgIdRef.current = member.organization_id
+    }
+    init()
+    loadTicket()
+    loadComments()
+    loadTechs()
+    loadCustomers()
+    supabase.from('csat_responses').select('score,comment,submitted_at').eq('ticket_id', id).maybeSingle()
+      .then(({ data }) => setCsatResponse(data || null))
+  }, [id])
+
+  const updateField = async (field, value) => {
+    const currentId = idRef.current
+    const t = ticketRef.current
+    if (!currentId || !t) return
+    setUpdating(true)
+    try {
+      const oldValue = t[field] ?? null
+      await supabase.from('tickets').update({ [field]: value }).eq('id', currentId)
+
+      // When priority changes, auto-recalculate the SLA due date from created_at
+      if (field === 'priority' && value !== oldValue) {
+        const newSlaDue = calculateSlaDue(value, new Date(t.created_at))
+        await supabase.from('tickets').update({ sla_due_date: newSlaDue.toISOString() }).eq('id', currentId)
+        setEditFields(p => ({ ...p, sla_due_date: newSlaDue.toISOString().slice(0, 16) }))
+      }
+
+      if (oldValue !== value) {
+        await supabase.from('audit_log').insert({
+          organization_id: t.organization_id,
+          table_name:      'tickets',
+          record_id:       currentId,
+          record_title:    t.title,
+          action:          'UPDATE',
+          actor_email:     myEmailRef.current || null,
+          changed_fields:  { [field]: { from: oldValue, to: value } },
+        })
+      }
+      await loadTicket()
+
+      if (field === 'status' && value === 'resolved' && t.contact_email) {
+        supabase.functions.invoke('send-csat-survey', {
+          body: {
+            record:     { ...t, status: 'resolved' },
+            old_record: { ...t, status: oldValue },
+          },
+        }).catch(err => console.error('CSAT invoke error:', err))
+      }
+    } catch (err) {
+      console.error('updateField error:', err)
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const saveEditField = (field) => {
+    const t = ticketRef.current
+    if (!t) return
+    const value = editFields[field]
+    if (field === 'sla_due_date') {
+      const iso = value ? new Date(value).toISOString() : null
+      if (iso !== (t.sla_due_date ?? null)) updateField(field, iso)
+    } else {
+      if (value !== (t[field] ?? '')) updateField(field, value || null)
+    }
+  }
+
+  // Recalculate SLA due date from current priority and ticket creation time
+  const recalculateSla = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t || !currentId) return
+    const newSlaDue = calculateSlaDue(t.priority, new Date(t.created_at))
+    await supabase.from('tickets').update({ sla_due_date: newSlaDue.toISOString() }).eq('id', currentId)
+    setEditFields(p => ({ ...p, sla_due_date: newSlaDue.toISOString().slice(0, 16) }))
+    await loadTicket()
+  }
+
+  const startTimer = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t || !currentId) return
+    const now = new Date().toISOString()
+    await supabase.from('tickets').update({ timer_started: now, status: t.status === 'open' ? 'in_progress' : t.status }).eq('id', currentId)
+    await loadTicket()
+  }
+
+  const stopTimer = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!t?.timer_started || !currentId) return
+    setTimerSaving(true)
+    const mins = Math.max(1, Math.round((Date.now() - new Date(t.timer_started).getTime()) / 60000))
+    await supabase.from('tickets').update({ timer_started: null }).eq('id', currentId)
+    if (orgIdRef.current) {
+      await supabase.from('time_entries').insert({
+        organization_id: orgIdRef.current,
+        ticket_id:       currentId,
+        ticket_title:    t.title,
+        customer_id:     t.customer_id   || null,
+        customer_name:   t.customer_name || null,
+        technician:      myEmailRef.current,
+        description:     'Time on: ' + t.title,
+        minutes:         mins,
+        billable:        true,
+        hourly_rate:     null,
+        date:            new Date().toISOString().split('T')[0],
+      })
+    }
+    setTimerSaving(false)
+    await loadTicket()
+  }
+
+  const submitNote = async () => {
+    const t = ticketRef.current
+    const currentId = idRef.current
+    if (!noteText.trim() || submitting || !t || !currentId) return
+    setSubmitting(true)
+    const { data: { user } } = await supabase.auth.getUser()
+
+    let attachment_url  = null
+    let attachment_name = null
+    if (attachment) {
+      const ext  = attachment.name.split('.').pop()
+      const path = `ticket-attachments/${currentId}/${Date.now()}.${ext}`
+      const { data: up, error: upErr } = await supabase.storage.from('attachments').upload(path, attachment)
+      if (!upErr && up) {
+        const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(path)
+        attachment_url  = publicUrl
+        attachment_name = attachment.name
+      }
+    }
+
+    await supabase.from('ticket_comments').insert({
+      ticket_id:       currentId,
+      organization_id: t.organization_id,
+      author_name:     myNameRef.current || user?.email?.split('@')[0] || 'Staff',
+      author_email:    user?.email ?? '',
+      content:         noteText.trim(),
+      is_staff:        true,
+      source:          noteMode === 'internal' ? 'internal' : 'email',
+      attachment_url,
+      attachment_name,
+    })
+
+    if (noteMode === 'reply' && t.contact_email) {
+      const subject  = `Re: ${t.title} [#${currentId}]`
+      const bodyText = noteText.trim()
+      const textBody = [bodyText, signature ? `\n--\n${signature}` : '', attachment_url ? `\nAttachment: ${attachment_url}` : ''].filter(Boolean).join('\n')
+      const ccList   = Array.isArray(t.watchers) && t.watchers.length > 0 ? t.watchers.filter((w) => w !== t.contact_email) : []
+      await supabase.functions.invoke('send-invoice-email', {
+        body: { from: 'Valhalla IT Support <support@valhalla-it.net>', reply_to: `support+${currentId}@valhalla-rmm.com`, to: t.contact_email, cc: ccList.length > 0 ? ccList : undefined, subject, text: textBody }
+      })
+    }
+
+    if (noteMode === 'reply') {
+      const staffUpdate = { last_customer_reply_at: null }
+      if (!t.first_response_at) staffUpdate.first_response_at = new Date().toISOString()
+      await supabase.from('tickets').update(staffUpdate).eq('id', currentId)
+    }
+
+    setNoteText('')
+    setAttachment(null)
+    setSubmitting(false)
+    await loadTicket()
+    await loadComments()
+  }
+
+  if (loading) return (
+    <div className="max-w-5xl space-y-4 animate-pulse">
+      <div className="h-5 w-36 bg-slate-100 dark:bg-slate-800 rounded" />
+      <div className="h-10 w-2/3 bg-slate-100 dark:bg-slate-800 rounded" />
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2 h-96 bg-slate-100 dark:bg-slate-800 rounded-xl" />
+        <div className="h-96 bg-slate-100 dark:bg-slate-800 rounded-xl" />
+      </div>
+    </div>
+  )
+
+  if (error || !ticket) return (
+    <div className="text-center py-20 text-slate-400">
+      <p className="text-lg font-medium mb-2">{error || 'Ticket not found'}</p>
+      <button onClick={() => router.push('/tickets')} className="text-amber-500 hover:underline text-sm">← Back to Tickets</button>
+    </div>
+  )
+
+  const handleAiRewrite = async () => {
+    if (!noteText.trim()) return
+    setAiLoading(true); setAiOpen(true); setAiSuggestions([])
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/rewrite-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ text: noteText.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || 'Request failed')
+      setAiSuggestions(data.suggestions || [])
+    } catch (e) {
+      console.error('AI rewrite error:', e)
+      setAiSuggestions([{ tone: 'Error', text: 'Failed to generate suggestions. Please try again.' }])
+    }
+    setAiLoading(false)
+  }
+
+  const canEmailClient = !!ticket.contact_email
+  const filteredTechs  = techUsers.filter(t => {
+    const name = t.display_name || t.user_email.split('@')[0]
+    return !techSearch || name.toLowerCase().includes(techSearch.toLowerCase()) || t.user_email.toLowerCase().includes(techSearch.toLowerCase())
+  })
+  const techLabel = (email) => {
+    const t = techUsers.find(t => t.user_email === email)
+    return t ? (t.display_name || t.user_email.split('@')[0]) : email
+  }
+  const isTimerRunning = !!ticket.timer_started
+  const inp = "w-full px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+
+  return (
+    <div className="max-w-5xl space-y-4">
+      <button onClick={() => router.push('/tickets')}
+        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
+        <ArrowLeft className="w-4 h-4" /> Back to Tickets
+      </button>
+
+      <div className="flex flex-col sm:flex-row gap-4 items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{ticket.title}</h1>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${PRIORITY_CLS[ticket.priority] ?? ''}`}>{ticket.priority}</span>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CLS[ticket.status] ?? ''}`}>{lbl(ticket.status)}</span>
+            <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 capitalize">{ticket.category}</span>
+            {ticket.customer_name && <span className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">{ticket.customer_name}</span>}
+            {ticket.source && ticket.source !== 'admin' && (
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ticket.source === 'portal' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' : ticket.source === 'email' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' : 'bg-slate-100 text-slate-600'}`}>via {ticket.source}</span>
+            )}
+            {ticket.tags?.map(tag => (
+              <span key={tag} className="text-xs px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border border-violet-200">#{tag}</span>
+            ))}
+            {csatResponse && (
+              <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400">
+                {[1,2,3,4,5].map(n => (
+                  <svg key={n} className="w-3 h-3" viewBox="0 0 20 20" fill={n <= csatResponse.score ? '#FBBF24' : '#E2E8F0'}>
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                ))}
+                CSAT {csatResponse.score}/5
+              </span>
             )}
           </div>
-        )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={() => setMergeOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 hover:text-violet-600 hover:border-violet-300 transition-colors">
+            <GitMerge className="w-3.5 h-3.5" /> Merge
+          </button>
+          <button onClick={() => setScheduleOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-700 transition-colors">
+            <CalendarPlus className="w-3.5 h-3.5" /> Schedule Visit
+          </button>
+          <select value={ticket.status} onChange={e => updateField('status', e.target.value)} disabled={updating}
+            className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-44">
+            {['open','in_progress','waiting','resolved','closed'].map(s => <option key={s} value={s}>{lbl(s)}</option>)}
+          </select>
+        </div>
+        <MergeTicketDialog ticket={ticket} open={mergeOpen} onClose={() => setMergeOpen(false)} onMerged={(targetId) => { setMergeOpen(false); router.push(`/tickets/${targetId}`) }} />
+        <ScheduleJobModal
+          open={scheduleOpen}
+          onClose={() => setScheduleOpen(false)}
+          onSaved={() => setScheduleOpen(false)}
+          initialTicketId={ticket?.id}
+        />
       </div>
 
-      {/* Dialogs */}
-      <EditDialog
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        onSaved={() => { setEditOpen(false); loadAll() }}
-        customer={customer} orgId={orgId}
-      />
-      <NewTicketDialog
-        open={ticketOpen}
-        onClose={() => setTicketOpen(false)}
-        onSaved={() => { setTicketOpen(false); loadAll() }}
-        customer={customer} orgId={orgId}
-      />
-      <ContactDialog
-        open={contactOpen}
-        onClose={() => { setContactOpen(false); setEditingContact(null) }}
-        onSaved={() => { setContactOpen(false); setEditingContact(null); loadAll() }}
-        contact={editingContact} customerId={params?.id} orgId={orgId}
-      />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
+          {ticket.description && (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+              <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-3">Description</h3>
+              <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed space-y-1"
+                dangerouslySetInnerHTML={{ __html: ticket.description.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^\n/g, '').replace(/\n\n/g, '</p><p class="mt-2">').replace(/\n/g, '<br/>') }} />
+            </div>
+          )}
+
+          {ticket && (
+            <AiTriagePanel key={ticket.id} ticket={ticket} onTriageComplete={async (result) => {
+              if (result.priority) await updateField('priority', result.priority)
+              if (result.category) await updateField('category', result.category)
+            }} />
+          )}
+
+          <SubTaskChecklist ticketId={ticket?.id} />
+
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+              <MessageSquare className="w-4 h-4 text-slate-400" />
+              <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Notes &amp; Replies</h3>
+              <span className="text-xs text-slate-400 ml-auto">{comments.length} entries</span>
+            </div>
+            <div className="p-5 space-y-4">
+              {comments.length > 0 && (
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+                  {comments.map(comment => {
+                    const isInternal   = comment.is_staff && comment.source === 'internal'
+                    const isStaffReply = comment.is_staff && comment.source !== 'internal'
+
+                    if (isInternal) return (
+                      <div key={comment.id} className="flex items-start gap-2">
+                        <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Lock className="w-3 h-3 text-amber-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">{comment.author_name || comment.author_email}</span>
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">Internal note</span>
+                            <span className="text-[11px] text-slate-400 ml-auto">{fmtDate(comment.created_at)}</span>
+                          </div>
+                          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 border-dashed rounded-lg px-3 py-2.5">
+                            <p className="text-xs text-amber-900 dark:text-amber-300 whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+
+                    if (isStaffReply) return (
+                      <div key={comment.id} className="flex items-end gap-2 flex-row-reverse">
+                        <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 text-white text-[10px] font-bold">
+                          {(comment.author_name || comment.author_email || 'S')[0].toUpperCase()}
+                        </div>
+                        <div className="max-w-[75%] min-w-0">
+                          <div className="flex items-center gap-2 justify-end mb-1">
+                            <span className="text-[11px] text-slate-400">{fmtDate(comment.created_at)}</span>
+                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{comment.author_name || comment.author_email}</span>
+                          </div>
+                          <div className="bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2.5">
+                            <p className="text-sm text-white whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
+                            {comment.attachment_url && (
+                              <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-200 hover:text-white">
+                                <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+
+                    return (
+                      <div key={comment.id} className="flex items-end gap-2">
+                        <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center flex-shrink-0 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
+                          {(comment.author_name || comment.author_email || 'C')[0].toUpperCase()}
+                        </div>
+                        <div className="max-w-[75%] min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{comment.author_name || comment.author_email}</span>
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">Client</span>
+                            <span className="text-[11px] text-slate-400">{fmtDate(comment.created_at)}</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-800 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
+                            <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
+                            {comment.attachment_url && (
+                              <a href={comment.attachment_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                                <Paperclip className="w-3 h-3" />{comment.attachment_name || 'Attachment'}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                <div className="flex border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  <button onClick={() => setNoteMode('internal')}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors border-r border-slate-200 dark:border-slate-700 ${noteMode === 'internal' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
+                    <Lock className="w-3.5 h-3.5" /> Internal Note
+                  </button>
+                  <button onClick={() => setNoteMode('reply')}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors ${noteMode === 'reply' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
+                    <Mail className="w-3.5 h-3.5" /> Reply to Client
+                    {!canEmailClient && <span className="ml-1 text-[10px] text-rose-500">(no email)</span>}
+                  </button>
+                </div>
+                <div className="p-3 space-y-2">
+                  {noteMode === 'reply' && !canEmailClient && (
+                    <p className="text-xs text-rose-600 bg-rose-50 px-3 py-2 rounded border border-rose-200">No contact email — add one in the sidebar.</p>
+                  )}
+                  {noteMode === 'reply' && canEmailClient && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-xs text-blue-600">Will be emailed to <strong>{ticket.contact_email}</strong></p>
+                      {Array.isArray(ticket.watchers) && ticket.watchers.length > 0 && (
+                        <p className="text-xs text-slate-400">CC: {ticket.watchers.join(', ')}</p>
+                      )}
+                    </div>
+                  )}
+                  {noteMode === 'reply' && canEmailClient && /https?:\/\//.test(noteText) && (
+                    <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span><strong>Link detected</strong> — Gmail may block emails containing links from new domains. Ask the client to add <strong>support@valhalla-it.net</strong> to their contacts, or share the link via the portal instead.</span>
+                    </div>
+                  )}
+                  <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={4}
+                    placeholder={noteMode === 'internal' ? 'Add an internal note...' : 'Type your reply to the client...'}
+                    onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitNote() }}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none" />
+                  {noteMode === 'reply' && signature && (
+                    <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 border-t-0 rounded-b-lg -mt-1">
+                      <p className="text-[10px] text-slate-400 mb-0.5">— Signature</p>
+                      <p className="text-xs text-slate-400 whitespace-pre-wrap font-mono">{signature}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <input type="file" ref={fileInputRef} className="hidden" onChange={e => setAttachment(e.target.files?.[0] ?? null)} />
+                      <button type="button" onClick={() => fileInputRef.current?.click()}
+                        className="flex items-center gap-1 h-7 px-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors">
+                        <Paperclip className="w-3.5 h-3.5" />{attachment ? attachment.name : 'Attach'}
+                      </button>
+                      {attachment && <button onClick={() => setAttachment(null)} className="text-[11px] text-rose-500 hover:underline">Remove</button>}
+                      <CannedRepliesPicker ticket={ticket} onSelect={(body) => setNoteText(body)} />
+                      {noteMode === 'reply' && noteText.trim().length > 10 && (
+                        <button type="button" onClick={handleAiRewrite}
+                          className="flex items-center gap-1 h-7 px-2 text-xs text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20 rounded transition-colors font-medium border border-purple-200 dark:border-purple-800">
+                          <Sparkles className="w-3 h-3" /> Improve
+                        </button>
+                      )}
+                    </div>
+                    {aiOpen && noteMode === 'reply' && (
+                      <div className="w-full">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3" />
+                            {aiLoading ? 'Generating suggestions…' : 'AI suggestions — click to use'}
+                          </p>
+                          <button onClick={() => { setAiOpen(false); setAiSuggestions([]) }} className="text-slate-400 hover:text-slate-600 p-0.5">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        {aiLoading ? (
+                          <div className="flex items-center gap-2 py-4 justify-center">
+                            <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                            <span className="text-xs text-slate-400">Rewriting in 4 tones…</span>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            {aiSuggestions.map((s, i) => (
+                              <button key={i} onClick={() => { setNoteText(s.text); setAiOpen(false); setAiSuggestions([]) }}
+                                className="text-left p-2.5 rounded-lg border border-purple-200 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/20 transition-colors group">
+                                <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wide mb-1">{s.tone}</p>
+                                <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 group-hover:text-slate-900 dark:group-hover:text-white">{s.text}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <button onClick={submitNote}
+                      disabled={!noteText.trim() || submitting || (noteMode === 'reply' && !canEmailClient)}
+                      className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-colors ${noteMode === 'internal' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                      {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {noteMode === 'internal' ? <><Lock className="w-3.5 h-3.5" /> Add Note</> : <><Send className="w-3.5 h-3.5" /> Send Reply</>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <ActivityTimeline ticketId={ticket?.id} />
+        </div>
+
+        {/* ── Sidebar ── */}
+        <div className="space-y-4">
+          {/* Timer */}
+          <div className={`rounded-xl border shadow-sm p-4 ${isTimerRunning ? 'bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900/40' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Timer className={`w-4 h-4 ${isTimerRunning ? 'text-violet-600 dark:text-violet-400' : 'text-slate-400'}`} />
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">Time Tracker</p>
+            </div>
+            {isTimerRunning ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
+                  <span className="text-xs text-violet-600 dark:text-violet-400 font-medium">Timer running</span>
+                </div>
+                <LiveTimer startedAt={ticket.timer_started} />
+                <p className="text-[10px] text-slate-400">Started at {new Date(ticket.timer_started).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
+                <button onClick={stopTimer} disabled={timerSaving}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors">
+                  {timerSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5 fill-white" />}
+                  {timerSaving ? 'Saving time entry…' : 'Stop & Log Time'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {ticket.time_spent_minutes > 0 && (
+                  <p className="text-xs text-slate-500">{Math.floor(ticket.time_spent_minutes / 60)}h {ticket.time_spent_minutes % 60}m logged so far</p>
+                )}
+                <button onClick={startTimer}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors">
+                  <Play className="w-3.5 h-3.5 fill-white" /> Start Timer
+                </button>
+                <p className="text-[10px] text-slate-400 text-center">Auto-creates a time entry when stopped</p>
+              </div>
+            )}
+          </div>
+
+          {/* Details */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-4">
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-slate-400">Created</p>
+                <p className="text-sm text-slate-900 dark:text-white mt-0.5">{fmtDate(ticket.created_at)}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Priority</p>
+                <select value={ticket.priority} onChange={e => updateField('priority', e.target.value)} disabled={updating} className={inp}>
+                  {['critical','high','medium','low'].map(p => <option key={p} value={p}>{lbl(p)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Tag className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Category</p>
+                <select value={ticket.category} onChange={e => updateField('category', e.target.value)} disabled={updating} className={inp}>
+                  {['hardware','software','network','security','account','email','printing','other'].map(c => <option key={c} value={c}>{lbl(c)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1 relative">
+                <p className="text-xs text-slate-400 mb-1">Assigned To</p>
+                <div className="relative">
+                  <input
+                    value={techOpen ? techSearch : (editFields.assigned_to ? techLabel(editFields.assigned_to) : '')}
+                    onChange={e => { setTechSearch(e.target.value); setTechOpen(true) }}
+                    onFocus={() => { setTechSearch(''); setTechOpen(true) }}
+                    onBlur={() => setTimeout(() => { setTechOpen(false) }, 150)}
+                    placeholder="Unassigned"
+                    className={`${inp} pr-6`}
+                  />
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+                {techOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    <button type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 italic"
+                      onMouseDown={() => { setEditFields(p => ({ ...p, assigned_to: '' })); setTechOpen(false); updateField('assigned_to', null) }}>
+                      — Unassigned
+                    </button>
+                    {filteredTechs.map(t => (
+                      <button key={t.id} type="button"
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        onMouseDown={() => { setEditFields(p => ({ ...p, assigned_to: t.user_email })); setTechOpen(false); updateField('assigned_to', t.user_email) }}>
+                        <span className="font-medium">{t.display_name || t.user_email.split('@')[0]}</span>
+                        <span className="text-slate-400 ml-1">{t.display_name ? `(${t.user_email})` : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Building2 className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1 relative">
+                <p className="text-xs text-slate-400 mb-1">Customer</p>
+                <div className="relative">
+                  <input
+                    value={custOpen ? custSearch : (editFields.customer_name || '')}
+                    onChange={e => { setCustSearch(e.target.value); setCustOpen(true); setEditFields(p => ({ ...p, customer_name: e.target.value })) }}
+                    onFocus={() => { setCustSearch(editFields.customer_name || ''); setCustOpen(true) }}
+                    onBlur={() => setTimeout(() => setCustOpen(false), 150)}
+                    placeholder="No customer assigned"
+                    className={`${inp} pr-6`}
+                  />
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+                {custOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    <button type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors italic"
+                      onMouseDown={() => { setEditFields(p => ({ ...p, customer_id: '', customer_name: '' })); setCustOpen(false); updateField('customer_id', null); updateField('customer_name', null) }}>
+                      — No customer
+                    </button>
+                    {customers.filter(c => !custSearch || c.name.toLowerCase().includes(custSearch.toLowerCase())).map(c => (
+                      <button key={c.id} type="button"
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        onMouseDown={() => { setEditFields(p => ({ ...p, customer_id: c.id, customer_name: c.name })); setCustOpen(false); updateField('customer_id', c.id); updateField('customer_name', c.name) }}>
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <User className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Contact Name</p>
+                <input value={editFields.contact_name} onChange={e => setEditFields(p => ({ ...p, contact_name: e.target.value }))} onBlur={() => saveEditField('contact_name')} placeholder="Contact name" className={inp} />
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Contact Email</p>
+                <input type="email" value={editFields.contact_email} onChange={e => setEditFields(p => ({ ...p, contact_email: e.target.value }))} onBlur={() => saveEditField('contact_email')} placeholder="email@client.com" className={inp} />
+              </div>
+            </div>
+
+            {/* ── SLA Panel ── replaces the old bare datetime-local input */}
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <p className="text-xs text-slate-400">SLA</p>
+                <SlaPanel ticket={ticket} onRecalculate={recalculateSla} />
+                <div>
+                  <p className="text-[10px] text-slate-400 mb-1">Manual override</p>
+                  <input
+                    type="datetime-local"
+                    value={editFields.sla_due_date}
+                    onChange={e => setEditFields(p => ({ ...p, sla_due_date: e.target.value }))}
+                    onBlur={() => saveEditField('sla_due_date')}
+                    className={inp}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <HardDrive className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">Linked Asset</p>
+                <AssetPicker ticket={ticket} orgId={orgIdRef.current} onLinked={() => loadTicket()} />
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Mail className="w-4 h-4 text-slate-400 mt-1.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-slate-400 mb-1">CC / Watchers</p>
+                <WatchersField ticket={ticket} onUpdate={() => loadTicket()} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

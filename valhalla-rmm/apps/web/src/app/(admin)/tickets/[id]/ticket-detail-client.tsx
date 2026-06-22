@@ -9,9 +9,10 @@ import {
   Lock, Mail, MessageSquare, Send, AlertTriangle,
   Tag, ChevronDown, Paperclip, Play, Square, Timer,
   BookOpen, Search, X, Sparkles, HardDrive, GitMerge, Activity,
-  CheckCircle2, Plus, RotateCcw,
+  CheckCircle2, Plus, RotateCcw, CalendarPlus,
 } from 'lucide-react'
 import { calculateSlaDue, getSlaInfo, SLA_TARGETS } from '@/lib/sla'
+import ScheduleJobModal from '@/components/schedule/ScheduleJobModal'
 
 const PRIORITY_CLS = {
   critical: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300',
@@ -722,6 +723,7 @@ export default function TicketDetailClient() {
   const [techOpen,     setTechOpen]     = useState(false)
   const [timerSaving,  setTimerSaving]  = useState(false)
   const [mergeOpen,    setMergeOpen]    = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
 
   const idRef        = useRef(null)
   const orgIdRef     = useRef(null)
@@ -1054,12 +1056,22 @@ export default function TicketDetailClient() {
             className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 hover:text-violet-600 hover:border-violet-300 transition-colors">
             <GitMerge className="w-3.5 h-3.5" /> Merge
           </button>
+          <button onClick={() => setScheduleOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-700 transition-colors">
+            <CalendarPlus className="w-3.5 h-3.5" /> Schedule Visit
+          </button>
           <select value={ticket.status} onChange={e => updateField('status', e.target.value)} disabled={updating}
             className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-44">
             {['open','in_progress','waiting','resolved','closed'].map(s => <option key={s} value={s}>{lbl(s)}</option>)}
           </select>
         </div>
         <MergeTicketDialog ticket={ticket} open={mergeOpen} onClose={() => setMergeOpen(false)} onMerged={(targetId) => { setMergeOpen(false); router.push(`/tickets/${targetId}`) }} />
+        <ScheduleJobModal
+          open={scheduleOpen}
+          onClose={() => setScheduleOpen(false)}
+          onSaved={() => setScheduleOpen(false)}
+          initialTicketId={ticket?.id}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -11,6 +11,7 @@ import {
   AlertTriangle, HardDrive, BookOpen, LogOut, ArrowLeft,
   Paperclip, Send, Loader2, MessageSquare, User, Search, Package,
   Activity, Globe, Moon, Sun, Download,
+  Calendar, MapPin, Phone, Users,
 } from 'lucide-react'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -342,6 +343,87 @@ function PortalTicketDetail({ ticket, user, orgId, onBack }) {
           <p className="text-sm text-emerald-800 whitespace-pre-wrap break-words">{ticket.resolution_notes}</p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Upcoming Visits (scheduled jobs visible to client) ──────────────────────
+function UpcomingVisits({ customerId }) {
+  const supabase = createSupabaseBrowserClient()
+  const [visits, setVisits] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!customerId) { setLoading(false); return }
+    const load = async () => {
+      const { data } = await supabase
+        .from('scheduled_jobs')
+        .select('id, title, job_type, scheduled_start, scheduled_end, location, assigned_name, status, description')
+        .eq('customer_id', customerId)
+        .in('status', ['scheduled', 'en_route', 'on_site'])
+        .gte('scheduled_start', new Date().toISOString())
+        .order('scheduled_start', { ascending: true })
+        .limit(5)
+      setVisits(data || [])
+      setLoading(false)
+    }
+    load()
+  }, [customerId])
+
+  if (loading || visits.length === 0) return null
+
+  const TYPE_ICONS = { on_site: MapPin, remote: Monitor, phone: Phone, meeting: Users }
+  const STATUS_LABEL = {
+    scheduled: { label: 'Scheduled', cls: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800' },
+    en_route:  { label: 'En Route',  cls: 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-300 dark:border-yellow-800' },
+    on_site:   { label: 'On-Site',   cls: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800' },
+  }
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+        <Calendar className="w-4 h-4 text-amber-500" />
+        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Upcoming Visits</h2>
+      </div>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {visits.map(v => {
+          const Icon   = TYPE_ICONS[v.job_type] || MapPin
+          const status = STATUS_LABEL[v.status]
+          const start  = new Date(v.scheduled_start)
+          const end    = new Date(v.scheduled_end)
+          const dateStr = start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+          const timeStr = `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+          return (
+            <div key={v.id} className="px-5 py-4 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/40 flex items-center justify-center flex-shrink-0">
+                <Icon className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white">{v.title}</span>
+                  {status && (
+                    <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${status.cls}`}>
+                      {status.label}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{dateStr} · {timeStr}</div>
+                {v.assigned_name && (
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Technician: {v.assigned_name}</div>
+                )}
+                {v.location && (
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />{v.location}
+                  </div>
+                )}
+                {v.description && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 line-clamp-2">{v.description}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -708,6 +790,9 @@ export default function PortalPage() {
         {/* ── TICKETS TAB ────────────────────────────────────────── */}
         {activeTab === 'tickets' && (
           <div className="space-y-4">
+            {/* Upcoming scheduled visits */}
+            <UpcomingVisits customerId={customer?.id} />
+
             {/* Stats */}
             <div className="grid grid-cols-3 gap-3">
               {[
