@@ -8,7 +8,7 @@ import QuoteAttachments from '@/components/QuoteAttachments'
 import {
   ArrowLeft, Send, CheckCircle2, RotateCcw,
   Trash2, Edit, Clock, DollarSign, Paperclip,
-  Loader2, Eye, Calendar, User, Mail,
+  Loader2, Eye, Calendar, User, Mail, ThumbsUp,
 } from 'lucide-react'
 
 const STATUS_CFG = {
@@ -36,16 +36,20 @@ export default function QuoteDetailPage() {
   const router   = useRouter()
   const supabase = createSupabaseBrowserClient()
 
-  const [quote,     setQuote]     = useState(null)
-  const [orgId,     setOrgId]     = useState(null)
-  const [loading,   setLoading]   = useState(true)
-  const [converting,setConverting]= useState(false)
-  const [activeTab, setActiveTab] = useState('details')
+  const [quote,       setQuote]       = useState(null)
+  const [orgId,       setOrgId]       = useState(null)
+  const [userEmail,   setUserEmail]   = useState('')
+  const [loading,     setLoading]     = useState(true)
+  const [converting,  setConverting]  = useState(false)
+  const [approving,   setApproving]   = useState(false)
+  const [reactivating, setReactivating] = useState(false)
+  const [activeTab,   setActiveTab]   = useState('details')
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      setUserEmail(user.email || '')
       const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) setOrgId(member.organization_id)
       const { data } = await supabase.from('quotes').select('*').eq('id', params.id).single()
@@ -59,6 +63,59 @@ export default function QuoteDetailPage() {
     if (!confirm(`Delete ${quote.quote_number}? This cannot be undone.`)) return
     await supabase.from('quotes').delete().eq('id', quote.id)
     router.push('/quotes')
+  }
+
+  const handleMarkApproved = async () => {
+    const reference = prompt(
+      `Mark ${quote.quote_number} as approved?\n\nOptional: Add a reference for the internal audit trail (e.g., "Client signed paper contract" or "Verbal approval from John on 6/22").`,
+      ''
+    )
+    if (reference === null) return // cancelled
+
+    setApproving(true)
+    const today    = new Date().toISOString().split('T')[0]
+    const refText  = reference?.trim()
+    const note     = refText
+      ? `[${today}] Manually approved by ${userEmail || 'staff'}. Reference: ${refText}`
+      : `[${today}] Manually approved by ${userEmail || 'staff'}.`
+    const combinedNotes = quote.internal_notes ? `${quote.internal_notes}\n\n${note}` : note
+
+    const { error } = await supabase
+      .from('quotes')
+      .update({
+        status:         'approved',
+        approved_at:    new Date().toISOString(),
+        internal_notes: combinedNotes,
+      })
+      .eq('id', quote.id)
+
+    if (error) {
+      alert('Failed to approve: ' + error.message)
+    } else {
+      setQuote(prev => ({ ...prev, status: 'approved', approved_at: new Date().toISOString(), internal_notes: combinedNotes }))
+    }
+    setApproving(false)
+  }
+
+  const handleReactivate = async () => {
+    if (!confirm(`Reactivate ${quote.quote_number}?\n\nThis will set the status back to "Sent" and extend the expiry date by 30 days.`)) return
+    setReactivating(true)
+    const newExpiry = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })()
+    const today     = new Date().toISOString().split('T')[0]
+    const note      = `[${today}] Reactivated by ${userEmail || 'staff'}. New expiry: ${newExpiry}.`
+    const combinedNotes = quote.internal_notes ? `${quote.internal_notes}\n\n${note}` : note
+
+    const { error } = await supabase
+      .from('quotes')
+      .update({ status: 'sent', expiry_date: newExpiry, internal_notes: combinedNotes })
+      .eq('id', quote.id)
+
+    if (error) {
+      alert('Failed to reactivate: ' + error.message)
+    } else {
+      setQuote(prev => ({ ...prev, status: 'sent', expiry_date: newExpiry, internal_notes: combinedNotes }))
+    }
+    setReactivating(false)
   }
 
   const handleConvert = async () => {
@@ -98,10 +155,12 @@ export default function QuoteDetailPage() {
     </div>
   )
 
-  const cfg       = STATUS_CFG[quote.status] ?? STATUS_CFG.draft
-  const lineItems = Array.isArray(quote.line_items) ? quote.line_items : []
-  const isExpired = quote.expiry_date && new Date(quote.expiry_date) < new Date() && !['approved', 'converted', 'rejected'].includes(quote.status)
-  const appUrl    = typeof window !== 'undefined' ? window.location.origin : ''
+  const cfg            = STATUS_CFG[quote.status] ?? STATUS_CFG.draft
+  const lineItems      = Array.isArray(quote.line_items) ? quote.line_items : []
+  const isExpired      = quote.expiry_date && new Date(quote.expiry_date) < new Date() && !['approved', 'converted', 'rejected'].includes(quote.status)
+  const canApprove     = !['approved', 'converted', 'rejected'].includes(quote.status)
+  const canReactivate  = isExpired || quote.status === 'expired'
+  const appUrl         = typeof window !== 'undefined' ? window.location.origin : ''
 
   return (
     <div className="max-w-4xl space-y-5">
@@ -149,6 +208,24 @@ export default function QuoteDetailPage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2 flex-wrap mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+          {/* Mark as Approved — primary action when applicable */}
+          {canApprove && (
+            <button onClick={handleMarkApproved} disabled={approving}
+              className="flex items-center gap-2 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-60">
+              {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
+              Mark as Approved
+            </button>
+          )}
+
+          {/* Reactivate — only when expired */}
+          {canReactivate && (
+            <button onClick={handleReactivate} disabled={reactivating}
+              className="flex items-center gap-2 px-3 py-2 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 rounded-lg text-sm font-medium hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors disabled:opacity-60">
+              {reactivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+              Reactivate Quote
+            </button>
+          )}
+
           {/* Edit → full edit page */}
           {!['approved', 'converted'].includes(quote.status) && (
             <button onClick={() => router.push(`/quotes/${quote.id}/edit`)}
@@ -156,26 +233,44 @@ export default function QuoteDetailPage() {
               <Edit className="w-4 h-4" /> Edit Quote
             </button>
           )}
+
+          {/* Preview client view */}
           {quote.approval_token && (
             <button onClick={() => window.open(`${appUrl}/quote-approval?token=${quote.approval_token}`, '_blank')}
               className="flex items-center gap-2 px-3 py-2 border border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400 rounded-lg text-sm font-medium hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-colors">
               <Eye className="w-4 h-4" /> Preview Client View
             </button>
           )}
+
+          {/* Convert to invoice — only when approved */}
           {quote.status === 'approved' && (
             <button onClick={handleConvert} disabled={converting}
-              className="flex items-center gap-2 px-3 py-2 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-lg text-sm font-medium hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors disabled:opacity-50">
+              className="flex items-center gap-2 px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
               {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
               Convert to Invoice
             </button>
           )}
+
+          {/* Delete — always available unless converted */}
           {quote.status !== 'converted' && (
             <button onClick={handleDelete}
               className="flex items-center gap-2 px-3 py-2 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg text-sm font-medium hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors ml-auto">
-              <Trash2 className="w-4 h-4" /> Delete
+              <Trash2 className="w-4 h-4" /> Delete Quote
             </button>
           )}
         </div>
+
+        {/* Approval audit trail (visible to staff only) */}
+        {quote.status === 'approved' && quote.approved_at && (
+          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg text-sm">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+              <span className="text-emerald-700 dark:text-emerald-400">
+                <strong>Approved</strong> on {new Date(quote.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -231,8 +326,17 @@ export default function QuoteDetailPage() {
 
             {quote.notes && (
               <div>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Internal Notes</p>
-                <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">{quote.notes}</p>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Notes</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">{quote.notes}</p>
+              </div>
+            )}
+
+            {quote.internal_notes && (
+              <div>
+                <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  Internal Notes <span className="text-[10px] font-normal text-slate-400 normal-case tracking-normal">(staff only — never shown to client)</span>
+                </p>
+                <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 font-mono">{quote.internal_notes}</p>
               </div>
             )}
           </div>

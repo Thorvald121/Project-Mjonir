@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   Plus, FileText, Send, CheckCircle2, RotateCcw,
   Trash2, Edit, Clock, DollarSign, TrendingUp, X,
-  Loader2, Eye, Paperclip,
+  Loader2, Eye, Paperclip, ThumbsUp,
 } from 'lucide-react'
 
 function useRealtimeRefresh(tables, onRefresh) {
@@ -213,11 +213,9 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
       other: 'Additional Services', onboarding: 'Onboarding',
     }
 
-    // Build the items HTML block according to display mode
     let itemsHtml = ''
 
     if (displayMode === 'full') {
-      // ── Full: description, qty, rate, total ──────────────────────────────────
       const rows = items.map(i =>
         `<tr>
           <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:14px;color:#1e293b;">${i.description}${i.is_one_time ? ' <span style="font-size:11px;color:#f59e0b;">(one-time)</span>' : ''}</td>
@@ -240,7 +238,6 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
         </table>`
 
     } else if (displayMode === 'sectioned') {
-      // ── Sectioned: grouped by category, description + total only (no qty/rate) ─
       const sections = {}
       for (const item of items) {
         const key = item.section || 'other'
@@ -270,7 +267,6 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
       }).join('')
 
     } else {
-      // ── Summary: section name + section total only — no individual items ────────
       const sections = {}
       for (const item of items) {
         const key = item.section || 'other'
@@ -292,7 +288,6 @@ function SendQuoteDialog({ quote, onClose, onSent }) {
         </table>`
     }
 
-    // Recurring vs one-time breakdown for footer
     const recurringTotal = items.filter(i => !i.is_one_time).reduce((s, i) => s + (i.total ?? (i.quantity * i.unit_price) ?? 0), 0)
     const oneTimeTotal   = items.filter(i => i.is_one_time).reduce((s, i) => s + (i.total ?? (i.quantity * i.unit_price) ?? 0), 0)
 
@@ -381,15 +376,18 @@ export default function QuotesPage() {
   const [customers,  setCustomers]  = useState([])
   const [loading,    setLoading]    = useState(true)
   const [orgId,      setOrgId]      = useState(null)
+  const [userEmail,  setUserEmail]  = useState('')
   const [formOpen,   setFormOpen]   = useState(false)
   const [sending,    setSending]    = useState(null)
   const [converting, setConverting] = useState(null)
+  const [approving,  setApproving]  = useState(null)
   const [attachCounts, setAttachCounts] = useState({})
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      setUserEmail(user.email || '')
       const { data: member } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.id).single()
       if (member) setOrgId(member.organization_id)
       loadAll()
@@ -418,8 +416,53 @@ export default function QuotesPage() {
   useRealtimeRefresh(['quotes'], loadAll)
 
   const handleDelete = async (q) => {
-    if (!confirm(`Delete ${q.quote_number}?`)) return
+    if (!confirm(`Delete ${q.quote_number}? This cannot be undone.`)) return
     await supabase.from('quotes').delete().eq('id', q.id)
+    loadAll()
+  }
+
+  const handleMarkApproved = async (q) => {
+    const reference = prompt(
+      `Mark ${q.quote_number} as approved?\n\nOptional: Add a reference for the audit trail (e.g., "Client signed paper contract" or "Verbal approval from John on 6/22").`,
+      ''
+    )
+    if (reference === null) return // user cancelled
+
+    setApproving(q.id)
+    const today    = new Date().toISOString().split('T')[0]
+    const refText  = reference?.trim()
+    const note     = refText
+      ? `[${today}] Manually approved by ${userEmail || 'staff'}. Reference: ${refText}`
+      : `[${today}] Manually approved by ${userEmail || 'staff'}.`
+    const combinedNotes = q.internal_notes ? `${q.internal_notes}\n\n${note}` : note
+
+    const { error } = await supabase
+      .from('quotes')
+      .update({
+        status:         'approved',
+        approved_at:    new Date().toISOString(),
+        internal_notes: combinedNotes,
+      })
+      .eq('id', q.id)
+
+    if (error) alert('Failed to approve: ' + error.message)
+    setApproving(null)
+    loadAll()
+  }
+
+  const handleReactivate = async (q) => {
+    if (!confirm(`Reactivate ${q.quote_number}?\n\nThis will set the status back to "Sent" and extend the expiry date by 30 days.`)) return
+    const newExpiry = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })()
+    const today     = new Date().toISOString().split('T')[0]
+    const note      = `[${today}] Reactivated by ${userEmail || 'staff'}. New expiry: ${newExpiry}.`
+    const combinedNotes = q.internal_notes ? `${q.internal_notes}\n\n${note}` : note
+
+    const { error } = await supabase
+      .from('quotes')
+      .update({ status: 'sent', expiry_date: newExpiry, internal_notes: combinedNotes })
+      .eq('id', q.id)
+
+    if (error) alert('Failed to reactivate: ' + error.message)
     loadAll()
   }
 
@@ -513,9 +556,11 @@ export default function QuotesPage() {
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {quotes.map(q => {
-              const cfg       = STATUS_CFG[q.status] || STATUS_CFG.draft
-              const isExpired = q.expiry_date && new Date(q.expiry_date) < new Date() && !['approved', 'converted', 'rejected'].includes(q.status)
-              const attCount  = attachCounts[q.id] || 0
+              const cfg          = STATUS_CFG[q.status] || STATUS_CFG.draft
+              const isExpired    = q.expiry_date && new Date(q.expiry_date) < new Date() && !['approved', 'converted', 'rejected'].includes(q.status)
+              const attCount     = attachCounts[q.id] || 0
+              const canApprove   = !['approved', 'converted', 'rejected'].includes(q.status)
+              const canReactivate = isExpired || q.status === 'expired'
               return (
                 <div key={q.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                   {/* Clickable info area → detail page */}
@@ -538,10 +583,11 @@ export default function QuotesPage() {
                   </div>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     <Btn icon={Paperclip} onClick={() => router.push(`/quotes/${q.id}`)} title="Attachments & details" color={attCount > 0 ? 'text-amber-500' : 'text-slate-400'} />
-                    {/* Edit now goes to full edit page */}
                     {!['approved', 'converted'].includes(q.status) && <Btn icon={Edit} onClick={() => router.push(`/quotes/${q.id}/edit`)} title="Edit quote" />}
                     {['draft', 'sent'].includes(q.status) && <Btn icon={Send} onClick={() => setSending(q)} title="Send to client" color="text-blue-500" />}
                     {q.approval_token && <Btn icon={Eye} onClick={() => window.open(`${typeof window !== 'undefined' ? window.location.origin : ''}/quote-approval?token=${q.approval_token}`, '_blank')} title="Preview approval page" color="text-violet-500" />}
+                    {canReactivate && <Btn icon={RotateCcw} onClick={() => handleReactivate(q)} title="Reactivate quote (extend expiry)" color="text-amber-500" />}
+                    {canApprove && <Btn icon={ThumbsUp} onClick={() => handleMarkApproved(q)} title="Mark as approved manually" color="text-emerald-500" spinning={approving === q.id} />}
                     {q.status === 'approved' && <Btn icon={RotateCcw} onClick={() => handleConvertToInvoice(q)} title="Convert to invoice" color="text-emerald-500" spinning={converting === q.id} />}
                     {q.status !== 'converted' && <Btn icon={Trash2} onClick={() => handleDelete(q)} title="Delete quote" color="text-rose-400" />}
                   </div>
