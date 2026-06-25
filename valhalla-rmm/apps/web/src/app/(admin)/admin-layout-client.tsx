@@ -53,6 +53,7 @@ const NAV_GROUPS = [
     label: 'Intelligence',
     items: [
       { label: 'Reports',           icon: BarChart2,    href: '/reports' },
+      { label: 'Service Reports',   icon: FileText,     href: '/service-reports' },
       { label: 'Scheduled Reports', icon: FileBarChart, href: '/scheduled-reports' },
       { label: 'CSAT',              icon: Star,         href: '/csat-analytics' },
       { label: 'Tech Dashboard',    icon: UsersRound,   href: '/tech-dashboard' },
@@ -76,7 +77,7 @@ const ADMIN_ITEMS = [
 const REALTIME_TABLES = [
   'tickets', 'ticket_comments', 'customers', 'customer_contacts',
   'invoices', 'quotes', 'time_entries', 'knowledge_articles', 'organization_members',
-  'scheduled_jobs',
+  'scheduled_jobs', 'service_reports',
 ]
 
 // ── Inner layout — reads from OrgContext ──────────────────────────────────────
