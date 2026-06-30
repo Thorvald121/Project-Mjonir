@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
   ArrowLeft, Calendar, Building2, FileText, Save, Send,
   Loader2, Sparkles, Ticket, Clock, CheckCircle2, Activity,
+  DollarSign, User, EyeOff, Eye,
 } from 'lucide-react'
 
 const inp = "w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -21,7 +22,30 @@ function isoDate(d) {
   return d.toISOString().split('T')[0]
 }
 
-// ── Date range presets ────────────────────────────────────────────────────────
+function fmtHrs(mins) {
+  if (mins == null) return '0h'
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
+}
+
+function fmtResponseTime(mins) {
+  if (mins == null) return '—'
+  if (mins < 60)   return Math.round(mins) + ' min'
+  if (mins < 1440) return (mins / 60).toFixed(1) + ' hr'
+  return (mins / 1440).toFixed(1) + ' days'
+}
+
+const STATUS_CFG = {
+  open:        { label: 'Open',        cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
+  in_progress: { label: 'In Progress', cls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
+  waiting:     { label: 'Waiting',     cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  resolved:    { label: 'Resolved',    cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  closed:      { label: 'Closed',      cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+}
+
 function getPresets() {
   const now = new Date()
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -52,25 +76,24 @@ export default function NewServiceReportPage() {
   const [loading,     setLoading]     = useState(true)
   const [previewing,  setPreviewing]  = useState(false)
   const [saving,      setSaving]      = useState(false)
+  const [clientView,  setClientView]  = useState(false)
 
   const presets = useMemo(() => getPresets(), [])
 
   const [form, setForm] = useState({
     customer_id:    '',
     customer_name:  '',
-    period_start:   presets[0].start,  // default: last month
+    period_start:   presets[0].start,
     period_end:     presets[0].end,
     title:          '',
     intro_message:  '',
   })
 
-  // Loaded preview data
   const [tickets,      setTickets]      = useState([])
   const [timeEntries,  setTimeEntries]  = useState([])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  // ── Bootstrap ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -96,7 +119,6 @@ export default function NewServiceReportPage() {
     init()
   }, [])
 
-  // ── Auto-set title when customer / dates change ────────────────────────────
   useEffect(() => {
     if (!form.customer_name || !form.period_start || !form.period_end) return
     const start = new Date(form.period_start + 'T00:00:00')
@@ -110,7 +132,6 @@ export default function NewServiceReportPage() {
     set('title', `${periodLabel} Service Summary`)
   }, [form.customer_name, form.period_start, form.period_end])
 
-  // ── Generate preview ────────────────────────────────────────────────────────
   const generatePreview = async () => {
     if (!form.customer_id || !form.period_start || !form.period_end) return
     setPreviewing(true)
@@ -118,10 +139,9 @@ export default function NewServiceReportPage() {
     const startISO = form.period_start
     const endISO   = form.period_end + 'T23:59:59.999Z'
 
-    // Tickets: include tickets created OR resolved during the period
     const { data: tkData, error: tkErr } = await supabase
       .from('tickets')
-      .select('id, title, description, status, priority, category, created_at, resolved_at, first_response_at, time_spent_minutes, resolution_notes')
+      .select('*')
       .eq('organization_id', orgId)
       .eq('customer_id', form.customer_id)
       .or(`and(created_at.gte.${startISO},created_at.lte.${endISO}),and(resolved_at.gte.${startISO},resolved_at.lte.${endISO})`)
@@ -130,10 +150,9 @@ export default function NewServiceReportPage() {
     if (tkErr) console.error('Tickets fetch error:', tkErr)
     setTickets(tkData ?? [])
 
-    // Time entries during the period
     const { data: teData, error: teErr } = await supabase
       .from('time_entries')
-      .select('id, ticket_id, minutes, billable, description, technician, created_at')
+      .select('*')
       .eq('organization_id', orgId)
       .eq('customer_id', form.customer_id)
       .gte('created_at', startISO)
@@ -145,7 +164,6 @@ export default function NewServiceReportPage() {
     setPreviewing(false)
   }
 
-  // Auto-generate preview when inputs change
   useEffect(() => {
     if (form.customer_id && form.period_start && form.period_end && orgId) {
       const t = setTimeout(generatePreview, 400)
@@ -153,9 +171,13 @@ export default function NewServiceReportPage() {
     }
   }, [form.customer_id, form.period_start, form.period_end, orgId])
 
-  // ── Computed stats ──────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const totalMinutes  = timeEntries.reduce((s, e) => s + (e.minutes || 0), 0)
+    const billableMinutes = timeEntries.filter(e => e.billable).reduce((s, e) => s + (e.minutes || 0), 0)
+    const totalRevenue = timeEntries
+      .filter(e => e.billable && e.hourly_rate)
+      .reduce((s, e) => s + ((e.hourly_rate || 0) * (e.minutes || 0)) / 60, 0)
+
     const ticketsResolved = tickets.filter(t => t.resolved_at &&
       new Date(t.resolved_at) >= new Date(form.period_start) &&
       new Date(t.resolved_at) <= new Date(form.period_end + 'T23:59:59.999Z')
@@ -165,7 +187,6 @@ export default function NewServiceReportPage() {
       new Date(t.created_at) <= new Date(form.period_end + 'T23:59:59.999Z')
     ).length
 
-    // Average first response time (in minutes) for tickets in this set with first_response_at
     const responseTimes = tickets
       .filter(t => t.first_response_at && t.created_at)
       .map(t => (new Date(t.first_response_at) - new Date(t.created_at)) / 60000)
@@ -173,17 +194,21 @@ export default function NewServiceReportPage() {
       ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
       : null
 
+    const technicians = [...new Set(timeEntries.map(e => e.technician).filter(Boolean))]
+
     return {
       total_minutes:    totalMinutes,
+      billable_minutes: billableMinutes,
+      total_revenue:    totalRevenue,
       tickets_resolved: ticketsResolved,
       tickets_opened:   ticketsOpened,
       avg_response_min: avgResponseMin,
       time_entry_count: timeEntries.length,
       ticket_count:     tickets.length,
+      technicians,
     }
   }, [tickets, timeEntries, form.period_start, form.period_end])
 
-  // ── Save ────────────────────────────────────────────────────────────────────
   const handleSave = async (sendNow = false) => {
     if (!form.customer_id) return alert('Please select a customer')
     if (!form.title.trim()) return alert('Please give the report a title')
@@ -192,7 +217,6 @@ export default function NewServiceReportPage() {
 
     setSaving(true)
 
-    // Snapshot data — strip everything client-unsafe
     const ticketSnapshot = tickets.map(t => ({
       id:                 t.id,
       title:              t.title,
@@ -213,11 +237,19 @@ export default function NewServiceReportPage() {
       minutes:     e.minutes,
       description: e.description,
       created_at:  e.created_at,
-      // Intentionally omit: billable, hourly_rate, technician
     }))
 
+    const clientSafeStats = {
+      total_minutes:    stats.total_minutes,
+      tickets_resolved: stats.tickets_resolved,
+      tickets_opened:   stats.tickets_opened,
+      avg_response_min: stats.avg_response_min,
+      time_entry_count: stats.time_entry_count,
+      ticket_count:     stats.ticket_count,
+    }
+
     const report_data = {
-      ...stats,
+      ...clientSafeStats,
       tickets:      ticketSnapshot,
       time_entries: timeEntrySnapshot,
       generated_at: new Date().toISOString(),
@@ -262,24 +294,14 @@ export default function NewServiceReportPage() {
     </div>
   )
 
-  const fmtHrs = (mins) => mins == null ? '—' : (mins / 60).toFixed(1) + 'h'
-  const fmtResponseTime = (mins) => {
-    if (mins == null) return '—'
-    if (mins < 60) return Math.round(mins) + ' min'
-    if (mins < 1440) return (mins / 60).toFixed(1) + ' hr'
-    return (mins / 1440).toFixed(1) + ' days'
-  }
-
   return (
     <div className="max-w-5xl space-y-5">
 
-      {/* Back */}
       <button onClick={() => router.push('/service-reports')}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Reports
       </button>
 
-      {/* Title */}
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Service Report</h1>
         <p className="text-sm text-slate-500 mt-0.5">Generate a summary of work performed for a client during a given period</p>
@@ -287,8 +309,6 @@ export default function NewServiceReportPage() {
 
       {/* Setup card */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 space-y-4">
-
-        {/* Customer */}
         <div>
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
             <Building2 className="w-3 h-3" /> Client *
@@ -307,7 +327,6 @@ export default function NewServiceReportPage() {
           </select>
         </div>
 
-        {/* Date presets */}
         <div>
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
             <Calendar className="w-3 h-3" /> Period *
@@ -345,7 +364,6 @@ export default function NewServiceReportPage() {
           </div>
         </div>
 
-        {/* Title */}
         <div>
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
             <FileText className="w-3 h-3" /> Report Title
@@ -355,7 +373,6 @@ export default function NewServiceReportPage() {
             className={`mt-1 ${inp}`} />
         </div>
 
-        {/* Intro message */}
         <div>
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
             Intro Message <span className="text-slate-400 normal-case font-normal text-[10px] tracking-normal">(optional — appears at top of report)</span>
@@ -372,17 +389,42 @@ export default function NewServiceReportPage() {
 
       {/* Preview */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-amber-500" />
             <h2 className="font-semibold text-slate-900 dark:text-white text-sm">Live Preview</h2>
             {previewing && <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin" />}
           </div>
-          {form.customer_id && (
-            <span className="text-xs text-slate-400">
-              {fmt(form.period_start)} – {fmt(form.period_end)}
-            </span>
-          )}
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => setClientView(false)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                  !clientView
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <Eye className="w-3 h-3" /> Internal
+              </button>
+              <button
+                onClick={() => setClientView(true)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                  clientView
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                <EyeOff className="w-3 h-3" /> Client View
+              </button>
+            </div>
+            {form.customer_id && (
+              <span className="text-xs text-slate-400">
+                {fmt(form.period_start)} – {fmt(form.period_end)}
+              </span>
+            )}
+          </div>
         </div>
 
         {!form.customer_id ? (
@@ -393,27 +435,99 @@ export default function NewServiceReportPage() {
         ) : (
           <div className="p-5 space-y-5">
 
-            {/* Stat cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: 'Tickets Resolved', value: stats.tickets_resolved,           icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
-                { label: 'Tickets Opened',   value: stats.tickets_opened,             icon: Ticket,       color: 'text-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950/30' },
-                { label: 'Total Hours',      value: fmtHrs(stats.total_minutes),      icon: Clock,        color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30' },
-                { label: 'Avg Response',     value: fmtResponseTime(stats.avg_response_min), icon: Activity, color: 'text-violet-500', bg: 'bg-violet-50 dark:bg-violet-950/30' },
-              ].map(s => (
-                <div key={s.label} className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full ${s.bg} flex items-center justify-center flex-shrink-0`}>
-                    <s.icon className={`w-4 h-4 ${s.color}`} />
-                  </div>
-                  <div>
-                    <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide">{s.label}</p>
-                  </div>
-                </div>
-              ))}
+            <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs font-medium ${
+              clientView
+                ? 'bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
+                : 'bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'
+            }`}>
+              {clientView ? <EyeOff className="w-3.5 h-3.5 mt-0.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+              <span>
+                {clientView
+                  ? 'Client view — internal data (rates, technician, billable status) is hidden as it would appear on the sent report.'
+                  : 'Internal view — showing all data including rates, revenue, billable status, and technician names. None of this is included when sent to the client.'}
+              </span>
             </div>
 
-            {/* Tickets in report */}
+            <div className={`grid gap-3 ${clientView ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6'}`}>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-emerald-500">{stats.tickets_resolved}</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Resolved</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center flex-shrink-0">
+                  <Ticket className="w-4 h-4 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-blue-500">{stats.tickets_opened}</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Opened</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center flex-shrink-0">
+                  <Clock className="w-4 h-4 text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-amber-500">{fmtHrs(stats.total_minutes)}</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total Hours</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-violet-50 dark:bg-violet-950/30 flex items-center justify-center flex-shrink-0">
+                  <Activity className="w-4 h-4 text-violet-500" />
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-violet-500">{fmtResponseTime(stats.avg_response_min)}</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Avg Response</p>
+                </div>
+              </div>
+
+              {!clientView && (
+                <>
+                  <div className="rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/10 p-4 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+                      <DollarSign className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-amber-600">${stats.total_revenue.toFixed(2)}</p>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 uppercase tracking-wide font-semibold">Billable Revenue</p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/10 p-4 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-amber-600">{fmtHrs(stats.billable_minutes)}</p>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 uppercase tracking-wide font-semibold">Billable Hours</p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {!clientView && stats.technicians.length > 0 && (
+              <div className="rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/40 dark:bg-amber-950/10 p-4">
+                <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-2 flex items-center gap-1">
+                  <User className="w-3 h-3" /> Technicians Involved (internal only)
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {stats.technicians.map(tech => {
+                    const techMins = timeEntries.filter(e => e.technician === tech).reduce((s, e) => s + (e.minutes || 0), 0)
+                    return (
+                      <span key={tech} className="text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 text-slate-700 dark:text-slate-300">
+                        <strong>{tech}</strong> · {fmtHrs(techMins)}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <div>
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                 Tickets in period ({tickets.length})
@@ -424,37 +538,96 @@ export default function NewServiceReportPage() {
                 </p>
               ) : (
                 <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                  <div className="grid grid-cols-[1fr_90px_90px_60px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 text-[10px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-200 dark:border-slate-700">
-                    <div>Title</div>
-                    <div className="text-center">Status</div>
-                    <div className="text-right">Resolved</div>
-                    <div className="text-right">Time</div>
-                  </div>
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto">
-                    {tickets.map(t => (
-                      <div key={t.id} className="grid grid-cols-[1fr_90px_90px_60px] gap-2 px-3 py-2 text-sm">
-                        <div className="min-w-0">
-                          <p className="font-medium text-slate-900 dark:text-white truncate">{t.title}</p>
-                          {t.category && <p className="text-[10px] text-slate-400 uppercase">{t.category}</p>}
-                        </div>
-                        <div className="text-center text-xs text-slate-500 capitalize">{(t.status || '').replace('_', ' ')}</div>
-                        <div className="text-right text-xs text-slate-500">{fmt(t.resolved_at)}</div>
-                        <div className="text-right text-xs text-slate-500">{fmtHrs(t.time_spent_minutes)}</div>
+                  {clientView ? (
+                    <>
+                      <div className="grid grid-cols-[1fr_90px_90px_60px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800/50 text-[10px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-200 dark:border-slate-700">
+                        <div>Title</div>
+                        <div className="text-center">Status</div>
+                        <div className="text-right">Resolved</div>
+                        <div className="text-right">Time</div>
                       </div>
-                    ))}
-                  </div>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-96 overflow-y-auto">
+                        {tickets.map(t => {
+                          const cfg = STATUS_CFG[t.status] || STATUS_CFG.open
+                          return (
+                            <div key={t.id} className="grid grid-cols-[1fr_90px_90px_60px] gap-2 px-3 py-2 text-sm">
+                              <div className="min-w-0">
+                                <p className="font-medium text-slate-900 dark:text-white truncate">{t.title}</p>
+                                {t.category && <p className="text-[10px] text-slate-400 uppercase">{t.category}</p>}
+                              </div>
+                              <div className="text-center">
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
+                              </div>
+                              <div className="text-right text-xs text-slate-500">{fmt(t.resolved_at)}</div>
+                              <div className="text-right text-xs text-slate-500">{fmtHrs(t.time_spent_minutes)}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[28rem] overflow-y-auto">
+                      {tickets.map(t => {
+                        const cfg = STATUS_CFG[t.status] || STATUS_CFG.open
+                        const ticketTime = timeEntries
+                          .filter(e => e.ticket_id === t.id)
+                          .reduce((s, e) => s + (e.minutes || 0), 0)
+                        const ticketRevenue = timeEntries
+                          .filter(e => e.ticket_id === t.id && e.billable && e.hourly_rate)
+                          .reduce((s, e) => s + (e.hourly_rate * e.minutes) / 60, 0)
+                        const tech = [...new Set(timeEntries.filter(e => e.ticket_id === t.id).map(e => e.technician).filter(Boolean))].join(', ')
+                        return (
+                          <div key={t.id} className="px-4 py-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <div className="flex items-start justify-between gap-3 mb-1">
+                              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{t.title}</p>
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.cls} shrink-0`}>{cfg.label}</span>
+                                {t.priority && <span className="text-[10px] text-slate-500 uppercase shrink-0">{t.priority}</span>}
+                              </div>
+                              <div className="text-right shrink-0 text-xs">
+                                <span className="text-slate-500">{fmt(t.created_at)}</span>
+                                {t.resolved_at && <span className="text-emerald-500 ml-2">→ {fmt(t.resolved_at)}</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs flex-wrap">
+                              {tech && (
+                                <span className="flex items-center gap-1 text-slate-500">
+                                  <User className="w-3 h-3" /> {tech}
+                                </span>
+                              )}
+                              {ticketTime > 0 && (
+                                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold">
+                                  <Clock className="w-3 h-3" /> {fmtHrs(ticketTime)}
+                                </span>
+                              )}
+                              {ticketRevenue > 0 && (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                  <DollarSign className="w-3 h-3" /> ${ticketRevenue.toFixed(2)}
+                                </span>
+                              )}
+                              {t.category && <span className="text-slate-400 uppercase">{t.category}</span>}
+                            </div>
+                            {t.resolution_notes && (
+                              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 line-clamp-2">
+                                <strong>Resolution:</strong> {t.resolution_notes}
+                              </p>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             <div className="text-[10px] text-slate-400 italic">
-              Internal data (hourly rates, technician names, internal notes) is automatically stripped when sending to the client.
+              Internal data (hourly rates, technician names, billable status, revenue) is automatically stripped when the report is saved and sent to the client.
             </div>
           </div>
         )}
       </div>
 
-      {/* Action buttons */}
       <div className="flex items-center gap-2 justify-end">
         <button
           onClick={() => router.push('/service-reports')}

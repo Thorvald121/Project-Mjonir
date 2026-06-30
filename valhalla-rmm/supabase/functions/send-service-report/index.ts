@@ -9,9 +9,12 @@ const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')!
 const FROM_EMAIL     = Deno.env.get('FROM_EMAIL') || 'support@valhalla-rmm.com'
 const APP_URL        = Deno.env.get('NEXT_PUBLIC_APP_URL') || 'https://valhalla-rmm.com'
 
-const CORS = {
+// ── CORS headers — required on EVERY response, including preflight ───────────
+const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age':       '86400',
 }
 
 function fmtHrs(mins: number | null | undefined) {
@@ -49,13 +52,36 @@ function fmtPeriod(start: string, end: string) {
   } catch { return `${start} – ${end}` }
 }
 
+// JSON response with CORS attached
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': 'application/json',
+    },
+  })
+}
+
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+  // ── CORS preflight ──────────────────────────────────────────────────────
+  // Browsers send OPTIONS before POST cross-origin. MUST return 204 with
+  // full CORS headers, no body, no Content-Type issues.
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: CORS_HEADERS,
+    })
+  }
+
+  if (req.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405)
+  }
 
   try {
     const { report_id, to } = await req.json()
     if (!report_id || !to) {
-      return new Response(JSON.stringify({ error: 'report_id and to are required' }), { status: 400, headers: CORS })
+      return jsonResponse({ error: 'report_id and to are required' }, 400)
     }
 
     const supabase = createClient(
@@ -63,7 +89,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // Fetch the report
     const { data: report, error: rErr } = await supabase
       .from('service_reports')
       .select('*')
@@ -71,24 +96,22 @@ serve(async (req) => {
       .single()
 
     if (rErr || !report) {
-      return new Response(JSON.stringify({ error: 'Report not found' }), { status: 404, headers: CORS })
+      return jsonResponse({ error: 'Report not found' }, 404)
     }
 
-    // Fetch org branding
     const { data: org } = await supabase
       .from('organizations')
       .select('name, email, brand_color')
       .eq('id', report.organization_id)
       .single()
 
-    const orgName = org?.name || 'Valhalla IT'
+    const orgName  = org?.name  || 'Valhalla IT'
     const orgEmail = org?.email || ''
     const accent   = org?.brand_color || '#f59e0b'
 
     const data = report.report_data || {}
     const tickets: any[] = data.tickets || []
 
-    // Build ticket rows
     const ticketRowsHtml = tickets.map((t, idx) => `
       <tr>
         <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;vertical-align:top;">
@@ -130,7 +153,6 @@ serve(async (req) => {
     <tr><td align="center">
       <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
 
-        <!-- Header bar -->
         <tr>
           <td style="padding:32px 32px 28px;border-bottom:4px solid ${accent};">
             <table width="100%" cellpadding="0" cellspacing="0">
@@ -161,7 +183,6 @@ serve(async (req) => {
           </td>
         </tr>
 
-        <!-- Intro -->
         ${report.intro_message ? `
         <tr>
           <td style="padding:24px 32px 8px;">
@@ -169,7 +190,6 @@ serve(async (req) => {
           </td>
         </tr>` : ''}
 
-        <!-- At a Glance -->
         <tr>
           <td style="padding:24px 32px 8px;">
             <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:16px;">At a Glance</div>
@@ -193,7 +213,6 @@ serve(async (req) => {
           </td>
         </tr>
 
-        <!-- Work Performed -->
         ${tickets.length > 0 ? `
         <tr>
           <td style="padding:28px 32px 16px;">
@@ -211,7 +230,6 @@ serve(async (req) => {
           </td>
         </tr>`}
 
-        <!-- Footer -->
         <tr>
           <td style="padding:28px 32px 32px;border-top:1px solid #e2e8f0;text-align:center;">
             <div style="font-size:12px;color:#94a3b8;line-height:1.6;">
@@ -229,7 +247,6 @@ serve(async (req) => {
 
     const subject = `${orgName} — Service Summary: ${fmtPeriod(report.period_start, report.period_end)}`
 
-    // Send via Resend
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -247,10 +264,9 @@ serve(async (req) => {
     if (!res.ok) {
       const body = await res.text()
       console.error('Resend error:', body)
-      return new Response(JSON.stringify({ error: 'Email send failed', detail: body }), { status: 500, headers: CORS })
+      return jsonResponse({ error: 'Email send failed', detail: body }, 500)
     }
 
-    // Update report: status=sent, sent_to, sent_at
     await supabase
       .from('service_reports')
       .update({
@@ -260,12 +276,10 @@ serve(async (req) => {
       })
       .eq('id', report_id)
 
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-    })
+    return jsonResponse({ success: true })
 
   } catch (err) {
     console.error('send-service-report error:', err)
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: CORS })
+    return jsonResponse({ error: String(err) }, 500)
   }
 })
