@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 import {
@@ -55,14 +55,18 @@ function getPresets() {
   const last30Start    = new Date(); last30Start.setDate(now.getDate() - 30)
   const thisQStart     = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)
   const thisQEnd       = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3 + 3, 0)
+  const lastQMonth     = Math.floor(now.getMonth() / 3) * 3 - 3
+  const lastQStart     = new Date(now.getFullYear(), lastQMonth, 1)
+  const lastQEnd       = new Date(now.getFullYear(), lastQMonth + 3, 0)
   const ytdStart       = new Date(now.getFullYear(), 0, 1)
 
   return [
-    { id: 'last_month', label: 'Last month',   start: isoDate(lastMonthStart), end: isoDate(lastMonthEnd)   },
-    { id: 'this_month', label: 'This month',   start: isoDate(thisMonthStart), end: isoDate(thisMonthEnd)   },
-    { id: 'last_30',    label: 'Last 30 days', start: isoDate(last30Start),    end: isoDate(now)            },
-    { id: 'this_q',     label: 'This quarter', start: isoDate(thisQStart),     end: isoDate(thisQEnd)       },
-    { id: 'ytd',        label: 'Year to date', start: isoDate(ytdStart),       end: isoDate(now)            },
+    { id: 'last_month', label: 'Last month',     start: isoDate(lastMonthStart), end: isoDate(lastMonthEnd)   },
+    { id: 'this_month', label: 'This month',     start: isoDate(thisMonthStart), end: isoDate(thisMonthEnd)   },
+    { id: 'last_30',    label: 'Last 30 days',   start: isoDate(last30Start),    end: isoDate(now)            },
+    { id: 'this_q',     label: 'This quarter',   start: isoDate(thisQStart),     end: isoDate(thisQEnd)       },
+    { id: 'last_q',     label: 'Last quarter',   start: isoDate(lastQStart),     end: isoDate(lastQEnd)       },
+    { id: 'ytd',        label: 'Year to date',   start: isoDate(ytdStart),       end: isoDate(now)            },
   ]
 }
 
@@ -80,10 +84,11 @@ export default function NewServiceReportPage() {
 
   const presets = useMemo(() => getPresets(), [])
 
+  // Single form state — all updates go through setForm to ensure batching
   const [form, setForm] = useState({
     customer_id:    '',
     customer_name:  '',
-    period_start:   presets[0].start,
+    period_start:   presets[0].start,  // default: last month
     period_end:     presets[0].end,
     title:          '',
     intro_message:  '',
@@ -92,7 +97,19 @@ export default function NewServiceReportPage() {
   const [tickets,      setTickets]      = useState([])
   const [timeEntries,  setTimeEntries]  = useState([])
 
+  // Track in-flight requests so older results can't overwrite newer ones
+  const requestIdRef = useRef(0)
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Atomic preset selection — both dates in ONE state update
+  const selectPreset = (preset) => {
+    setForm(f => ({
+      ...f,
+      period_start: preset.start,
+      period_end:   preset.end,
+    }))
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -119,56 +136,76 @@ export default function NewServiceReportPage() {
     init()
   }, [])
 
+  // Auto-generate title when customer/dates change
   useEffect(() => {
     if (!form.customer_name || !form.period_start || !form.period_end) return
     const start = new Date(form.period_start + 'T00:00:00')
     const end   = new Date(form.period_end + 'T00:00:00')
     let periodLabel
-    if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth() && start.getDate() === 1) {
+    if (
+      start.getFullYear() === end.getFullYear() &&
+      start.getMonth()    === end.getMonth() &&
+      start.getDate()     === 1
+    ) {
       periodLabel = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     } else {
-      periodLabel = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+      periodLabel = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
     }
     set('title', `${periodLabel} Service Summary`)
   }, [form.customer_name, form.period_start, form.period_end])
 
-  const generatePreview = async () => {
-    if (!form.customer_id || !form.period_start || !form.period_end) return
+  // ── Preview generator (race-condition safe) ─────────────────────────────
+  // Re-runs whenever customer or date range changes. Uses a request ID
+  // counter so that if a slow query finishes after a newer one, its result
+  // is discarded.
+  useEffect(() => {
+    if (!form.customer_id || !form.period_start || !form.period_end || !orgId) {
+      setTickets([])
+      setTimeEntries([])
+      return
+    }
+
+    const myRequestId = ++requestIdRef.current
+    const customerId = form.customer_id
+    const startISO   = form.period_start + 'T00:00:00.000Z'
+    const endISO     = form.period_end   + 'T23:59:59.999Z'
+
     setPreviewing(true)
 
-    const startISO = form.period_start
-    const endISO   = form.period_end + 'T23:59:59.999Z'
+    const run = async () => {
+      // Tickets: include any ticket created OR resolved within the period
+      const tkRes = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('customer_id', customerId)
+        .or(`and(created_at.gte.${startISO},created_at.lte.${endISO}),and(resolved_at.gte.${startISO},resolved_at.lte.${endISO})`)
+        .order('created_at', { ascending: true })
 
-    const { data: tkData, error: tkErr } = await supabase
-      .from('tickets')
-      .select('*')
-      .eq('organization_id', orgId)
-      .eq('customer_id', form.customer_id)
-      .or(`and(created_at.gte.${startISO},created_at.lte.${endISO}),and(resolved_at.gte.${startISO},resolved_at.lte.${endISO})`)
-      .order('created_at', { ascending: true })
+      if (tkRes.error) console.error('Tickets fetch error:', tkRes.error)
 
-    if (tkErr) console.error('Tickets fetch error:', tkErr)
-    setTickets(tkData ?? [])
+      // Time entries during the period
+      const teRes = await supabase
+        .from('time_entries')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('customer_id', customerId)
+        .gte('created_at', startISO)
+        .lte('created_at', endISO)
 
-    const { data: teData, error: teErr } = await supabase
-      .from('time_entries')
-      .select('*')
-      .eq('organization_id', orgId)
-      .eq('customer_id', form.customer_id)
-      .gte('created_at', startISO)
-      .lte('created_at', endISO)
+      if (teRes.error) console.error('Time entries fetch error:', teRes.error)
 
-    if (teErr) console.error('Time entries fetch error:', teErr)
-    setTimeEntries(teData ?? [])
+      // Discard if a newer request has been fired
+      if (myRequestId !== requestIdRef.current) return
 
-    setPreviewing(false)
-  }
-
-  useEffect(() => {
-    if (form.customer_id && form.period_start && form.period_end && orgId) {
-      const t = setTimeout(generatePreview, 400)
-      return () => clearTimeout(t)
+      setTickets(tkRes.data ?? [])
+      setTimeEntries(teRes.data ?? [])
+      setPreviewing(false)
     }
+
+    // Tiny debounce so rapidly clicking presets doesn't fire 10 queries
+    const t = setTimeout(run, 200)
+    return () => clearTimeout(t)
   }, [form.customer_id, form.period_start, form.period_end, orgId])
 
   const stats = useMemo(() => {
@@ -178,14 +215,20 @@ export default function NewServiceReportPage() {
       .filter(e => e.billable && e.hourly_rate)
       .reduce((s, e) => s + ((e.hourly_rate || 0) * (e.minutes || 0)) / 60, 0)
 
-    const ticketsResolved = tickets.filter(t => t.resolved_at &&
-      new Date(t.resolved_at) >= new Date(form.period_start) &&
-      new Date(t.resolved_at) <= new Date(form.period_end + 'T23:59:59.999Z')
-    ).length
-    const ticketsOpened   = tickets.filter(t => t.created_at &&
-      new Date(t.created_at) >= new Date(form.period_start) &&
-      new Date(t.created_at) <= new Date(form.period_end + 'T23:59:59.999Z')
-    ).length
+    const periodStart = new Date(form.period_start + 'T00:00:00')
+    const periodEnd   = new Date(form.period_end   + 'T23:59:59.999')
+
+    const ticketsResolved = tickets.filter(t => {
+      if (!t.resolved_at) return false
+      const r = new Date(t.resolved_at)
+      return r >= periodStart && r <= periodEnd
+    }).length
+
+    const ticketsOpened = tickets.filter(t => {
+      if (!t.created_at) return false
+      const c = new Date(t.created_at)
+      return c >= periodStart && c <= periodEnd
+    }).length
 
     const responseTimes = tickets
       .filter(t => t.first_response_at && t.created_at)
@@ -294,6 +337,11 @@ export default function NewServiceReportPage() {
     </div>
   )
 
+  // Determine which preset is active (if any)
+  const activePresetId = presets.find(p =>
+    p.start === form.period_start && p.end === form.period_end
+  )?.id || null
+
   return (
     <div className="max-w-5xl space-y-5">
 
@@ -317,8 +365,11 @@ export default function NewServiceReportPage() {
             value={form.customer_id}
             onChange={e => {
               const c = customers.find(c => c.id === e.target.value)
-              set('customer_id', e.target.value)
-              set('customer_name', c?.name || '')
+              setForm(f => ({
+                ...f,
+                customer_id:   e.target.value,
+                customer_name: c?.name || '',
+              }))
             }}
             className={`mt-1 ${inp}`}
           >
@@ -333,12 +384,12 @@ export default function NewServiceReportPage() {
           </label>
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {presets.map(p => {
-              const active = form.period_start === p.start && form.period_end === p.end
+              const active = activePresetId === p.id
               return (
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => { set('period_start', p.start); set('period_end', p.end) }}
+                  onClick={() => selectPreset(p)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                     active
                       ? 'bg-amber-500/15 border-amber-500/50 text-amber-700 dark:text-amber-300'
@@ -349,19 +400,29 @@ export default function NewServiceReportPage() {
                 </button>
               )
             })}
+            {!activePresetId && (
+              <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 border border-violet-500/30 text-violet-600 dark:text-violet-400">
+                Custom range
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3 mt-3">
             <div>
               <label className="text-xs text-slate-400">Start</label>
-              <input type="date" value={form.period_start} onChange={e => set('period_start', e.target.value)}
+              <input type="date" value={form.period_start}
+                onChange={e => set('period_start', e.target.value)}
                 className={`mt-1 ${inp} [color-scheme:dark]`} />
             </div>
             <div>
               <label className="text-xs text-slate-400">End</label>
-              <input type="date" value={form.period_end} onChange={e => set('period_end', e.target.value)}
+              <input type="date" value={form.period_end}
+                onChange={e => set('period_end', e.target.value)}
                 className={`mt-1 ${inp} [color-scheme:dark]`} />
             </div>
           </div>
+          <p className="text-[10px] text-slate-400 mt-1.5">
+            Currently selected: <strong>{fmt(form.period_start)} – {fmt(form.period_end)}</strong>
+          </p>
         </div>
 
         <div>
