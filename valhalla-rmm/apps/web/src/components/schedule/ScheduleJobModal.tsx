@@ -194,7 +194,8 @@ export default function ScheduleJobModal({
           notify_client:   editJob.notify_client    ?? true,
         })
       } else {
-        // new job defaults
+        // NEW JOB — fully reset the form so nothing carries over from a
+        // previously edited job (title/status/customer/notes were persisting)
         const startDefault = initialDate
           ? toLocalDateTimeValue(initialDate)
           : toLocalDateTimeValue(new Date(Math.ceil(Date.now() / 1800000) * 1800000).toISOString())
@@ -205,13 +206,21 @@ export default function ScheduleJobModal({
           return toLocalDateTimeValue(d.toISOString())
         })()
 
-        setForm(prev => ({
-          ...prev,
-          scheduled_start: startDefault,
-          scheduled_end:   endDefault,
+        setForm({
+          title:           '',
+          description:     '',
+          job_type:        'on_site',
+          status:          'scheduled',
+          customer:        null,
+          ticket_id:       '',
           assigned_to:     mem.user_email || session.user.email,
           assigned_name:   mem.display_name || session.user.email,
-        }))
+          scheduled_start: startDefault,
+          scheduled_end:   endDefault,
+          location:        '',
+          notes:           '',
+          notify_client:   true,
+        })
 
         // pre-fill customer if triggered from customer page
         if (initialCustomerId) {
