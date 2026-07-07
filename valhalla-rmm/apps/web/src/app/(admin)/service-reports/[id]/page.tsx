@@ -153,10 +153,10 @@ export default function ServiceReportDetailPage() {
         .single()
       setReport(rpt)
 
-      // Get org branding
+      // Get org branding — select all so we don't fail on missing columns
       const { data: orgData } = await supabase
         .from('organizations')
-        .select('name, email, brand_color')
+        .select('*')
         .eq('id', member.organization_id)
         .single()
       setOrg(orgData)
@@ -212,7 +212,17 @@ export default function ServiceReportDetailPage() {
   const data = report.report_data || {}
   const tickets    = data.tickets || []
   const timeEntries = data.time_entries || []
-  const accent = org?.brand_color || '#f59e0b'
+  const accent  = org?.brand_color || '#f59e0b'
+  const orgName = org?.name || 'Valhalla IT'
+  const orgEmail = org?.email || org?.contact_email || ''
+
+  // Recalculate from snapshot so old saved reports show correct counts
+  // (the original save logic undercounted resolved tickets)
+  const ticketsResolvedDisplay = tickets.filter(t =>
+    ['resolved', 'closed'].includes(t.status)
+  ).length
+
+  const ticketsOpenedDisplay = data.tickets_opened ?? tickets.length
 
   return (
     <>
@@ -292,8 +302,8 @@ export default function ServiceReportDetailPage() {
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-bold text-slate-900 dark:text-white print:text-black">{org?.name || 'Valhalla IT'}</p>
-                {org?.email && <p className="text-xs text-slate-500 mt-0.5">{org.email}</p>}
+                <p className="text-sm font-bold text-slate-900 dark:text-white print:text-black">{orgName}</p>
+                {orgEmail && <p className="text-xs text-slate-500 mt-0.5">{orgEmail}</p>}
                 <p className="text-xs text-slate-400 mt-2">
                   Report generated {fmt(report.created_at)}
                 </p>
@@ -339,10 +349,10 @@ export default function ServiceReportDetailPage() {
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: 'Tickets Resolved', value: data.tickets_resolved ?? 0,            icon: CheckCircle2 },
-                  { label: 'Tickets Opened',   value: data.tickets_opened   ?? 0,            icon: Ticket       },
-                  { label: 'Total Hours',      value: fmtHrs(data.total_minutes),            icon: Clock        },
-                  { label: 'Avg Response',     value: fmtResponseTime(data.avg_response_min), icon: Activity     },
+                  { label: 'Tickets Resolved', value: ticketsResolvedDisplay,                  icon: CheckCircle2 },
+                  { label: 'Tickets Opened',   value: ticketsOpenedDisplay,                    icon: Ticket       },
+                  { label: 'Total Hours',      value: fmtHrs(data.total_minutes),              icon: Clock        },
+                  { label: 'Avg Response',     value: fmtResponseTime(data.avg_response_min),  icon: Activity     },
                 ].map(s => (
                   <div key={s.label} className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-center print:border-slate-300">
                     <s.icon className="w-5 h-5 mx-auto mb-2" style={{ color: accent }} />
@@ -420,8 +430,8 @@ export default function ServiceReportDetailPage() {
             {/* Footer */}
             <div className="pt-6 border-t border-slate-200 dark:border-slate-700 print:border-slate-300">
               <p className="text-xs text-slate-500 text-center leading-relaxed">
-                Thank you for trusting <strong className="text-slate-700 dark:text-slate-300 print:text-black">{org?.name || 'Valhalla IT'}</strong> with your IT needs.<br />
-                If you have any questions about this report, please reach out{org?.email ? ` at ${org.email}` : ''}.
+                Thank you for trusting <strong className="text-slate-700 dark:text-slate-300 print:text-black">{orgName}</strong> with your IT needs.<br />
+                If you have any questions about this report, please reach out{orgEmail ? ` at ${orgEmail}` : ''}.
               </p>
             </div>
           </div>

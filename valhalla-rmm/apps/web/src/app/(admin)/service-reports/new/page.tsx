@@ -218,11 +218,12 @@ export default function NewServiceReportPage() {
     const periodStart = new Date(form.period_start + 'T00:00:00')
     const periodEnd   = new Date(form.period_end   + 'T23:59:59.999')
 
-    const ticketsResolved = tickets.filter(t => {
-      if (!t.resolved_at) return false
-      const r = new Date(t.resolved_at)
-      return r >= periodStart && r <= periodEnd
-    }).length
+    // Count by status — many systems mark tickets resolved/closed without
+    // populating resolved_at, so filtering on resolved_at alone undercounts.
+    // The DB query already scoped tickets to this period.
+    const ticketsResolved = tickets.filter(t =>
+      ['resolved', 'closed'].includes(t.status)
+    ).length
 
     const ticketsOpened = tickets.filter(t => {
       if (!t.created_at) return false

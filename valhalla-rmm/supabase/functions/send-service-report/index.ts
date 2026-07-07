@@ -101,16 +101,23 @@ serve(async (req) => {
 
     const { data: org } = await supabase
       .from('organizations')
-      .select('name, email, brand_color')
+      .select('*')
       .eq('id', report.organization_id)
       .single()
 
     const orgName  = org?.name  || 'Valhalla IT'
-    const orgEmail = org?.email || ''
+    const orgEmail = org?.email || org?.contact_email || ''
     const accent   = org?.brand_color || '#f59e0b'
 
     const data = report.report_data || {}
     const tickets: any[] = data.tickets || []
+
+    // Recalculate resolved count from saved tickets so old reports show
+    // correct numbers in the email even if the snapshot stored 0
+    const ticketsResolvedDisplay = tickets.filter(t =>
+      ['resolved', 'closed'].includes(t.status)
+    ).length
+    const ticketsOpenedDisplay = data.tickets_opened ?? tickets.length
 
     const ticketRowsHtml = tickets.map((t, idx) => `
       <tr>
@@ -196,8 +203,8 @@ serve(async (req) => {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 ${[
-                  { label: 'Tickets Resolved', value: data.tickets_resolved ?? 0 },
-                  { label: 'Tickets Opened',   value: data.tickets_opened   ?? 0 },
+                  { label: 'Tickets Resolved', value: ticketsResolvedDisplay },
+                  { label: 'Tickets Opened',   value: ticketsOpenedDisplay },
                   { label: 'Total Hours',      value: fmtHrs(data.total_minutes) },
                   { label: 'Avg Response',     value: fmtResponseTime(data.avg_response_min) },
                 ].map(s => `
