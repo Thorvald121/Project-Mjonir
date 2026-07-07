@@ -673,7 +673,10 @@ export default function PortalPage() {
             <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center">
               <span className="text-white font-bold text-xs">{org?.name?.[0] ?? 'V'}</span>
             </div>
-            <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
+            <div>
+              <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
+              {customer?.name && <p className="text-[10px] text-amber-400 font-semibold leading-tight">{customer.name}</p>}
+            </div>
           </div>
           <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white">
             <LogOut className="w-4 h-4" /> Sign out
@@ -701,7 +704,10 @@ export default function PortalPage() {
             <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center">
               <span className="text-white font-bold text-xs">{org?.name?.[0] ?? 'V'}</span>
             </div>
-            <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
+            <div>
+              <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
+              {customer?.name && <p className="text-[10px] text-amber-400 font-semibold leading-tight">{customer.name}</p>}
+            </div>
           </div>
           <button onClick={handleSignOut} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white">
             <LogOut className="w-4 h-4" /> Sign out
@@ -746,7 +752,17 @@ export default function PortalPage() {
             </div>
             <div>
               <span className="font-bold text-white text-sm">{org?.name || 'Support Portal'}</span>
-              {user && <p className="text-xs text-slate-400">{user.email}</p>}
+              {user && (
+                <p className="text-xs text-slate-400">
+                  {customer?.name ? (
+                    <>
+                      <span className="text-amber-400 font-semibold">{customer.name}</span>
+                      <span className="mx-1.5 text-slate-600">·</span>
+                    </>
+                  ) : null}
+                  {user.email}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -771,7 +787,11 @@ export default function PortalPage() {
           <h1 className="text-xl font-bold text-slate-800 dark:text-white">
             Welcome back, {user?.user_metadata?.full_name || user?.email?.split('@')[0]}
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Submit and track your support requests below.</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {customer?.name
+              ? <>Viewing support for <strong className="text-slate-700 dark:text-slate-300">{customer.name}</strong>. Submit and track your requests below.</>
+              : 'Submit and track your support requests below.'}
+          </p>
         </div>
 
         {/* Tabs */}
